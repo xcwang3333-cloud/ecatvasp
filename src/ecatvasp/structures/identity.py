@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite, sqrt
-from typing import Sequence
 
 from ecatvasp.domain import (
     AtomUid,
