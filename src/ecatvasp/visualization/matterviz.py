@@ -268,6 +268,32 @@ class MatterVizOverlay:
 
 
 @dataclass(frozen=True, slots=True)
+class MatterVizDisplayPolicy:
+    """Lock the display index frame used by scientific overlays to the input payload."""
+
+    cell_type: str = "original"
+    supercell_scaling: str = "1x1x1"
+    apply_supercell_scaling: bool = False
+    show_image_atoms: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cell_type != "original":
+            raise MatterVizAdapterError("scientific overlays require MatterViz original cell")
+        if self.supercell_scaling != "1x1x1" or self.apply_supercell_scaling:
+            raise MatterVizAdapterError("scientific overlays require the MatterViz 1x1x1 cell")
+        if self.show_image_atoms:
+            raise MatterVizAdapterError("scientific overlays require MatterViz image atoms disabled")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "cell_type": self.cell_type,
+            "supercell_scaling": self.supercell_scaling,
+            "apply_supercell_scaling": self.apply_supercell_scaling,
+            "show_image_atoms": self.show_image_atoms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class MatterVizRuntimeCapability:
     """Presentation capability state; scientific payload generation never depends on it."""
 
@@ -314,6 +340,7 @@ class MatterVizViewBundle:
     structure: MatterVizStructure
     atom_index_map: MatterVizAtomIndexMap
     overlay: MatterVizOverlay
+    display_policy: MatterVizDisplayPolicy
     runtime: MatterVizRuntimeCapability
     fallback_extxyz: str
     target_version: str = MATTERVIZ_TARGET_VERSION
@@ -337,6 +364,7 @@ class MatterVizViewBundle:
             "structure": self.structure.to_dict(),
             "atom_index_map": self.atom_index_map.to_dict(),
             "overlay": self.overlay.to_dict(),
+            "display_policy": self.display_policy.to_dict(),
             "runtime": self.runtime.to_dict(),
             "fallback_extxyz": self.fallback_extxyz,
         }
@@ -364,6 +392,7 @@ def build_matterviz_view(
         structure=structure,
         atom_index_map=index_map,
         overlay=overlay,
+        display_policy=MatterVizDisplayPolicy(),
         runtime=runtime,
         fallback_extxyz=fallback_extxyz,
     )
