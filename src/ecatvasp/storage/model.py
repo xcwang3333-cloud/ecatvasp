@@ -236,7 +236,7 @@ class ProjectBundle:
             raise ProjectIntegrityError(str(error)) from error
 
     @classmethod
-    def from_entities(cls, entities: tuple[object, ...]) -> "ProjectBundle":
+    def from_entities(cls, entities: tuple[object, ...]) -> ProjectBundle:
         """Rebuild a bundle from decoded entity rows."""
 
         projects = tuple(item for item in entities if isinstance(item, Project))
