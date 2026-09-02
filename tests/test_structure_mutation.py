@@ -120,7 +120,10 @@ def test_mutation_rejects_conflicting_missing_and_duplicate_targets() -> None:
         structures.mutate_structure(source)
     with pytest.raises(structures.StructureMutationError, match="vacancy atom_uids must be unique"):
         structures.remove_vacancies(source, (first_uid, first_uid))
-    with pytest.raises(structures.StructureMutationError, match="substitution atom_uids must be unique"):
+    with pytest.raises(
+        structures.StructureMutationError,
+        match="substitution atom_uids must be unique",
+    ):
         structures.substitute_dopants(
             source,
             (
