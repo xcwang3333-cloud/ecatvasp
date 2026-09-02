@@ -14,6 +14,12 @@ StructureSnapshotId = NewType("StructureSnapshotId", UUID)
 ActiveSiteId = NewType("ActiveSiteId", UUID)
 AdsorptionStateId = NewType("AdsorptionStateId", UUID)
 StateConformerId = NewType("StateConformerId", UUID)
+CalculationId = NewType("CalculationId", UUID)
+ExecutionAttemptId = NewType("ExecutionAttemptId", UUID)
+RemoteJobId = NewType("RemoteJobId", UUID)
+ArtifactId = NewType("ArtifactId", UUID)
+AnalysisId = NewType("AnalysisId", UUID)
+MethodFingerprintId = NewType("MethodFingerprintId", UUID)
 AtomUid = NewType("AtomUid", UUID)
 
 
@@ -62,6 +68,30 @@ def new_adsorption_state_id() -> AdsorptionStateId:
 
 def new_state_conformer_id() -> StateConformerId:
     return StateConformerId(new_uuid7())
+
+
+def new_calculation_id() -> CalculationId:
+    return CalculationId(new_uuid7())
+
+
+def new_execution_attempt_id() -> ExecutionAttemptId:
+    return ExecutionAttemptId(new_uuid7())
+
+
+def new_remote_job_id() -> RemoteJobId:
+    return RemoteJobId(new_uuid7())
+
+
+def new_artifact_id() -> ArtifactId:
+    return ArtifactId(new_uuid7())
+
+
+def new_analysis_id() -> AnalysisId:
+    return AnalysisId(new_uuid7())
+
+
+def new_method_fingerprint_id() -> MethodFingerprintId:
+    return MethodFingerprintId(new_uuid7())
 
 
 def new_atom_uid() -> AtomUid:
