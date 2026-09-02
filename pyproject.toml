@@ -46,6 +46,10 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/ecatvasp/structures/io.py" = ["E501", "SIM905"]
+"tests/test_structure_io.py" = ["I001"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
