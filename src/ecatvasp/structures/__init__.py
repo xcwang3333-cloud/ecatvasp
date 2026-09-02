@@ -86,6 +86,16 @@ from ecatvasp.structures.single_metal import (
     SingleMetalSiteSpec,
     build_single_metal_site,
 )
+from ecatvasp.structures.state_conformer import (
+    ConformerSignature,
+    ConformerVisualizationContext,
+    StateConformerToolingError,
+    conformer_signature,
+    create_adsorption_state,
+    resolve_conformer_visualization_context,
+    state_conformer_from_adsorbate_build,
+    validate_conformer_collection,
+)
 
 __all__ = [
     "ActiveSiteToolingError",
@@ -107,6 +117,8 @@ __all__ = [
     "AtomMappingEntry",
     "AtomMappingError",
     "AtomMappingMethod",
+    "ConformerSignature",
+    "ConformerVisualizationContext",
     "DopantSubstitution",
     "EnsembleSideTopology",
     "GeometrySite",
@@ -122,6 +134,7 @@ __all__ = [
     "SingleMetalSiteError",
     "SingleMetalSiteResult",
     "SingleMetalSiteSpec",
+    "StateConformerToolingError",
     "StructureAdditionError",
     "StructureAdditionResult",
     "StructureDocument",
@@ -137,7 +150,9 @@ __all__ = [
     "build_graphene",
     "build_multi_metal_site",
     "build_single_metal_site",
+    "conformer_signature",
     "create_active_site",
+    "create_adsorption_state",
     "derive_side_topology",
     "export_structure",
     "get_adsorbate_template",
@@ -152,9 +167,12 @@ __all__ = [
     "remove_vacancies",
     "reorder_snapshot",
     "resolve_active_site_centers",
+    "resolve_conformer_visualization_context",
     "serialize_structure",
+    "state_conformer_from_adsorbate_build",
     "substitute_dopants",
     "validate_active_site_current_context",
     "validate_active_site_snapshot_compatibility",
+    "validate_conformer_collection",
     "validate_identity_preserving_revision",
 ]
