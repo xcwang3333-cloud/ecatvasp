@@ -1,0 +1,12 @@
+SYSTEM = Pb2-NC import fixture
+ENCUT = 450
+PREC = Accurate
+EDIFF = 1E-5
+EDIFFG = -0.02
+ISMEAR = 0
+SIGMA = 0.05
+ISPIN = 2
+IVDW = 12
+IBRION = 2
+NSW = 200
+ISIF = 2
