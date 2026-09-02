@@ -139,8 +139,9 @@ def test_slab_normal_not_fractional_z_controls_side_for_tilted_cell() -> None:
     )
 
     metal = result.snapshot.sites[-1]
-    assert metal.fractional_coords[1] < 0.25
-    assert metal.fractional_coords[2] > 0.50
+    assert metal.fractional_coords == pytest.approx(
+        (0.5, 0.8964466094067263, 0.6414213562373094)
+    )
 
 
 def test_coordination_signature_records_explicit_builder_intent() -> None:
@@ -295,7 +296,7 @@ def test_append_only_lineage_rejects_reused_uid_and_corrupt_target_order() -> No
             source_snapshot_id=valid.source_snapshot_id,
             source_atom_count=valid.source_atom_count,
             snapshot=valid.snapshot,
-            lineage=valid.lineage[:-1] + (corrupt_last,),
+            lineage=(*valid.lineage[:-1], corrupt_last),
         )
 
 
