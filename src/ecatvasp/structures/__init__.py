@@ -18,6 +18,22 @@ from ecatvasp.structures.addition import (
     StructureAdditionResult,
     append_structure_sites,
 )
+from ecatvasp.structures.adsorbate_builder import (
+    AdsorbateAtomResult,
+    AdsorbateBuilderError,
+    AdsorbateBuildResult,
+    AdsorbateContactIntent,
+    AdsorbateContactSpec,
+    AdsorbatePlacementSpec,
+    build_adsorbate,
+)
+from ecatvasp.structures.adsorbates import (
+    AdsorbateAtomTemplate,
+    AdsorbateTemplate,
+    AdsorbateTemplateError,
+    get_adsorbate_template,
+    list_adsorbate_templates,
+)
 from ecatvasp.structures.graphene import GrapheneBuildSpec, build_graphene
 from ecatvasp.structures.identity import (
     AtomIdentityMapping,
@@ -73,6 +89,15 @@ from ecatvasp.structures.single_metal import (
 
 __all__ = [
     "ActiveSiteToolingError",
+    "AdsorbateAtomResult",
+    "AdsorbateAtomTemplate",
+    "AdsorbateBuildResult",
+    "AdsorbateBuilderError",
+    "AdsorbateContactIntent",
+    "AdsorbateContactSpec",
+    "AdsorbatePlacementSpec",
+    "AdsorbateTemplate",
+    "AdsorbateTemplateError",
     "AtomAdditionAction",
     "AtomAdditionLineageEvent",
     "AtomIdentityMapping",
@@ -108,13 +133,16 @@ __all__ = [
     "active_site_from_multi_metal",
     "active_site_from_single_metal",
     "append_structure_sites",
+    "build_adsorbate",
     "build_graphene",
     "build_multi_metal_site",
     "build_single_metal_site",
     "create_active_site",
     "derive_side_topology",
     "export_structure",
+    "get_adsorbate_template",
     "import_structure",
+    "list_adsorbate_templates",
     "mutate_structure",
     "normalize_coordination_environment",
     "normalize_topology",
