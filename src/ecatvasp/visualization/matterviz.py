@@ -279,7 +279,9 @@ class MatterVizRuntimeCapability:
         if not self.fallback_kind.strip():
             raise MatterVizAdapterError("MatterViz fallback kind must not be blank")
         if self.interactive_available and self.message is not None:
-            raise MatterVizAdapterError("available MatterViz runtime must not carry an error message")
+            raise MatterVizAdapterError(
+                "available MatterViz runtime must not carry an error message"
+            )
         if not self.interactive_available and not self.message:
             raise MatterVizAdapterError("unavailable MatterViz runtime requires a fallback message")
 
@@ -288,7 +290,10 @@ class MatterVizRuntimeCapability:
         return cls(interactive_available=True)
 
     @classmethod
-    def unavailable(cls, message: str = "interactive MatterViz runtime unavailable") -> MatterVizRuntimeCapability:
+    def unavailable(
+        cls,
+        message: str = "interactive MatterViz runtime unavailable",
+    ) -> MatterVizRuntimeCapability:
         normalized = " ".join(message.split())
         if not normalized:
             raise MatterVizAdapterError("MatterViz fallback message must not be blank")
