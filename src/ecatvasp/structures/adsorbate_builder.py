@@ -170,10 +170,15 @@ class AdsorbateBuildResult:
             raise ValueError("adsorbate result requires target ActiveSite centers")
         if len(self.target_center_atom_uids) != len(set(self.target_center_atom_uids)):
             raise ValueError("target ActiveSite center identities must be unique")
+        preserved_uids = set(self.addition.preserved_atom_uids)
+        if any(atom_uid not in preserved_uids for atom_uid in self.target_center_atom_uids):
+            raise ValueError("target ActiveSite centers must be preserved source atoms")
         if self.binding_mode_intent not in _ALLOWED_BINDING_MODES:
             raise ValueError("adsorbate result contains unsupported binding mode intent")
         if not self.contacts:
             raise ValueError("adsorbate result requires resolved contact intents")
+        if len(self.contacts) != len(set(self.contacts)):
+            raise ValueError("resolved adsorbate contact intents must be unique")
 
         uid_by_key = {atom.atom_key: atom.atom_uid for atom in self.adsorbate_atoms}
         target_set = set(self.target_center_atom_uids)
@@ -184,6 +189,11 @@ class AdsorbateBuildResult:
                 raise ValueError("contact intent atom_uid must match the template-key mapping")
             if contact.site_atom_uid not in target_set:
                 raise ValueError("contact intent site_atom_uid must be a target ActiveSite center")
+        _validate_result_contact_intent(
+            self.binding_mode_intent,
+            self.target_center_atom_uids,
+            self.contacts,
+        )
 
         if not isfinite(self.height_angstrom) or self.height_angstrom <= 0:
             raise ValueError("height_angstrom must remain finite and positive")
@@ -246,7 +256,7 @@ def build_adsorbate(
         scale(placement_direction, spec.height_angstrom),
     )
 
-    orientation_axis = _resolve_orientation_axis(template, primary_anchor_key, spec)
+    orientation_axis = _resolve_orientation_axis(template, spec, placement_direction)
     added_sites, atom_results = _place_template_atoms(
         source=source,
         template=template,
@@ -346,6 +356,43 @@ def _validate_contact_intent(
         )
 
 
+def _validate_result_contact_intent(
+    binding_mode: BindingMode,
+    target_center_atom_uids: tuple[AtomUid, ...],
+    contacts: tuple[AdsorbateContactIntent, ...],
+) -> None:
+    target_set = set(target_center_atom_uids)
+    contacted_sites = {contact.site_atom_uid for contact in contacts}
+    if contacted_sites != target_set:
+        raise ValueError("resolved contacts must cover exactly the target ActiveSite centers")
+
+    if binding_mode is BindingMode.SINGLE_CENTER:
+        if len(target_center_atom_uids) != 1:
+            raise ValueError("SINGLE_CENTER result requires exactly one target")
+        return
+
+    if binding_mode is BindingMode.BRIDGE:
+        if len(target_center_atom_uids) != 2:
+            raise ValueError("BRIDGE result requires exactly two targets")
+        contacts_by_atom: dict[str, set[AtomUid]] = {}
+        for contact in contacts:
+            contacts_by_atom.setdefault(contact.adsorbate_atom_key, set()).add(
+                contact.site_atom_uid
+            )
+        if not any(sites == target_set for sites in contacts_by_atom.values()):
+            raise ValueError(
+                "BRIDGE result requires one adsorbate atom to contact both target centers"
+            )
+        return
+
+    if len(target_center_atom_uids) < 2:
+        raise ValueError("MULTICENTER result requires at least two targets")
+    if len({contact.adsorbate_atom_key for contact in contacts}) < 2:
+        raise ValueError(
+            "MULTICENTER result requires at least two distinct adsorbate contact atoms"
+        )
+
+
 def _resolve_placement_direction(
     source: StructureSnapshot,
     active_site: ActiveSite,
@@ -374,8 +421,8 @@ def _resolve_placement_direction(
 
 def _resolve_orientation_axis(
     template: AdsorbateTemplate,
-    primary_anchor_key: str,
     spec: AdsorbatePlacementSpec,
+    placement_direction: Vector3,
 ) -> Vector3 | None:
     if len(template.atoms) == 1:
         if spec.orientation_vector_cartesian is not None or abs(spec.roll_degrees) > 0:
@@ -386,10 +433,7 @@ def _resolve_orientation_axis(
 
     if spec.orientation_vector_cartesian is not None:
         return _normalized(spec.orientation_vector_cartesian, "orientation_vector_cartesian")
-
-    if primary_anchor_key == template.orientation_reference_atom_key:
-        return None
-    return None
+    return placement_direction
 
 
 def _place_template_atoms(
