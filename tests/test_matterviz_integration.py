@@ -4,8 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from ecatvasp import domain, structures
-from ecatvasp import visualization
+from ecatvasp import domain, structures, visualization
 
 
 def _snapshot(
@@ -43,10 +42,12 @@ def _variant(snapshot: domain.StructureSnapshot, name: str) -> domain.StructureV
 def _context_for_centers(center_count: int) -> structures.ConformerVisualizationContext:
     if center_count not in (1, 2, 3):
         raise ValueError("test helper supports one to three centers")
-    elements = tuple("Pb" for _ in range(center_count)) + ("C", "O")
-    coords = tuple(
-        (0.2 + 0.2 * index, 0.5, 0.5) for index in range(center_count)
-    ) + ((0.5, 0.5, 0.65), (0.55, 0.5, 0.65))
+    elements = (*("Pb" for _ in range(center_count)), "C", "O")
+    coords = (
+        *((0.2 + 0.2 * index, 0.5, 0.5) for index in range(center_count)),
+        (0.5, 0.5, 0.65),
+        (0.55, 0.5, 0.65),
+    )
     snapshot = _snapshot(elements, coords)
     centers = tuple(site.atom_uid for site in snapshot.sites[:center_count])
     carbon = snapshot.sites[-2].atom_uid
