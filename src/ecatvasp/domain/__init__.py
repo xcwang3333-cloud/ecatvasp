@@ -1,1 +1,68 @@
-"""Domain package boundary for ECatVASP."""
+"""Electrocatalysis-first domain model."""
+
+from ecatvasp.domain.entities import (
+    ActiveSite,
+    AdsorptionState,
+    Catalyst,
+    Project,
+    StateConformer,
+    StructureSnapshot,
+    StructureVariant,
+)
+from ecatvasp.domain.ids import (
+    ActiveSiteId,
+    AdsorptionStateId,
+    AtomUid,
+    CatalystId,
+    ProjectId,
+    StateConformerId,
+    StructureSnapshotId,
+    StructureVariantId,
+    new_adsorption_state_id,
+    new_atom_uid,
+    new_structure_snapshot_id,
+    new_uuid7,
+)
+from ecatvasp.domain.validation import DomainIntegrityError, validate_conformer_context
+from ecatvasp.domain.value_objects import (
+    BindingEdge,
+    BindingMode,
+    Lattice,
+    SideLabel,
+    SiteSide,
+    StructureOrigin,
+    StructureSite,
+    VariantType,
+)
+
+__all__ = [
+    "ActiveSite",
+    "ActiveSiteId",
+    "AdsorptionState",
+    "AdsorptionStateId",
+    "AtomUid",
+    "BindingEdge",
+    "BindingMode",
+    "Catalyst",
+    "CatalystId",
+    "DomainIntegrityError",
+    "Lattice",
+    "Project",
+    "ProjectId",
+    "SideLabel",
+    "SiteSide",
+    "StateConformer",
+    "StateConformerId",
+    "StructureOrigin",
+    "StructureSite",
+    "StructureSnapshot",
+    "StructureSnapshotId",
+    "StructureVariant",
+    "StructureVariantId",
+    "VariantType",
+    "new_adsorption_state_id",
+    "new_atom_uid",
+    "new_structure_snapshot_id",
+    "new_uuid7",
+    "validate_conformer_context",
+]
