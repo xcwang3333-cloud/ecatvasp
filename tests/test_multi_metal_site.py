@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -239,6 +240,39 @@ def test_same_requested_position_for_two_metals_fails_closed() -> None:
                     ),
                 )
             ),
+        )
+
+
+def test_multi_metal_result_rejects_corrupt_shared_and_pair_provenance() -> None:
+    source = _snapshot(("N", "N"), ((0.45, 0.5, 0.5), (0.55, 0.5, 0.5)))
+    anchors = tuple(site.atom_uid for site in source.sites)
+    result = structures.build_multi_metal_site(
+        source,
+        structures.MultiMetalSiteSpec(
+            centers=(
+                structures.MultiMetalCenterSpec("Pb", anchors, domain.SiteSide.TOP, 1.5),
+                structures.MultiMetalCenterSpec("Pb", anchors, domain.SiteSide.BOTTOM, 1.5),
+            )
+        ),
+    )
+
+    with pytest.raises(ValueError, match="shared coordination"):
+        replace(result, shared_coordination_atom_uids=())
+
+    original_pair = result.pair_distances[0]
+    corrupt_pair = structures.MetalPairDistance(
+        left_atom_uid=original_pair.left_atom_uid,
+        right_atom_uid=domain.new_atom_uid(),
+        distance_angstrom=original_pair.distance_angstrom,
+    )
+    with pytest.raises(ValueError, match="pair distances"):
+        replace(result, pair_distances=(corrupt_pair,))
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        structures.MetalPairDistance(
+            left_atom_uid=result.metal_atom_uids[0],
+            right_atom_uid=result.metal_atom_uids[1],
+            distance_angstrom=float("nan"),
         )
 
 
