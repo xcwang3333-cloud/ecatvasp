@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ecatvasp"
-version = "0.1.0.dev0"
+version = "0.2.0.dev0"
 description = "An Electrocatalysis-oriented VASP Research Workbench"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,7 +22,10 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Chemistry",
   "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = []
+dependencies = [
+  "ase>=3.29,<4",
+  "numpy>=1.26",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -52,3 +55,8 @@ strict = true
 pretty = true
 show_error_codes = true
 packages = ["ecatvasp"]
+untyped_calls_exclude = ["ase"]
+
+[[tool.mypy.overrides]]
+module = "ecatvasp.structures.io"
+warn_unused_ignores = false
