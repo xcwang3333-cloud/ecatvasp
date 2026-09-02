@@ -509,6 +509,6 @@ def test_adsorbate_result_rejects_corrupt_contact_provenance() -> None:
     with pytest.raises(ValueError, match="cover exactly"):
         replace(result, contacts=(result.contacts[0],))
     with pytest.raises(ValueError, match="must be unique"):
-        replace(result, contacts=result.contacts + (result.contacts[0],))
+        replace(result, contacts=(*result.contacts, result.contacts[0]))
     with pytest.raises(ValueError, match="preserved source atoms"):
         replace(result, target_center_atom_uids=(result.adsorbate_atom_uids[0],))
