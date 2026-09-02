@@ -62,6 +62,7 @@ from ecatvasp.domain.calculation import (
     SchedulerState,
     SchedulerType,
 )
+from ecatvasp.provenance import DependencyKind, DependencyRecord, ProvenanceRecord
 
 _TAG = "$ecatvasp"
 
@@ -78,6 +79,8 @@ _DATACLASS_TYPES: tuple[type[Any], ...] = (
     RemoteJob,
     Artifact,
     Analysis,
+    DependencyRecord,
+    ProvenanceRecord,
     CalculationProducerRef,
     ExecutionAttemptProducerRef,
     AnalysisProducerRef,
@@ -119,6 +122,7 @@ _ENUM_TYPES: tuple[type[StrEnum], ...] = (
     KPointPolicyKind,
     DipolePolicy,
     FingerprintCompatibility,
+    DependencyKind,
 )
 _ENUM_BY_NAME = {item.__name__: item for item in _ENUM_TYPES}
 
