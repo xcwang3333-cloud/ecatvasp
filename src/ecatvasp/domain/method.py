@@ -14,6 +14,62 @@ from ecatvasp.domain.ids import MethodFingerprintId, new_method_fingerprint_id
 
 ScalarParameter = str | int | float | bool | None
 
+_METHOD_PARAMETER_NAMES = frozenset(
+    {
+        "GGA",
+        "METAGGA",
+        "LHFCALC",
+        "AEXX",
+        "HFSCREEN",
+        "IVDW",
+        "LDAU",
+        "LDAUTYPE",
+        "LDAUL",
+        "LDAUU",
+        "LDAUJ",
+        "ISPIN",
+        "LSORBIT",
+        "LNONCOLLINEAR",
+        "LSOL",
+        "NELECT",
+        "EFIELD",
+    }
+)
+_PROTOCOL_PARAMETER_NAMES = frozenset(
+    {
+        "ENCUT",
+        "PREC",
+        "EDIFF",
+        "EDIFFG",
+        "ISMEAR",
+        "SIGMA",
+        "KSPACING",
+        "KGAMMA",
+        "MAGMOM",
+        "IDIPOL",
+        "LDIPOL",
+        "DIPOL",
+        "LREAL",
+        "ISYM",
+        "ALGO",
+    }
+)
+_RECIPE_PARAMETER_NAMES = frozenset(
+    {
+        "IBRION",
+        "NSW",
+        "ISIF",
+        "LAECHG",
+        "LCHARG",
+        "LWAVE",
+        "LORBIT",
+        "NEDOS",
+        "NFREE",
+        "POTIM",
+    }
+)
+_EXECUTION_PARAMETER_NAMES = frozenset({"NCORE", "KPAR", "NPAR"})
+
 
 def _require_text(value: str, field_name: str) -> None:
     if not value.strip():
@@ -175,6 +231,11 @@ class MethodDefinition:
         if len({item.element for item in dft_u}) != len(dft_u):
             raise ValueError("DFT+U settings must have unique elements")
         extras = _sorted_unique_parameters(self.extra_parameters, "extra Method parameters")
+        _reject_cross_layer_parameters(
+            extras,
+            _PROTOCOL_PARAMETER_NAMES | _RECIPE_PARAMETER_NAMES | _EXECUTION_PARAMETER_NAMES,
+            "Method",
+        )
 
         object.__setattr__(self, "potcars", potcars)
         object.__setattr__(self, "dft_u", dft_u)
@@ -257,6 +318,11 @@ class ProtocolDefinition:
             "initialization parameters",
         )
         extras = _sorted_unique_parameters(self.extra_parameters, "extra Protocol parameters")
+        _reject_cross_layer_parameters(
+            extras,
+            _METHOD_PARAMETER_NAMES | _RECIPE_PARAMETER_NAMES | _EXECUTION_PARAMETER_NAMES,
+            "Protocol",
+        )
         object.__setattr__(self, "initialization_parameters", initialization)
         object.__setattr__(self, "extra_parameters", extras)
 
@@ -273,6 +339,11 @@ class RecipeIdentity:
         _require_text(self.recipe_id, "recipe_id")
         _require_text(self.version, "version")
         parameters = _sorted_unique_parameters(self.parameters, "Recipe parameters")
+        _reject_cross_layer_parameters(
+            parameters,
+            _METHOD_PARAMETER_NAMES | _PROTOCOL_PARAMETER_NAMES | _EXECUTION_PARAMETER_NAMES,
+            "Recipe",
+        )
         object.__setattr__(self, "parameters", parameters)
 
     @property
@@ -314,6 +385,11 @@ class ExecutionSettings:
             _require_text(self.partition, "partition")
         _require_text(self.executable, "executable")
         extras = _sorted_unique_parameters(self.extra_parameters, "extra Execution parameters")
+        _reject_cross_layer_parameters(
+            extras,
+            _METHOD_PARAMETER_NAMES | _PROTOCOL_PARAMETER_NAMES | _RECIPE_PARAMETER_NAMES,
+            "Execution",
+        )
         object.__setattr__(self, "extra_parameters", extras)
 
     @property
@@ -389,6 +465,19 @@ def compare_fingerprints(
     if left.instance_hash != right.instance_hash:
         return FingerprintCompatibility.SAME_PROTOCOL
     return FingerprintCompatibility.IDENTICAL_INSTANCE
+
+
+def _reject_cross_layer_parameters(
+    parameters: tuple[ParameterEntry, ...],
+    disallowed_names: frozenset[str],
+    layer_name: str,
+) -> None:
+    leaked = sorted(
+        parameter.name for parameter in parameters if parameter.name.upper() in disallowed_names
+    )
+    if leaked:
+        names = ", ".join(leaked)
+        raise ValueError(f"{layer_name} parameters contain cross-layer keys: {names}")
 
 
 def _sorted_unique_parameters(
