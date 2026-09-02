@@ -20,8 +20,8 @@ from ecatvasp.structures.addition import (
 )
 from ecatvasp.structures.adsorbate_builder import (
     AdsorbateAtomResult,
-    AdsorbateBuilderError,
     AdsorbateBuildResult,
+    AdsorbateBuilderError,
     AdsorbateContactIntent,
     AdsorbateContactSpec,
     AdsorbatePlacementSpec,
@@ -91,8 +91,8 @@ __all__ = [
     "ActiveSiteToolingError",
     "AdsorbateAtomResult",
     "AdsorbateAtomTemplate",
-    "AdsorbateBuilderError",
     "AdsorbateBuildResult",
+    "AdsorbateBuilderError",
     "AdsorbateContactIntent",
     "AdsorbateContactSpec",
     "AdsorbatePlacementSpec",
