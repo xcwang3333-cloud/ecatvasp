@@ -324,10 +324,7 @@ def _embedded_selective_dynamics(atoms: Atoms) -> SelectiveDynamics | None:
         return None
     if raw.shape != (len(atoms), 3):
         raise StructureIOError("extXYZ selective-dynamics property must have shape N x 3")
-    flags = tuple(
-        (bool(row[0]), bool(row[1]), bool(row[2]))
-        for row in raw.tolist()
-    )
+    flags = tuple((bool(row[0]), bool(row[1]), bool(row[2])) for row in raw.tolist())
     return SelectiveDynamics(flags=flags)
 
 
@@ -368,15 +365,27 @@ def _serialize_with_order(
         StructureFormat.EXTXYZ: "extxyz",
     }[format]
 
-    stream = io.StringIO()
     try:
-        if format is StructureFormat.POSCAR:
-            ase_write(stream, atoms, format=ase_format, direct=True, sort=False, vasp5=True)
+        if format is StructureFormat.CIF:
+            binary_stream = io.BytesIO()
+            ase_write(binary_stream, atoms, format=ase_format)
+            text = binary_stream.getvalue().decode("latin-1")
         else:
-            ase_write(stream, atoms, format=ase_format)
+            text_stream = io.StringIO()
+            if format is StructureFormat.POSCAR:
+                ase_write(
+                    text_stream,
+                    atoms,
+                    format=ase_format,
+                    direct=True,
+                    sort=False,
+                    vasp5=True,
+                )
+            else:
+                ase_write(text_stream, atoms, format=ase_format)
+            text = text_stream.getvalue()
     except Exception as error:
         raise StructureIOError(f"failed to serialize {format.value} structure") from error
-    text = stream.getvalue()
     if format is StructureFormat.POSCAR:
         text = _replace_poscar_comment(text, document)
     return _normalize_newline_ending(text), order
@@ -569,7 +578,9 @@ def _parse_sidecar_lattice(value: object) -> Lattice:
         try:
             vector = (float(row[0]), float(row[1]), float(row[2]))
         except (TypeError, ValueError) as error:
-            raise StructureIOError("structure sidecar lattice contains a non-numeric value") from error
+            raise StructureIOError(
+                "structure sidecar lattice contains a non-numeric value"
+            ) from error
         if not all(math.isfinite(component) for component in vector):
             raise StructureIOError("structure sidecar lattice values must be finite")
         vectors.append(vector)
