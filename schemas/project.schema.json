@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecatvasp.local/schema/project-v1.json",
+  "title": "ECatVASP Project Schema v1",
+  "description": "Bootstrap contract only; domain entities are implemented in later v0.1 blocks.",
+  "type": "object",
+  "required": ["schema_version", "project_id", "name"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Permanent project identifier; production implementation will use UUIDv7 or equivalent."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": true
+}

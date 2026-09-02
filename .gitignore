@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+coverage.xml
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+
+# ECatVASP local/project runtime data
+.workbench/
+*.sqlite
+*.sqlite3
+
+# VASP licensed/large runtime files must never be committed
+POTCAR
+WAVECAR
+CHGCAR
+AECCAR0
+AECCAR1
+AECCAR2
+LOCPOT
+vaspout.h5
