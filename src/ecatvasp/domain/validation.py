@@ -21,7 +21,9 @@ def validate_conformer_context(
     if state.structure_variant_id != active_site.structure_variant_id:
         raise DomainIntegrityError("state and active site must belong to the same StructureVariant")
     if state.active_site_id != active_site.id:
-        raise DomainIntegrityError("state.active_site_id does not reference the supplied ActiveSite")
+        raise DomainIntegrityError(
+            "state.active_site_id does not reference the supplied ActiveSite"
+        )
     if conformer.adsorption_state_id != state.id:
         raise DomainIntegrityError("conformer does not reference the supplied AdsorptionState")
     if conformer.structure_snapshot_id != snapshot.id:
@@ -35,6 +37,10 @@ def validate_conformer_context(
         if edge.site_atom_uid not in active_centers:
             raise DomainIntegrityError("binding edge references an atom outside the ActiveSite")
         if not snapshot.contains_atom(edge.site_atom_uid):
-            raise DomainIntegrityError("active-site binding atom is absent from the StructureSnapshot")
+            raise DomainIntegrityError(
+                "active-site binding atom is absent from the StructureSnapshot"
+            )
         if not snapshot.contains_atom(edge.adsorbate_atom_uid):
-            raise DomainIntegrityError("adsorbate binding atom is absent from the StructureSnapshot")
+            raise DomainIntegrityError(
+                "adsorbate binding atom is absent from the StructureSnapshot"
+            )
