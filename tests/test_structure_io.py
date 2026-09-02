@@ -7,7 +7,6 @@ import pytest
 
 from ecatvasp import domain, structures
 
-
 POSCAR_SELECTIVE = """Pb2 opposite-side model
 1.0
 10.0 0.0 0.0
