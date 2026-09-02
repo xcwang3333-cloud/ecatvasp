@@ -109,6 +109,32 @@ def test_provenance_and_dependencies_round_trip_through_project_store(tmp_path) 
     )
 
 
+def test_multiple_provenance_records_for_one_subject_round_trip(tmp_path) -> None:
+    bundle = _minimal_project_with_provenance()
+    calculation = bundle.calculations[0]
+    method = bundle.method_fingerprints[0]
+    parser_record = ProvenanceRecord(
+        subject_id=calculation.id,
+        tool="ecatvasp-parser",
+        tool_version="0.1.0.dev0",
+        parameters_hash=_digest("parse-result"),
+        method_fingerprint_id=method.id,
+    )
+    with_history = ProjectBundle(
+        project=bundle.project,
+        structure_snapshots=bundle.structure_snapshots,
+        method_fingerprints=bundle.method_fingerprints,
+        calculations=bundle.calculations,
+        provenance_records=(*bundle.provenance_records, parser_record),
+        dependency_records=bundle.dependency_records,
+    )
+
+    ProjectStore(tmp_path).save(with_history)
+    reopened = ProjectStore(tmp_path).open()
+
+    assert reopened.provenance_records == with_history.provenance_records
+
+
 def test_persisted_dependency_requires_downstream_provenance() -> None:
     bundle = _minimal_project_with_provenance()
     without_provenance = ProjectBundle(
