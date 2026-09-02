@@ -85,9 +85,9 @@ Cartesian
 """
     document = parse_structure(text, format="poscar")
 
-    assert document.snapshot.lattice.vectors == pytest.approx(
-        ((2.0, 0.0, 0.0), (0.0, 2.0, 0.0), (0.0, 0.0, 2.0))
-    )
+    expected_lattice = ((2.0, 0.0, 0.0), (0.0, 2.0, 0.0), (0.0, 0.0, 2.0))
+    for actual, expected in zip(document.snapshot.lattice.vectors, expected_lattice, strict=True):
+        assert actual == pytest.approx(expected)
     assert document.snapshot.sites[0].fractional_coords == pytest.approx((1.0, 1.0, 1.0))
     assert document.metadata.coordinate_mode == "cartesian"
 
