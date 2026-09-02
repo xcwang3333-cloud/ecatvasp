@@ -207,26 +207,21 @@ class ProjectBundle:
                 raise ProjectIntegrityError("Analysis references a missing input Artifact")
 
         provenance_entity_ids = {_entity_uuid(entity) for entity in self.provenance_entities()}
-        provenance_subjects: list[UUID] = []
+        provenance_subjects: set[UUID] = set()
         for provenance in self.provenance_records:
             if provenance.subject_id not in provenance_entity_ids:
                 raise ProjectIntegrityError("ProvenanceRecord subject is missing")
             method_id = provenance.method_fingerprint_id
             if method_id is not None and method_id not in methods:
                 raise ProjectIntegrityError("ProvenanceRecord MethodFingerprint is missing")
-            provenance_subjects.append(provenance.subject_id)
-        if len(provenance_subjects) != len(set(provenance_subjects)):
-            raise ProjectIntegrityError(
-                "each persisted subject may have at most one ProvenanceRecord"
-            )
+            provenance_subjects.add(provenance.subject_id)
 
-        provenance_subject_set = set(provenance_subjects)
         for dependency in self.dependency_records:
             if dependency.upstream_id not in provenance_entity_ids:
                 raise ProjectIntegrityError("DependencyRecord upstream entity is missing")
             if dependency.downstream_id not in provenance_entity_ids:
                 raise ProjectIntegrityError("DependencyRecord downstream entity is missing")
-            if dependency.downstream_id not in provenance_subject_set:
+            if dependency.downstream_id not in provenance_subjects:
                 raise ProjectIntegrityError(
                     "DependencyRecord downstream entity requires a ProvenanceRecord"
                 )
