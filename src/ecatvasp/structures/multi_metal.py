@@ -172,7 +172,13 @@ def build_multi_metal_site(
     """Append two or three independently specified metal centers in one child revision."""
 
     source_by_uid = {site.atom_uid: site for site in source.sites}
-    planned: list[tuple[MultiMetalCenterSpec, tuple[StructureSite, ...], tuple[float, float, float]]] = []
+    planned: list[
+        tuple[
+            MultiMetalCenterSpec,
+            tuple[StructureSite, ...],
+            tuple[float, float, float],
+        ]
+    ] = []
 
     for center in spec.centers:
         missing = set(center.coordination_atom_uids) - set(source_by_uid)
