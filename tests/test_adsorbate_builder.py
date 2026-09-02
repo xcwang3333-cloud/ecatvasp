@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -214,7 +215,7 @@ def test_oh_default_orientation_aligns_anchor_reference_with_auto_direction() ->
     assert oxygen.element == "O"
     assert hydrogen.element == "H"
     assert hydrogen.fractional_coords[2] > oxygen.fractional_coords[2]
-    assert result.orientation_vector_cartesian is None
+    assert result.orientation_vector_cartesian == pytest.approx((0.0, 0.0, 1.0))
     assert result.placement_direction_cartesian == pytest.approx((0.0, 0.0, 1.0))
 
 
@@ -485,3 +486,29 @@ def test_single_atom_adsorbate_rejects_orientation_settings() -> None:
                 orientation_vector_cartesian=(1.0, 0.0, 0.0),
             ),
         )
+
+
+def test_adsorbate_result_rejects_corrupt_contact_provenance() -> None:
+    source, active_site = _dual_top_model()
+    iron, cobalt = active_site.center_atom_uids
+    result = build_adsorbate(
+        source,
+        active_site,
+        AdsorbatePlacementSpec(
+            template_key="O",
+            target_center_atom_uids=(iron, cobalt),
+            binding_mode=BindingMode.BRIDGE,
+            height_angstrom=1.5,
+            contacts=(
+                AdsorbateContactSpec("O", iron),
+                AdsorbateContactSpec("O", cobalt),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="cover exactly"):
+        replace(result, contacts=(result.contacts[0],))
+    with pytest.raises(ValueError, match="must be unique"):
+        replace(result, contacts=result.contacts + (result.contacts[0],))
+    with pytest.raises(ValueError, match="preserved source atoms"):
+        replace(result, target_center_atom_uids=(result.adsorbate_atom_uids[0],))
