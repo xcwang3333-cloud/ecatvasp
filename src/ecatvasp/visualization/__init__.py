@@ -1,0 +1,43 @@
+"""Viewer adapters that remain outside the scientific domain model."""
+
+from ecatvasp.visualization.matterviz import (
+    MATTERVIZ_CONTRACT_VERSION,
+    MATTERVIZ_TARGET_VERSION,
+    MatterVizAdapterError,
+    MatterVizAtomIndexMap,
+    MatterVizBindingSegment,
+    MatterVizDisplayPolicy,
+    MatterVizLattice,
+    MatterVizOverlay,
+    MatterVizRuntimeCapability,
+    MatterVizSideLabel,
+    MatterVizSite,
+    MatterVizSpecies,
+    MatterVizStructure,
+    MatterVizViewBundle,
+    build_matterviz_view,
+    matterviz_view_from_document,
+    matterviz_view_from_file,
+    matterviz_view_from_text,
+)
+
+__all__ = [
+    "MATTERVIZ_CONTRACT_VERSION",
+    "MATTERVIZ_TARGET_VERSION",
+    "MatterVizAdapterError",
+    "MatterVizAtomIndexMap",
+    "MatterVizBindingSegment",
+    "MatterVizDisplayPolicy",
+    "MatterVizLattice",
+    "MatterVizOverlay",
+    "MatterVizRuntimeCapability",
+    "MatterVizSideLabel",
+    "MatterVizSite",
+    "MatterVizSpecies",
+    "MatterVizStructure",
+    "MatterVizViewBundle",
+    "build_matterviz_view",
+    "matterviz_view_from_document",
+    "matterviz_view_from_file",
+    "matterviz_view_from_text",
+]

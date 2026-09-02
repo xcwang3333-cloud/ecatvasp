@@ -1,0 +1,19 @@
+{
+  "name": "ecatvasp-matterviz-contract-smoke",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "matterviz": "0.6.0",
+    "svelte": "^5.56.9"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}
