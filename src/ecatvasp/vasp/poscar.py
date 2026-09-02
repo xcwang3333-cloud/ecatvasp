@@ -200,10 +200,6 @@ def prepare_poscar(
 
 
 def _validate_vasp_cell(snapshot: StructureSnapshot) -> None:
-    if snapshot.periodic != (True, True, True):
-        raise PoscarPreparationError(
-            "VASP POSCAR preparation requires a fully periodic cell representation"
-        )
     determinant = _cell_determinant(snapshot.lattice.vectors)
     if not isfinite(determinant) or abs(determinant) <= 1e-12:
         raise PoscarPreparationError("VASP POSCAR preparation requires a non-singular cell")

@@ -112,9 +112,17 @@ def test_uid_selective_dynamics_rejects_duplicate_atom_uid_overrides() -> None:
         )
 
 
-def test_prepare_poscar_rejects_nonperiodic_or_singular_vasp_cell() -> None:
+def test_prepare_poscar_keeps_physical_periodicity_outside_poscar_contract() -> None:
+    snapshot = replace(_snapshot(), periodic=(True, True, False))
+
+    prepared = vasp.prepare_poscar(snapshot)
+
+    assert prepared.structure_snapshot_id == snapshot.id
+    assert snapshot.periodic == (True, True, False)
+
+
+def test_prepare_poscar_rejects_singular_vasp_cell() -> None:
     snapshot = _snapshot()
-    nonperiodic = replace(snapshot, periodic=(True, True, False))
     singular = replace(
         snapshot,
         lattice=domain.Lattice(
@@ -122,8 +130,6 @@ def test_prepare_poscar_rejects_nonperiodic_or_singular_vasp_cell() -> None:
         ),
     )
 
-    with pytest.raises(vasp.PoscarPreparationError, match="fully periodic"):
-        vasp.prepare_poscar(nonperiodic)
     with pytest.raises(vasp.PoscarPreparationError, match="non-singular"):
         vasp.prepare_poscar(singular)
 
