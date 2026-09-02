@@ -13,6 +13,7 @@ from ecatvasp.domain import (
     BindingMode,
     SideLabel,
     StateConformer,
+    StateConformerId,
     StructureSnapshot,
     StructureSnapshotId,
     StructureVariant,
@@ -90,7 +91,8 @@ def create_adsorption_state(
             == duplicate_key
         ):
             raise StateConformerToolingError(
-                "an AdsorptionState with the same normalized label already exists for this ActiveSite"
+                "an AdsorptionState with the same normalized label already exists "
+                "for this ActiveSite"
             )
 
     return AdsorptionState(
@@ -400,7 +402,7 @@ def _validate_parent_lineage(
 
 def _validate_parent_cycles(
     conformers: tuple[StateConformer, ...],
-    by_id: dict[object, StateConformer],
+    by_id: dict[StateConformerId, StateConformer],
 ) -> None:
     for conformer in conformers:
         seen = {conformer.id}
