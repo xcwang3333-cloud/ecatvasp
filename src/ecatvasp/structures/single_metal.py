@@ -3,20 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import product
-from math import isfinite, sqrt
+from math import isfinite
 
-from ecatvasp.domain import (
-    AtomUid,
-    Lattice,
-    SiteSide,
-    StructureSite,
-    StructureSnapshot,
-    new_atom_uid,
+from ecatvasp.domain import AtomUid, SiteSide, StructureSite, StructureSnapshot, new_atom_uid
+from ecatvasp.structures._placement import (
+    COLLISION_TOLERANCE_ANGSTROM,
+    minimum_image_distance,
+    place_at_coordination_centroid,
 )
 from ecatvasp.structures.addition import StructureAdditionResult, append_structure_sites
-
-Vector3 = tuple[float, float, float]
 
 _METAL_ELEMENTS = frozenset(
     {
@@ -113,8 +108,6 @@ _METAL_ELEMENTS = frozenset(
         "Lv",
     }
 )
-_COLLISION_TOLERANCE_ANGSTROM = 1.0e-6
-_GEOMETRY_TOLERANCE = 1.0e-12
 
 
 class SingleMetalSiteError(ValueError):
@@ -196,18 +189,24 @@ class SingleMetalSiteResult:
     def coordination_signature(self) -> str:
         """Return a stable composition label following the explicit anchor order."""
 
-        order: list[str] = []
-        counts: dict[str, int] = {}
-        for element in self.coordination_elements:
-            if element not in counts:
-                order.append(element)
-                counts[element] = 0
-            counts[element] += 1
-        parts: list[str] = []
-        for element in order:
-            count = counts[element]
-            parts.append(element if count == 1 else f"{element}{count}")
-        return "".join(parts)
+        return coordination_signature(self.coordination_elements)
+
+
+def coordination_signature(elements: tuple[str, ...]) -> str:
+    """Return a compact composition signature preserving first-element order."""
+
+    order: list[str] = []
+    counts: dict[str, int] = {}
+    for element in elements:
+        if element not in counts:
+            order.append(element)
+            counts[element] = 0
+        counts[element] += 1
+    parts: list[str] = []
+    for element in order:
+        count = counts[element]
+        parts.append(element if count == 1 else f"{element}{count}")
+    return "".join(parts)
 
 
 def build_single_metal_site(
@@ -222,26 +221,24 @@ def build_single_metal_site(
         raise SingleMetalSiteError("all coordination atom_uids must exist in the source snapshot")
 
     coordination_sites = tuple(source_by_uid[atom_uid] for atom_uid in spec.coordination_atom_uids)
-    centroid_fractional = _pbc_centroid_fractional(source, coordination_sites)
-    centroid_cartesian = _fractional_to_cartesian(centroid_fractional, source.lattice)
-    normal = _slab_normal(source.lattice)
-
-    if spec.side is SiteSide.TOP:
-        displacement = _scale(normal, spec.height_angstrom)
-    elif spec.side is SiteSide.BOTTOM:
-        displacement = _scale(normal, -spec.height_angstrom)
-    else:
-        displacement = (0.0, 0.0, 0.0)
-
-    metal_cartesian = _add(centroid_cartesian, displacement)
-    metal_fractional = _cartesian_to_fractional(metal_cartesian, source.lattice)
-    metal_fractional = _wrap_fractional(metal_fractional, source.periodic)
+    try:
+        metal_fractional = place_at_coordination_centroid(
+            source,
+            coordination_sites,
+            spec.side,
+            spec.height_angstrom,
+        )
+    except ValueError as exc:
+        raise SingleMetalSiteError(str(exc)) from exc
 
     for existing_site in source.sites:
-        delta = _subtract(metal_fractional, existing_site.fractional_coords)
-        minimum_delta = _minimum_image_delta(delta, source.lattice, source.periodic)
-        distance = _norm(_fractional_to_cartesian(minimum_delta, source.lattice))
-        if distance < _COLLISION_TOLERANCE_ANGSTROM:
+        distance = minimum_image_distance(
+            metal_fractional,
+            existing_site.fractional_coords,
+            source.lattice,
+            source.periodic,
+        )
+        if distance < COLLISION_TOLERANCE_ANGSTROM:
             raise SingleMetalSiteError("metal placement overlaps an existing atom")
 
     metal_atom_uid = new_atom_uid()
@@ -259,121 +256,3 @@ def build_single_metal_site(
         side=spec.side,
         height_angstrom=spec.height_angstrom,
     )
-
-
-def _pbc_centroid_fractional(
-    source: StructureSnapshot,
-    sites: tuple[StructureSite, ...],
-) -> Vector3:
-    reference = sites[0].fractional_coords
-    unwrapped: list[Vector3] = [reference]
-    for site in sites[1:]:
-        delta = _subtract(site.fractional_coords, reference)
-        minimum_delta = _minimum_image_delta(delta, source.lattice, source.periodic)
-        unwrapped.append(_add(reference, minimum_delta))
-
-    count = float(len(unwrapped))
-    centroid = (
-        sum(coords[0] for coords in unwrapped) / count,
-        sum(coords[1] for coords in unwrapped) / count,
-        sum(coords[2] for coords in unwrapped) / count,
-    )
-    return _wrap_fractional(centroid, source.periodic)
-
-
-def _minimum_image_delta(
-    delta: Vector3,
-    lattice: Lattice,
-    periodic: tuple[bool, bool, bool],
-) -> Vector3:
-    shift_options: list[tuple[int, ...]] = []
-    for component, is_periodic in zip(delta, periodic, strict=True):
-        if is_periodic:
-            center = round(component)
-            shift_options.append((center - 1, center, center + 1))
-        else:
-            shift_options.append((0,))
-
-    best_delta: Vector3 | None = None
-    best_norm_squared = float("inf")
-    for shift in product(*shift_options):
-        candidate = (
-            delta[0] - shift[0],
-            delta[1] - shift[1],
-            delta[2] - shift[2],
-        )
-        cartesian = _fractional_to_cartesian(candidate, lattice)
-        norm_squared = _dot(cartesian, cartesian)
-        if norm_squared < best_norm_squared:
-            best_norm_squared = norm_squared
-            best_delta = candidate
-
-    assert best_delta is not None
-    return best_delta
-
-
-def _slab_normal(lattice: Lattice) -> Vector3:
-    normal = _cross(lattice.vectors[0], lattice.vectors[1])
-    magnitude = _norm(normal)
-    if magnitude <= _GEOMETRY_TOLERANCE:
-        raise SingleMetalSiteError("slab lattice vectors a1 and a2 must define a plane")
-    return _scale(normal, 1.0 / magnitude)
-
-
-def _fractional_to_cartesian(coords: Vector3, lattice: Lattice) -> Vector3:
-    a1, a2, a3 = lattice.vectors
-    return (
-        coords[0] * a1[0] + coords[1] * a2[0] + coords[2] * a3[0],
-        coords[0] * a1[1] + coords[1] * a2[1] + coords[2] * a3[1],
-        coords[0] * a1[2] + coords[1] * a2[2] + coords[2] * a3[2],
-    )
-
-
-def _cartesian_to_fractional(coords: Vector3, lattice: Lattice) -> Vector3:
-    a1, a2, a3 = lattice.vectors
-    volume = _dot(a1, _cross(a2, a3))
-    if abs(volume) <= _GEOMETRY_TOLERANCE:
-        raise SingleMetalSiteError("lattice vectors must define a nonzero cell volume")
-    return (
-        _dot(coords, _cross(a2, a3)) / volume,
-        _dot(coords, _cross(a3, a1)) / volume,
-        _dot(coords, _cross(a1, a2)) / volume,
-    )
-
-
-def _wrap_fractional(
-    coords: Vector3,
-    periodic: tuple[bool, bool, bool],
-) -> Vector3:
-    return tuple(
-        component % 1.0 if is_periodic else component
-        for component, is_periodic in zip(coords, periodic, strict=True)
-    )  # type: ignore[return-value]
-
-
-def _dot(left: Vector3, right: Vector3) -> float:
-    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
-
-
-def _cross(left: Vector3, right: Vector3) -> Vector3:
-    return (
-        left[1] * right[2] - left[2] * right[1],
-        left[2] * right[0] - left[0] * right[2],
-        left[0] * right[1] - left[1] * right[0],
-    )
-
-
-def _norm(vector: Vector3) -> float:
-    return sqrt(_dot(vector, vector))
-
-
-def _add(left: Vector3, right: Vector3) -> Vector3:
-    return (left[0] + right[0], left[1] + right[1], left[2] + right[2])
-
-
-def _subtract(left: Vector3, right: Vector3) -> Vector3:
-    return (left[0] - right[0], left[1] - right[1], left[2] - right[2])
-
-
-def _scale(vector: Vector3, factor: float) -> Vector3:
-    return (vector[0] * factor, vector[1] * factor, vector[2] * factor)
