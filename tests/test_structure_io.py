@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ecatvasp import domain
-from ecatvasp import structures
+from ecatvasp import domain, structures
 
 
 POSCAR_SELECTIVE = """Pb2 opposite-side model
