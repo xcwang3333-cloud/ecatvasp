@@ -20,8 +20,8 @@ from ecatvasp.structures.addition import (
 )
 from ecatvasp.structures.adsorbate_builder import (
     AdsorbateAtomResult,
-    AdsorbateBuildResult,
     AdsorbateBuilderError,
+    AdsorbateBuildResult,
     AdsorbateContactIntent,
     AdsorbateContactSpec,
     AdsorbatePlacementSpec,
