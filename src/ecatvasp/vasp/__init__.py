@@ -16,6 +16,15 @@ from ecatvasp.vasp.importer import (
     import_existing_vasp_folder,
     inspect_vasp_folder,
 )
+from ecatvasp.vasp.poscar import (
+    AtomSelectiveFlags,
+    PoscarIndexEntry,
+    PoscarIndexMap,
+    PoscarPreparationError,
+    PreparedPoscar,
+    UidSelectiveDynamics,
+    prepare_poscar,
+)
 from ecatvasp.vasp.recipes import (
     RECIPE_ADSORBATE_RELAX,
     RECIPE_CHARGE_DENSITY_STATIC,
@@ -54,10 +63,16 @@ __all__ = [
     "RECIPE_SLAB_RELAX",
     "VASP_RECIPE_REGISTRY",
     "VASP_RECIPE_SPECS",
+    "AtomSelectiveFlags",
     "ExistingVaspImport",
     "LatticeAxis",
     "ParsedVaspResult",
+    "PoscarIndexEntry",
+    "PoscarIndexMap",
+    "PoscarPreparationError",
+    "PreparedPoscar",
     "ProjectNumericalLock",
+    "UidSelectiveDynamics",
     "VaspFolderInspection",
     "VaspImportError",
     "VaspRecipeContractError",
@@ -67,5 +82,6 @@ __all__ = [
     "get_vasp_recipe_spec",
     "import_existing_vasp_folder",
     "inspect_vasp_folder",
+    "prepare_poscar",
     "validate_calculation_recipe_contract",
 ]
