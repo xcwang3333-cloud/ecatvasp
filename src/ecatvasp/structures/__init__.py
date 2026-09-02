@@ -1,5 +1,12 @@
 """Structure import, identity, and construction boundary."""
 
+from ecatvasp.structures.addition import (
+    AtomAdditionAction,
+    AtomAdditionLineageEvent,
+    StructureAdditionError,
+    StructureAdditionResult,
+    append_structure_sites,
+)
 from ecatvasp.structures.graphene import GrapheneBuildSpec, build_graphene
 from ecatvasp.structures.identity import (
     AtomIdentityMapping,
@@ -35,8 +42,16 @@ from ecatvasp.structures.mutation import (
     remove_vacancies,
     substitute_dopants,
 )
+from ecatvasp.structures.single_metal import (
+    SingleMetalSiteError,
+    SingleMetalSiteResult,
+    SingleMetalSiteSpec,
+    build_single_metal_site,
+)
 
 __all__ = [
+    "AtomAdditionAction",
+    "AtomAdditionLineageEvent",
     "AtomIdentityMapping",
     "AtomIdentityStatus",
     "AtomLineageAction",
@@ -49,13 +64,20 @@ __all__ = [
     "GrapheneBuildSpec",
     "IdentityPropagationResult",
     "SelectiveDynamics",
+    "SingleMetalSiteError",
+    "SingleMetalSiteResult",
+    "SingleMetalSiteSpec",
+    "StructureAdditionError",
+    "StructureAdditionResult",
     "StructureDocument",
     "StructureFormat",
     "StructureIOError",
     "StructureMutationError",
     "StructureMutationResult",
     "StructureSourceMetadata",
+    "append_structure_sites",
     "build_graphene",
+    "build_single_metal_site",
     "export_structure",
     "import_structure",
     "mutate_structure",
