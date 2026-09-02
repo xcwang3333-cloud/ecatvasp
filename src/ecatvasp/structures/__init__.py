@@ -1,5 +1,6 @@
 """Structure import, identity, and construction boundary."""
 
+from ecatvasp.structures.graphene import GrapheneBuildSpec, build_graphene
 from ecatvasp.structures.identity import (
     AtomIdentityMapping,
     AtomMappingEntry,
@@ -32,12 +33,14 @@ __all__ = [
     "AtomMappingError",
     "AtomMappingMethod",
     "GeometrySite",
+    "GrapheneBuildSpec",
     "IdentityPropagationResult",
     "SelectiveDynamics",
     "StructureDocument",
     "StructureFormat",
     "StructureIOError",
     "StructureSourceMetadata",
+    "build_graphene",
     "export_structure",
     "import_structure",
     "parse_structure",
