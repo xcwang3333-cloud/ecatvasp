@@ -26,6 +26,12 @@ from ecatvasp.domain.calculation import (
     CalculationProducerRef,
     ExecutionAttemptProducerRef,
 )
+from ecatvasp.provenance import (
+    DependencyGraph,
+    DependencyRecord,
+    ProvenanceIntegrityError,
+    ProvenanceRecord,
+)
 
 
 class ProjectIntegrityError(ValueError):
@@ -49,9 +55,32 @@ class ProjectBundle:
     remote_jobs: tuple[RemoteJob, ...] = ()
     artifacts: tuple[Artifact, ...] = ()
     analyses: tuple[Analysis, ...] = ()
+    provenance_records: tuple[ProvenanceRecord, ...] = ()
+    dependency_records: tuple[DependencyRecord, ...] = ()
 
     def entities(self) -> tuple[object, ...]:
         """Return all persisted entities in deterministic group order."""
+
+        return (
+            self.project,
+            *self.catalysts,
+            *self.structure_variants,
+            *self.structure_snapshots,
+            *self.active_sites,
+            *self.adsorption_states,
+            *self.state_conformers,
+            *self.method_fingerprints,
+            *self.calculations,
+            *self.execution_attempts,
+            *self.remote_jobs,
+            *self.artifacts,
+            *self.analyses,
+            *self.provenance_records,
+            *self.dependency_records,
+        )
+
+    def provenance_entities(self) -> tuple[object, ...]:
+        """Return base project entities that may participate in provenance relationships."""
 
         return (
             self.project,
@@ -177,6 +206,30 @@ class ProjectBundle:
             if any(artifact_id not in artifacts for artifact_id in analysis.input_artifact_ids):
                 raise ProjectIntegrityError("Analysis references a missing input Artifact")
 
+        provenance_entity_ids = {_entity_uuid(entity) for entity in self.provenance_entities()}
+        provenance_subjects: set[UUID] = set()
+        for provenance in self.provenance_records:
+            if provenance.subject_id not in provenance_entity_ids:
+                raise ProjectIntegrityError("ProvenanceRecord subject is missing")
+            method_id = provenance.method_fingerprint_id
+            if method_id is not None and method_id not in methods:
+                raise ProjectIntegrityError("ProvenanceRecord MethodFingerprint is missing")
+            provenance_subjects.add(provenance.subject_id)
+
+        for dependency in self.dependency_records:
+            if dependency.upstream_id not in provenance_entity_ids:
+                raise ProjectIntegrityError("DependencyRecord upstream entity is missing")
+            if dependency.downstream_id not in provenance_entity_ids:
+                raise ProjectIntegrityError("DependencyRecord downstream entity is missing")
+            if dependency.downstream_id not in provenance_subjects:
+                raise ProjectIntegrityError(
+                    "DependencyRecord downstream entity requires a ProvenanceRecord"
+                )
+        try:
+            DependencyGraph(self.dependency_records)
+        except ProvenanceIntegrityError as error:
+            raise ProjectIntegrityError(str(error)) from error
+
     @classmethod
     def from_entities(cls, entities: tuple[object, ...]) -> ProjectBundle:
         """Rebuild a bundle from decoded entity rows."""
@@ -210,6 +263,12 @@ class ProjectBundle:
             remote_jobs=tuple(item for item in entities if isinstance(item, RemoteJob)),
             artifacts=tuple(item for item in entities if isinstance(item, Artifact)),
             analyses=tuple(item for item in entities if isinstance(item, Analysis)),
+            provenance_records=tuple(
+                item for item in entities if isinstance(item, ProvenanceRecord)
+            ),
+            dependency_records=tuple(
+                item for item in entities if isinstance(item, DependencyRecord)
+            ),
         )
         if len(bundle.entities()) != len(entities):
             raise ProjectIntegrityError("project store contains an unsupported entity type")
