@@ -1,5 +1,16 @@
 """Structure import, identity, and construction boundary."""
 
+from ecatvasp.structures.active_site import (
+    ActiveSiteToolingError,
+    active_site_from_multi_metal,
+    active_site_from_single_metal,
+    create_active_site,
+    normalize_coordination_environment,
+    normalize_topology,
+    resolve_active_site_centers,
+    validate_active_site_current_context,
+    validate_active_site_snapshot_compatibility,
+)
 from ecatvasp.structures.addition import (
     AtomAdditionAction,
     AtomAdditionLineageEvent,
@@ -61,6 +72,7 @@ from ecatvasp.structures.single_metal import (
 )
 
 __all__ = [
+    "ActiveSiteToolingError",
     "AtomAdditionAction",
     "AtomAdditionLineageEvent",
     "AtomIdentityMapping",
@@ -93,20 +105,28 @@ __all__ = [
     "StructureMutationError",
     "StructureMutationResult",
     "StructureSourceMetadata",
+    "active_site_from_multi_metal",
+    "active_site_from_single_metal",
     "append_structure_sites",
     "build_graphene",
     "build_multi_metal_site",
     "build_single_metal_site",
+    "create_active_site",
     "derive_side_topology",
     "export_structure",
     "import_structure",
     "mutate_structure",
+    "normalize_coordination_environment",
+    "normalize_topology",
     "parse_structure",
     "propagate_atom_uids_by_index",
     "reconcile_reordered_sites",
     "remove_vacancies",
     "reorder_snapshot",
+    "resolve_active_site_centers",
     "serialize_structure",
     "substitute_dopants",
+    "validate_active_site_current_context",
+    "validate_active_site_snapshot_compatibility",
     "validate_identity_preserving_revision",
 ]
