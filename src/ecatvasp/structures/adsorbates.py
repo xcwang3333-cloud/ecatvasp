@@ -95,6 +95,13 @@ def _atom(key: str, element: str, xyz: Cartesian3) -> AdsorbateAtomTemplate:
     return AdsorbateAtomTemplate(key=key, element=element, cartesian_coords=xyz)
 
 
+def _distance(left: Cartesian3, right: Cartesian3) -> float:
+    dx = left[0] - right[0]
+    dy = left[1] - right[1]
+    dz = left[2] - right[2]
+    return sqrt(dx * dx + dy * dy + dz * dz)
+
+
 _BUILTIN_TEMPLATES: tuple[AdsorbateTemplate, ...] = (
     AdsorbateTemplate(
         key="H",
@@ -221,10 +228,3 @@ def get_adsorbate_template(key: str) -> AdsorbateTemplate:
         return _LIBRARY[normalized]
     except KeyError as exc:
         raise AdsorbateTemplateError(f"unknown adsorbate template {key!r}") from exc
-
-
-def _distance(left: Cartesian3, right: Cartesian3) -> float:
-    dx = left[0] - right[0]
-    dy = left[1] - right[1]
-    dz = left[2] - right[2]
-    return sqrt(dx * dx + dy * dy + dz * dz)
