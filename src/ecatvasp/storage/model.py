@@ -127,7 +127,9 @@ class ProjectBundle:
                 raise ProjectIntegrityError("StateConformer parent is missing")
             if state.active_site_id is None:
                 if conformer.binding_edges:
-                    raise ProjectIntegrityError("binding edges require an AdsorptionState ActiveSite")
+                    raise ProjectIntegrityError(
+                        "binding edges require an AdsorptionState ActiveSite"
+                    )
             else:
                 active_site = active_sites[state.active_site_id]
                 try:
