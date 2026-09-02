@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,23 @@ def test_combined_mutation_supports_multiple_vacancies_and_substitutions() -> No
         structures.AtomLineageAction.REMOVED,
         structures.AtomLineageAction.REPLACED,
     }
+
+
+def test_mutation_result_rejects_inconsistent_target_indices() -> None:
+    source = structures.build_graphene(structures.GrapheneBuildSpec(nx=2, ny=2))
+    result = structures.remove_vacancies(source, (source.sites[0].atom_uid,))
+    corrupted = (
+        result.lineage[0],
+        replace(result.lineage[1], target_index=1),
+        *result.lineage[2:],
+    )
+
+    with pytest.raises(ValueError, match="target indices"):
+        structures.StructureMutationResult(
+            source_snapshot_id=source.id,
+            snapshot=result.snapshot,
+            lineage=corrupted,
+        )
 
 
 def test_mutation_rejects_conflicting_missing_and_duplicate_targets() -> None:
