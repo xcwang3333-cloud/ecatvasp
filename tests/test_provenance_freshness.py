@@ -19,20 +19,30 @@ def _digest(label: str) -> str:
     return sha256(label.encode()).hexdigest()
 
 
-def test_execution_dependency_change_does_not_stale_scientific_result() -> None:
-    execution_profile_id = new_uuid7()
+@pytest.mark.parametrize(
+    "dependency_kind",
+    (
+        DependencyKind.ORGANIZATIONAL,
+        DependencyKind.DISPLAY,
+        DependencyKind.EXECUTION,
+    ),
+)
+def test_non_scientific_dependency_changes_do_not_stale_result(
+    dependency_kind: DependencyKind,
+) -> None:
+    upstream_id = new_uuid7()
     calculation_id = new_uuid7()
     dependency = DependencyRecord(
-        upstream_id=execution_profile_id,
+        upstream_id=upstream_id,
         downstream_id=calculation_id,
-        kind=DependencyKind.EXECUTION,
-        role="execution_profile",
-        recorded_hash=_digest("ncore-4"),
+        kind=dependency_kind,
+        role=f"{dependency_kind.value}_metadata",
+        recorded_hash=_digest("old-value"),
     )
 
     result = FreshnessEngine((dependency,)).evaluate(
-        node_ids={execution_profile_id, calculation_id},
-        current_hashes={execution_profile_id: _digest("ncore-8")},
+        node_ids={upstream_id, calculation_id},
+        current_hashes={upstream_id: _digest("new-value")},
     )
 
     assert result[calculation_id].state is FreshnessState.FRESH
