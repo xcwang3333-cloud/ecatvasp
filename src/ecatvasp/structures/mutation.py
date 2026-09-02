@@ -105,14 +105,37 @@ class StructureMutationResult:
         source_uids = tuple(event.source_atom_uid for event in self.lineage)
         if len(source_uids) != len(set(source_uids)):
             raise ValueError("mutation lineage source atom_uids must be unique")
-        target_uids = tuple(
-            event.target_atom_uid for event in self.lineage if event.target_atom_uid is not None
+
+        target_events = tuple(
+            event for event in self.lineage if event.action is not AtomLineageAction.REMOVED
         )
+        target_uids: list[AtomUid] = []
+        target_indices: list[int] = []
+        for event in target_events:
+            assert event.target_atom_uid is not None
+            assert event.target_index is not None
+            assert event.target_element is not None
+            target_uids.append(event.target_atom_uid)
+            target_indices.append(event.target_index)
+
         snapshot_uids = tuple(site.atom_uid for site in self.snapshot.sites)
         if len(target_uids) != len(set(target_uids)):
             raise ValueError("mutation lineage target atom_uids must be unique")
         if set(target_uids) != set(snapshot_uids):
             raise ValueError("mutation lineage must cover every target atom exactly once")
+        if set(target_indices) != set(range(len(self.snapshot.sites))):
+            raise ValueError("mutation lineage target indices must cover the child snapshot")
+        if len(target_indices) != len(set(target_indices)):
+            raise ValueError("mutation lineage target indices must be unique")
+        for event in target_events:
+            assert event.target_atom_uid is not None
+            assert event.target_index is not None
+            assert event.target_element is not None
+            target_site = self.snapshot.sites[event.target_index]
+            if target_site.atom_uid != event.target_atom_uid:
+                raise ValueError("mutation lineage target index must reference its target atom_uid")
+            if target_site.element != event.target_element:
+                raise ValueError("mutation lineage target element must match the child snapshot")
 
     @property
     def removed_atom_uids(self) -> tuple[AtomUid, ...]:
