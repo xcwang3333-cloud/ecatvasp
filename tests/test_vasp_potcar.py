@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from ecatvasp import domain, vasp
+from ecatvasp.domain.ids import new_project_id
 
 
 def _snapshot() -> domain.StructureSnapshot:
@@ -98,7 +99,7 @@ def _lock(
     evidence: vasp.EncCutValidationEvidence,
 ) -> vasp.ProjectNumericalLock:
     return vasp.ProjectNumericalLock(
-        project_id=domain.new_project_id(),
+        project_id=new_project_id(),
         system_kind=vasp.VaspSystemKind.SLAB_2D,
         core_method_hash=spec.core_method_hash,
         encut_ev=evidence.selected_encut_ev,
