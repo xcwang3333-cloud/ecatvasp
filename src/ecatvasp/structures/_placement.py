@@ -109,7 +109,7 @@ def minimum_image_distance(
 
 
 def slab_normal(lattice: Lattice) -> Vector3:
-    """Return normalized a1 × a2 slab normal."""
+    """Return normalized cross product of slab vectors a1 and a2."""
 
     normal = cross(lattice.vectors[0], lattice.vectors[1])
     magnitude = norm(normal)
