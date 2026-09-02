@@ -20,6 +20,7 @@ from ecatvasp.domain import (
     StructureVariant,
     VariantType,
     new_atom_uid,
+    new_structure_snapshot_id,
     validate_conformer_context,
 )
 from ecatvasp.structures import (
@@ -119,7 +120,7 @@ def test_create_active_site_rejects_missing_or_noncurrent_snapshot() -> None:
     center = snapshot.sites[0].atom_uid
     variant = _variant(snapshot)
     no_current = replace(variant, current_structure_snapshot_id=None)
-    other_snapshot = replace(snapshot, id=type(snapshot.id)(new_atom_uid()))
+    other_snapshot = replace(snapshot, id=new_structure_snapshot_id())
 
     with pytest.raises(ActiveSiteToolingError, match="current_structure_snapshot_id"):
         create_active_site(
