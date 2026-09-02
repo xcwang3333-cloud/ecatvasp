@@ -90,7 +90,9 @@ def test_graphene_builder_order_is_deterministic_but_identity_is_fresh() -> None
     second = structures.build_graphene(spec)
 
     assert first.lattice == second.lattice
-    assert tuple(site.element for site in first.sites) == tuple(site.element for site in second.sites)
+    assert tuple(site.element for site in first.sites) == tuple(
+        site.element for site in second.sites
+    )
     assert tuple(site.fractional_coords for site in first.sites) == tuple(
         site.fractional_coords for site in second.sites
     )
