@@ -102,42 +102,43 @@ class ProjectBundle:
             if current is not None and current not in snapshots:
                 raise ProjectIntegrityError("StructureVariant current snapshot is missing")
 
-        for snapshot in self.structure_snapshots:
-            parent = snapshot.parent_snapshot_id
-            if parent is not None and parent not in snapshots:
+        for structure_snapshot in self.structure_snapshots:
+            parent_snapshot_id = structure_snapshot.parent_snapshot_id
+            if parent_snapshot_id is not None and parent_snapshot_id not in snapshots:
                 raise ProjectIntegrityError("StructureSnapshot parent is missing")
 
         for active_site in self.active_sites:
             if active_site.structure_variant_id not in variants:
                 raise ProjectIntegrityError("ActiveSite references a missing StructureVariant")
 
-        for state in self.adsorption_states:
-            if state.structure_variant_id not in variants:
+        for adsorption_state in self.adsorption_states:
+            if adsorption_state.structure_variant_id not in variants:
                 raise ProjectIntegrityError("AdsorptionState references a missing StructureVariant")
-            if state.active_site_id is not None and state.active_site_id not in active_sites:
+            active_site_id = adsorption_state.active_site_id
+            if active_site_id is not None and active_site_id not in active_sites:
                 raise ProjectIntegrityError("AdsorptionState references a missing ActiveSite")
 
         for conformer in self.state_conformers:
-            state = states.get(conformer.adsorption_state_id)
-            snapshot = snapshots.get(conformer.structure_snapshot_id)
-            if state is None or snapshot is None:
+            conformer_state = states.get(conformer.adsorption_state_id)
+            conformer_snapshot = snapshots.get(conformer.structure_snapshot_id)
+            if conformer_state is None or conformer_snapshot is None:
                 raise ProjectIntegrityError("StateConformer references a missing state or snapshot")
-            parent = conformer.parent_conformer_id
-            if parent is not None and parent not in conformers:
+            parent_conformer_id = conformer.parent_conformer_id
+            if parent_conformer_id is not None and parent_conformer_id not in conformers:
                 raise ProjectIntegrityError("StateConformer parent is missing")
-            if state.active_site_id is None:
+            if conformer_state.active_site_id is None:
                 if conformer.binding_edges:
                     raise ProjectIntegrityError(
                         "binding edges require an AdsorptionState ActiveSite"
                     )
             else:
-                active_site = active_sites[state.active_site_id]
+                active_site = active_sites[conformer_state.active_site_id]
                 try:
                     validate_conformer_context(
                         active_site=active_site,
-                        state=state,
+                        state=conformer_state,
                         conformer=conformer,
-                        snapshot=snapshot,
+                        snapshot=conformer_snapshot,
                     )
                 except ValueError as error:
                     raise ProjectIntegrityError(str(error)) from error
@@ -153,8 +154,8 @@ class ProjectBundle:
         for attempt in self.execution_attempts:
             if attempt.calculation_id not in calculations:
                 raise ProjectIntegrityError("ExecutionAttempt references a missing Calculation")
-            previous = attempt.previous_attempt_id
-            if previous is not None and previous not in attempts:
+            previous_attempt_id = attempt.previous_attempt_id
+            if previous_attempt_id is not None and previous_attempt_id not in attempts:
                 raise ProjectIntegrityError("ExecutionAttempt previous attempt is missing")
 
         for remote_job in self.remote_jobs:
