@@ -58,7 +58,7 @@ def test_graphene_builds_expected_supercell_geometry() -> None:
     assert spec.primitive_lattice_constant_angstrom == pytest.approx(lattice_constant)
     assert snapshot.lattice.vectors[0] == pytest.approx((3 * lattice_constant, 0.0, 0.0))
     assert snapshot.lattice.vectors[1] == pytest.approx(
-        (lattice_constant, 3.0 * lattice_constant, 0.0)
+        (lattice_constant, sqrt(3.0) * lattice_constant, 0.0)
     )
     assert snapshot.lattice.vectors[2] == pytest.approx((0.0, 0.0, 18.0))
     assert all(site.element == "C" for site in snapshot.sites)
