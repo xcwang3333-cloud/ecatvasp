@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ecatvasp import domain, structures
+from ecatvasp import domain
+from ecatvasp import structures
 
 
 POSCAR_SELECTIVE = """Pb2 opposite-side model
@@ -205,7 +206,7 @@ def test_cif_adapter_expands_explicit_symmetry_operations() -> None:
 
 
 def test_cif_disordered_site_fails_closed() -> None:
-    with pytest.raises(structures.StructureIOError, match="occupancy|disordered"):
+    with pytest.raises(structures.StructureIOError, match=r"occupancy|disordered"):
         structures.parse_structure(CIF_DISORDERED, format="cif")
 
 
