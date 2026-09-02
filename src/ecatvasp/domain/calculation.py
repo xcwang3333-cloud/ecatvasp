@@ -314,9 +314,11 @@ class Artifact:
             raise ValueError("LOCAL artifact availability requires local_path")
         if self.availability is ArtifactAvailability.REMOTE and self.remote_path is None:
             raise ValueError("REMOTE artifact availability requires remote_path")
-        if self.availability is ArtifactAvailability.BOTH:
-            if self.local_path is None or self.remote_path is None:
-                raise ValueError("BOTH artifact availability requires local_path and remote_path")
+        if (
+            self.availability is ArtifactAvailability.BOTH
+            and (self.local_path is None or self.remote_path is None)
+        ):
+            raise ValueError("BOTH artifact availability requires local_path and remote_path")
         if self.retrieval_policy is RetrievalPolicy.REMOTE_ONLY and self.remote_path is None:
             raise ValueError("REMOTE_ONLY retrieval policy requires remote_path")
 
