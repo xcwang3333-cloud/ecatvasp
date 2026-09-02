@@ -177,7 +177,10 @@ def test_existing_vasp_vertical_slice_survives_project_reopen(tmp_path: Path) ->
 
     assert reopened == bundle
     assert reopened.calculations[0].status is CalculationScientificStatus.CONVERGED
-    assert reopened.structure_variants[0].current_structure_snapshot_id == imported.final_snapshot.id
+    assert (
+        reopened.structure_variants[0].current_structure_snapshot_id
+        == imported.final_snapshot.id
+    )
     assert tuple(site.atom_uid for site in reopened.structure_snapshots[0].sites) == tuple(
         site.atom_uid for site in reopened.structure_snapshots[1].sites
     )
