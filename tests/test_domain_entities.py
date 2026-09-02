@@ -9,11 +9,17 @@ from ecatvasp.domain import (
     ActiveSite,
     BindingEdge,
     BindingMode,
+    Catalyst,
     Lattice,
     Project,
     StateConformer,
     StructureSite,
     StructureSnapshot,
+    StructureVariant,
+    VariantType,
+    new_adsorption_state_id,
+    new_atom_uid,
+    new_structure_snapshot_id,
     new_uuid7,
 )
 
@@ -28,7 +34,7 @@ def test_uuid7_is_rfc_4122_and_time_sortable() -> None:
 
 
 def test_structure_snapshot_is_immutable_and_requires_unique_atom_uids() -> None:
-    atom_uid = new_uuid7()
+    atom_uid = new_atom_uid()
     lattice = Lattice(((10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (0.0, 0.0, 15.0)))
     site = StructureSite(atom_uid=atom_uid, element="Pb", fractional_coords=(0.5, 0.5, 0.5))
     snapshot = StructureSnapshot(lattice=lattice, sites=(site,))
@@ -43,15 +49,19 @@ def test_structure_snapshot_is_immutable_and_requires_unique_atom_uids() -> None
 
 def test_multicenter_binding_requires_multiple_site_atoms() -> None:
     project = Project(name="Test", slug="test")
-    center = new_uuid7()
-    active_site = ActiveSite(structure_variant_id=project.id, center_atom_uids=(center,))
-    edge = BindingEdge(adsorbate_atom_uid=new_uuid7(), site_atom_uid=center)
+    catalyst = Catalyst(project_id=project.id, name="Test catalyst", slug="test-catalyst")
+    variant = StructureVariant(
+        catalyst_id=catalyst.id, name="test variant", variant_type=VariantType.GEOMETRY
+    )
+    center = new_atom_uid()
+    active_site = ActiveSite(structure_variant_id=variant.id, center_atom_uids=(center,))
+    edge = BindingEdge(adsorbate_atom_uid=new_atom_uid(), site_atom_uid=center)
 
     assert active_site.nuclearity == 1
     with pytest.raises(ValueError, match="multicenter binding requires"):
         StateConformer(
-            adsorption_state_id=new_uuid7(),
-            structure_snapshot_id=new_uuid7(),
+            adsorption_state_id=new_adsorption_state_id(),
+            structure_snapshot_id=new_structure_snapshot_id(),
             name="invalid",
             binding_mode=BindingMode.MULTICENTER,
             binding_edges=(edge,),

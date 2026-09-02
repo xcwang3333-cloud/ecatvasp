@@ -16,7 +16,8 @@ from ecatvasp.domain import (
     StructureSnapshot,
     StructureVariant,
     VariantType,
-    new_uuid7,
+    new_atom_uid,
+    validate_conformer_context,
 )
 
 
@@ -37,13 +38,13 @@ def test_pb2_opposite_side_multicenter_cooh_is_unambiguous() -> None:
         topology_tags=("opposite-side", "dual-atom"),
     )
 
-    pb_top = new_uuid7()
-    pb_bottom = new_uuid7()
-    carbon = new_uuid7()
-    cooh_c = new_uuid7()
-    cooh_o = new_uuid7()
-    cooh_oh_o = new_uuid7()
-    cooh_h = new_uuid7()
+    pb_top = new_atom_uid()
+    pb_bottom = new_atom_uid()
+    carbon = new_atom_uid()
+    cooh_c = new_atom_uid()
+    cooh_o = new_atom_uid()
+    cooh_oh_o = new_atom_uid()
+    cooh_h = new_atom_uid()
     snapshot = StructureSnapshot(
         lattice=Lattice(((12.0, 0.0, 0.0), (0.0, 12.0, 0.0), (0.0, 0.0, 20.0))),
         sites=(
@@ -83,6 +84,10 @@ def test_pb2_opposite_side_multicenter_cooh_is_unambiguous() -> None:
             BindingEdge(cooh_c, pb_top, "COOH.C-Pb_top"),
             BindingEdge(cooh_o, pb_bottom, "COOH.O-Pb_bottom"),
         ),
+    )
+
+    validate_conformer_context(
+        active_site=active_site, state=state, conformer=conformer, snapshot=snapshot
     )
 
     assert catalyst.project_id == project.id

@@ -4,9 +4,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from uuid import UUID
 
-from ecatvasp.domain.ids import new_uuid7
+from ecatvasp.domain.ids import (
+    ActiveSiteId,
+    AdsorptionStateId,
+    AtomUid,
+    CatalystId,
+    ProjectId,
+    StateConformerId,
+    StructureSnapshotId,
+    StructureVariantId,
+    new_active_site_id,
+    new_adsorption_state_id,
+    new_catalyst_id,
+    new_project_id,
+    new_state_conformer_id,
+    new_structure_snapshot_id,
+    new_structure_variant_id,
+)
 from ecatvasp.domain.value_objects import (
     BindingEdge,
     BindingMode,
@@ -33,7 +48,7 @@ class Project:
 
     name: str
     slug: str
-    id: UUID = field(default_factory=new_uuid7)
+    id: ProjectId = field(default_factory=new_project_id)
     schema_version: int = 1
     description: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
@@ -49,10 +64,10 @@ class Project:
 class Catalyst:
     """Scientifically meaningful catalyst identity within a project."""
 
-    project_id: UUID
+    project_id: ProjectId
     name: str
     slug: str
-    id: UUID = field(default_factory=new_uuid7)
+    id: CatalystId = field(default_factory=new_catalyst_id)
     formula_label: str | None = None
     support_type: str | None = None
     series_key: str | None = None
@@ -70,13 +85,13 @@ class Catalyst:
 class StructureVariant:
     """One scientific structure hypothesis for a catalyst."""
 
-    catalyst_id: UUID
+    catalyst_id: CatalystId
     name: str
     variant_type: VariantType
-    id: UUID = field(default_factory=new_uuid7)
-    parent_variant_id: UUID | None = None
+    id: StructureVariantId = field(default_factory=new_structure_variant_id)
+    parent_variant_id: StructureVariantId | None = None
     topology_tags: tuple[str, ...] = ()
-    current_structure_snapshot_id: UUID | None = None
+    current_structure_snapshot_id: StructureSnapshotId | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
@@ -88,10 +103,10 @@ class StructureSnapshot:
 
     lattice: Lattice
     sites: tuple[StructureSite, ...]
-    id: UUID = field(default_factory=new_uuid7)
+    id: StructureSnapshotId = field(default_factory=new_structure_snapshot_id)
     label: str | None = None
     origin: StructureOrigin = StructureOrigin.IMPORTED
-    parent_snapshot_id: UUID | None = None
+    parent_snapshot_id: StructureSnapshotId | None = None
     periodic: tuple[bool, bool, bool] = (True, True, True)
 
     def __post_init__(self) -> None:
@@ -101,7 +116,7 @@ class StructureSnapshot:
         if len(atom_uids) != len(set(atom_uids)):
             raise ValueError("atom_uid values must be unique within a StructureSnapshot")
 
-    def contains_atom(self, atom_uid: UUID) -> bool:
+    def contains_atom(self, atom_uid: AtomUid) -> bool:
         """Return whether the immutable snapshot contains the requested atom identity."""
 
         return any(site.atom_uid == atom_uid for site in self.sites)
@@ -111,9 +126,9 @@ class StructureSnapshot:
 class ActiveSite:
     """Chemically meaningful one- or multi-center active site."""
 
-    structure_variant_id: UUID
-    center_atom_uids: tuple[UUID, ...]
-    id: UUID = field(default_factory=new_uuid7)
+    structure_variant_id: StructureVariantId
+    center_atom_uids: tuple[AtomUid, ...]
+    id: ActiveSiteId = field(default_factory=new_active_site_id)
     topology: str | None = None
     coordination_environment: str | None = None
     side_labels: tuple[SideLabel, ...] = ()
@@ -141,10 +156,10 @@ class ActiveSite:
 class AdsorptionState:
     """Chemical adsorption state independent of any one geometric conformer."""
 
-    structure_variant_id: UUID
+    structure_variant_id: StructureVariantId
     state_label: str
-    id: UUID = field(default_factory=new_uuid7)
-    active_site_id: UUID | None = None
+    id: AdsorptionStateId = field(default_factory=new_adsorption_state_id)
+    active_site_id: ActiveSiteId | None = None
     adsorbates: tuple[str, ...] = ()
     coverage: float | None = None
     reaction_role: str | None = None
@@ -159,20 +174,22 @@ class AdsorptionState:
 class StateConformer:
     """Concrete adsorption geometry for one AdsorptionState."""
 
-    adsorption_state_id: UUID
-    structure_snapshot_id: UUID
+    adsorption_state_id: AdsorptionStateId
+    structure_snapshot_id: StructureSnapshotId
     name: str
-    id: UUID = field(default_factory=new_uuid7)
+    id: StateConformerId = field(default_factory=new_state_conformer_id)
     binding_mode: BindingMode = BindingMode.NONE
     binding_edges: tuple[BindingEdge, ...] = ()
     orientation: str | None = None
-    parent_conformer_id: UUID | None = None
+    parent_conformer_id: StateConformerId | None = None
     rank: int | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.name, "name")
         if self.rank is not None and self.rank < 1:
             raise ValueError("rank must be positive when defined")
+        if len(self.binding_edges) != len(set(self.binding_edges)):
+            raise ValueError("binding_edges must be unique")
         if self.binding_mode is BindingMode.NONE and self.binding_edges:
             raise ValueError("binding edges require a non-NONE binding mode")
         if self.binding_mode is BindingMode.MULTICENTER:

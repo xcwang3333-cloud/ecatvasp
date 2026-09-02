@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
-from uuid import UUID
+
+from ecatvasp.domain.ids import AtomUid
 
 Vector3 = tuple[float, float, float]
 
@@ -58,33 +59,31 @@ class Lattice:
 
     def __post_init__(self) -> None:
         for vector in self.vectors:
-            if len(vector) != 3 or not all(isfinite(component) for component in vector):
-                raise ValueError("lattice vectors must contain three finite components")
+            if not all(isfinite(component) for component in vector):
+                raise ValueError("lattice vectors must contain finite components")
 
 
 @dataclass(frozen=True, slots=True)
 class StructureSite:
     """One atom in an immutable structure snapshot."""
 
-    atom_uid: UUID
+    atom_uid: AtomUid
     element: str
     fractional_coords: Vector3
 
     def __post_init__(self) -> None:
         if not self.element.strip():
             raise ValueError("element must not be blank")
-        if len(self.fractional_coords) != 3 or not all(
-            isfinite(component) for component in self.fractional_coords
-        ):
-            raise ValueError("fractional_coords must contain three finite components")
+        if not all(isfinite(component) for component in self.fractional_coords):
+            raise ValueError("fractional_coords must contain finite components")
 
 
 @dataclass(frozen=True, slots=True)
 class BindingEdge:
     """Explicit bond intent between an adsorbate atom and an active-site atom."""
 
-    adsorbate_atom_uid: UUID
-    site_atom_uid: UUID
+    adsorbate_atom_uid: AtomUid
+    site_atom_uid: AtomUid
     label: str | None = None
 
 
@@ -92,5 +91,5 @@ class BindingEdge:
 class SideLabel:
     """Side assignment for one active-center atom."""
 
-    atom_uid: UUID
+    atom_uid: AtomUid
     side: SiteSide

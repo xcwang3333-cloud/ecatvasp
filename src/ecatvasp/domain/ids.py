@@ -1,19 +1,24 @@
-"""Stable identifiers for scientific domain entities."""
+"""Stable and type-distinct identifiers for scientific domain entities."""
 
 from __future__ import annotations
 
 import secrets
 import time
+from typing import NewType
 from uuid import UUID
+
+ProjectId = NewType("ProjectId", UUID)
+CatalystId = NewType("CatalystId", UUID)
+StructureVariantId = NewType("StructureVariantId", UUID)
+StructureSnapshotId = NewType("StructureSnapshotId", UUID)
+ActiveSiteId = NewType("ActiveSiteId", UUID)
+AdsorptionStateId = NewType("AdsorptionStateId", UUID)
+StateConformerId = NewType("StateConformerId", UUID)
+AtomUid = NewType("AtomUid", UUID)
 
 
 def new_uuid7(*, timestamp_ms: int | None = None) -> UUID:
-    """Return an RFC 9562 UUIDv7 without requiring a third-party dependency.
-
-    UUIDv7 keeps a 48-bit Unix timestamp in milliseconds in the most significant
-    bits, which gives ECatVASP time-sortable scientific identifiers while retaining
-    random collision resistance.
-    """
+    """Return an RFC 9562 UUIDv7 without requiring a third-party dependency."""
 
     unix_ms = time.time_ns() // 1_000_000 if timestamp_ms is None else timestamp_ms
     if not 0 <= unix_ms < 1 << 48:
@@ -29,3 +34,35 @@ def new_uuid7(*, timestamp_ms: int | None = None) -> UUID:
         | random_b
     )
     return UUID(int=value)
+
+
+def new_project_id() -> ProjectId:
+    return ProjectId(new_uuid7())
+
+
+def new_catalyst_id() -> CatalystId:
+    return CatalystId(new_uuid7())
+
+
+def new_structure_variant_id() -> StructureVariantId:
+    return StructureVariantId(new_uuid7())
+
+
+def new_structure_snapshot_id() -> StructureSnapshotId:
+    return StructureSnapshotId(new_uuid7())
+
+
+def new_active_site_id() -> ActiveSiteId:
+    return ActiveSiteId(new_uuid7())
+
+
+def new_adsorption_state_id() -> AdsorptionStateId:
+    return AdsorptionStateId(new_uuid7())
+
+
+def new_state_conformer_id() -> StateConformerId:
+    return StateConformerId(new_uuid7())
+
+
+def new_atom_uid() -> AtomUid:
+    return AtomUid(new_uuid7())
