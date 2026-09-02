@@ -282,7 +282,9 @@ class MatterVizDisplayPolicy:
         if self.supercell_scaling != "1x1x1" or self.apply_supercell_scaling:
             raise MatterVizAdapterError("scientific overlays require the MatterViz 1x1x1 cell")
         if self.show_image_atoms:
-            raise MatterVizAdapterError("scientific overlays require MatterViz image atoms disabled")
+            raise MatterVizAdapterError(
+                "scientific overlays require MatterViz image atoms disabled"
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {
