@@ -20,7 +20,8 @@ def _require_text(value: str, field_name: str) -> None:
 
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
         raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
     return normalized
 

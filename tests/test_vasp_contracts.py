@@ -7,6 +7,8 @@ from ecatvasp.domain import (
     CalculationType,
     KPointPolicy,
     KPointPolicyKind,
+)
+from ecatvasp.domain.ids import (
     new_method_fingerprint_id,
     new_project_id,
     new_structure_snapshot_id,
