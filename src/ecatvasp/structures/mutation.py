@@ -175,11 +175,11 @@ def mutate_structure(
         raise StructureMutationError("all mutation atom_uids must exist in the source snapshot")
 
     substitution_by_uid = {item.atom_uid: item.dopant for item in substitutions}
-    for atom_uid, dopant in substitution_by_uid.items():
+    for atom_uid, requested_dopant in substitution_by_uid.items():
         source_site = source_by_uid[atom_uid]
         if source_site.element != "C":
             raise StructureMutationError(
-                f"substitution target must be carbon: {source_site.element} -> {dopant}"
+                f"substitution target must be carbon: {source_site.element} -> {requested_dopant}"
             )
 
     if len(vacancy_uids) >= len(source.sites) and not substitutions:
