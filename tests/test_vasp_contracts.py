@@ -66,7 +66,7 @@ def test_slab_context_requires_explicit_vacuum_axis() -> None:
 
     slab = VaspSystemContext(VaspSystemKind.SLAB_2D, vacuum_axis=LatticeAxis.C)
     assert slab.vacuum_axis is LatticeAxis.C
-    assert slab.vacuum_axis.index == 2
+    assert slab.vacuum_axis.axis_index == 2
 
     with pytest.raises(ValueError, match="only valid"):
         VaspSystemContext(VaspSystemKind.MOLECULE_0D, vacuum_axis=LatticeAxis.C)

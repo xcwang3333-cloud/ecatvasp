@@ -42,7 +42,7 @@ class LatticeAxis(StrEnum):
     C = "c"
 
     @property
-    def index(self) -> int:
+    def axis_index(self) -> int:
         """Return the zero-based lattice-vector index."""
 
         return {LatticeAxis.A: 0, LatticeAxis.B: 1, LatticeAxis.C: 2}[self]
