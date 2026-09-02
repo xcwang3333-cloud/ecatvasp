@@ -62,12 +62,23 @@ const highlightedSites = [0, 1, 2, 3]
 type StructureProps = ComponentProps<typeof Structure>
 const props: Pick<
   StructureProps,
-  'structure' | 'bonds' | 'highlighted_sites' | 'selected_sites'
+  | 'structure'
+  | 'bonds'
+  | 'highlighted_sites'
+  | 'selected_sites'
+  | 'cell_type'
+  | 'supercell_scaling'
+  | 'apply_supercell_scaling'
+  | 'show_image_atoms'
 > = {
   structure,
   bonds: bindingIntentBonds,
   highlighted_sites: highlightedSites,
   selected_sites: [],
+  cell_type: 'original',
+  supercell_scaling: '1x1x1',
+  apply_supercell_scaling: false,
+  show_image_atoms: false,
 }
 
 void props
