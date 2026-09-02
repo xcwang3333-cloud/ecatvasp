@@ -4,6 +4,7 @@ import pytest
 
 from ecatvasp.domain.method import (
     DipolePolicy,
+    ExecutionSettings,
     FingerprintCompatibility,
     KPointPolicy,
     KPointPolicyKind,
@@ -129,3 +130,19 @@ def test_invalid_hash_and_nonfinite_parameter_fail_closed() -> None:
         PotcarIdentity(element="Pb", symbol="Pb_d", sha256="not-a-hash")
     with pytest.raises(ValueError, match="finite"):
         ParameterEntry("CUSTOM", float("nan"))
+
+
+def test_known_vasp_parameters_cannot_leak_across_layers() -> None:
+    with pytest.raises(ValueError, match="Execution parameters contain cross-layer keys: IVDW"):
+        ExecutionSettings(extra_parameters=(ParameterEntry("IVDW", 12),))
+    with pytest.raises(ValueError, match="Protocol parameters contain cross-layer keys: NCORE"):
+        ProtocolDefinition(
+            encut_ev=450.0,
+            kpoints=KPointPolicy(KPointPolicyKind.GAMMA_ONLY),
+            extra_parameters=(ParameterEntry("NCORE", 8),),
+        )
+    with pytest.raises(ValueError, match="Recipe parameters contain cross-layer keys: ENCUT"):
+        RecipeIdentity(
+            "WXC.VASP.AdsorbateRelax",
+            parameters=(ParameterEntry("ENCUT", 500),),
+        )
