@@ -158,7 +158,9 @@ class MultiMetalSiteResult:
         coordination_counts: Counter[AtomUid] = Counter()
         for center in self.centers:
             if any(atom_uid not in preserved_set for atom_uid in center.coordination_atom_uids):
-                raise ValueError("center coordination atom_uids must reference preserved source atoms")
+                raise ValueError(
+                    "center coordination atom_uids must reference preserved source atoms"
+                )
             coordination_counts.update(center.coordination_atom_uids)
         expected_shared = tuple(
             atom_uid for atom_uid in preserved_uids if coordination_counts[atom_uid] > 1
@@ -177,9 +179,11 @@ class MultiMetalSiteResult:
         if actual_pair_keys != expected_pair_keys:
             raise ValueError("pair distances must cover every unique multi-metal center pair")
 
-        if self.metal_metal_topology_intent is not None:
-            if not self.metal_metal_topology_intent.strip():
-                raise ValueError("metal_metal_topology_intent must not be blank")
+        if (
+            self.metal_metal_topology_intent is not None
+            and not self.metal_metal_topology_intent.strip()
+        ):
+            raise ValueError("metal_metal_topology_intent must not be blank")
 
     @property
     def snapshot(self) -> StructureSnapshot:
