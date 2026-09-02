@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import combinations
+from math import isfinite
 
 from ecatvasp.domain import AtomUid, SiteSide, StructureSite, StructureSnapshot, new_atom_uid
 from ecatvasp.structures._placement import (
@@ -87,6 +89,24 @@ class MultiMetalCenterResult:
     side: SiteSide
     height_angstrom: float
 
+    def __post_init__(self) -> None:
+        if not self.metal_element.strip():
+            raise ValueError("metal_element must not be blank")
+        if not self.coordination_atom_uids:
+            raise ValueError("multi-metal center requires coordination atoms")
+        if len(self.coordination_atom_uids) != len(set(self.coordination_atom_uids)):
+            raise ValueError("multi-metal center coordination atom_uids must be unique")
+        if len(self.coordination_atom_uids) != len(self.coordination_elements):
+            raise ValueError("coordination atom and element metadata must align")
+        if self.side is SiteSide.UNSPECIFIED:
+            raise ValueError("multi-metal center requires an explicit side")
+        if not isfinite(self.height_angstrom):
+            raise ValueError("height_angstrom must be finite")
+        if self.side is SiteSide.IN_PLANE and self.height_angstrom != 0.0:
+            raise ValueError("IN_PLANE center requires zero height")
+        if self.side is not SiteSide.IN_PLANE and self.height_angstrom <= 0.0:
+            raise ValueError("TOP/BOTTOM center requires positive height")
+
     @property
     def coordination_signature(self) -> str:
         """Return the explicit coordination-composition intent for this center."""
@@ -105,8 +125,8 @@ class MetalPairDistance:
     def __post_init__(self) -> None:
         if self.left_atom_uid == self.right_atom_uid:
             raise ValueError("metal pair must reference two distinct atom_uids")
-        if self.distance_angstrom <= 0.0:
-            raise ValueError("metal pair distance must be positive")
+        if not isfinite(self.distance_angstrom) or self.distance_angstrom <= 0.0:
+            raise ValueError("metal pair distance must be finite and positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,9 +152,34 @@ class MultiMetalSiteResult:
             tuple(center.side for center in self.centers)
         ):
             raise ValueError("side_topology must match the center side assignments")
-        expected_pairs = len(self.centers) * (len(self.centers) - 1) // 2
-        if len(self.pair_distances) != expected_pairs:
-            raise ValueError("pair distances must cover every unique metal pair")
+
+        preserved_uids = self.addition.preserved_atom_uids
+        preserved_set = set(preserved_uids)
+        coordination_counts: Counter[AtomUid] = Counter()
+        for center in self.centers:
+            if any(atom_uid not in preserved_set for atom_uid in center.coordination_atom_uids):
+                raise ValueError("center coordination atom_uids must reference preserved source atoms")
+            coordination_counts.update(center.coordination_atom_uids)
+        expected_shared = tuple(
+            atom_uid for atom_uid in preserved_uids if coordination_counts[atom_uid] > 1
+        )
+        if self.shared_coordination_atom_uids != expected_shared:
+            raise ValueError("shared coordination atom_uids must match center coordination intent")
+
+        expected_pair_keys = {
+            frozenset((left_uid, right_uid)) for left_uid, right_uid in combinations(center_uids, 2)
+        }
+        actual_pair_keys = {
+            frozenset((pair.left_atom_uid, pair.right_atom_uid)) for pair in self.pair_distances
+        }
+        if len(self.pair_distances) != len(actual_pair_keys):
+            raise ValueError("pair distances must not contain duplicate metal pairs")
+        if actual_pair_keys != expected_pair_keys:
+            raise ValueError("pair distances must cover every unique multi-metal center pair")
+
+        if self.metal_metal_topology_intent is not None:
+            if not self.metal_metal_topology_intent.strip():
+                raise ValueError("metal_metal_topology_intent must not be blank")
 
     @property
     def snapshot(self) -> StructureSnapshot:
