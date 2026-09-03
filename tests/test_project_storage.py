@@ -75,9 +75,10 @@ def test_project_store_rejects_database_tampering(tmp_path) -> None:
         store.open()
 
 
-def test_migration_registry_requires_explicit_consecutive_steps() -> None:
+def test_migration_registry_includes_v1_to_v2_and_requires_future_steps() -> None:
     registry = MigrationRegistry()
 
     assert registry.plan(1, 1) == ()
+    assert registry.plan(1, 2) == (1,)
     with pytest.raises(MigrationPathError):
-        registry.plan(1, 2)
+        registry.plan(2, 3)

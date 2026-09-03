@@ -26,6 +26,7 @@ from ecatvasp.domain.calculation import (
     CalculationProducerRef,
     ExecutionAttemptProducerRef,
 )
+from ecatvasp.domain.calculation_validation import validate_attempt_history
 from ecatvasp.provenance import (
     DependencyGraph,
     DependencyRecord,
@@ -183,9 +184,20 @@ class ProjectBundle:
         for attempt in self.execution_attempts:
             if attempt.calculation_id not in calculations:
                 raise ProjectIntegrityError("ExecutionAttempt references a missing Calculation")
-            previous_attempt_id = attempt.previous_attempt_id
-            if previous_attempt_id is not None and previous_attempt_id not in attempts:
-                raise ProjectIntegrityError("ExecutionAttempt previous attempt is missing")
+
+        for calculation in self.calculations:
+            calculation_attempts = tuple(
+                attempt
+                for attempt in self.execution_attempts
+                if attempt.calculation_id == calculation.id
+            )
+            try:
+                validate_attempt_history(
+                    calculation=calculation,
+                    attempts=calculation_attempts,
+                )
+            except ValueError as error:
+                raise ProjectIntegrityError(str(error)) from error
 
         for remote_job in self.remote_jobs:
             if remote_job.execution_attempt_id not in attempts:
