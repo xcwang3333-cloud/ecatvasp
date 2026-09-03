@@ -289,10 +289,7 @@ def test_materialization_guard_rejects_tampered_dos_incar(tmp_path: Path) -> Non
         else item
         for item in prepared.parameters
     )
-    text = "".join(
-        f"{item.name} = {'.TRUE.' if item.value is True else '.FALSE.' if item.value is False else item.value}\n"
-        for item in parameters
-    )
+    text = prepared.text.replace("LORBIT = 11\n", "LORBIT = 10\n")
     tampered = vasp.PreparedIncar(
         structure_snapshot_id=prepared.structure_snapshot_id,
         recipe_id=prepared.recipe_id,
@@ -343,8 +340,12 @@ def _triplet_member(
         centering=vasp.KPointCentering.GAMMA,
     )
     resolved = library.resolve(prepared_poscar=prepared_poscar, method=method)
-    encut_hash = hashlib.sha256(f"triplet-encut-{fingerprint.core_method_hash}".encode()).hexdigest()
-    kpoint_hash = hashlib.sha256(f"triplet-kpoint-{fingerprint.core_method_hash}".encode()).hexdigest()
+    encut_hash = hashlib.sha256(
+        f"triplet-encut-{fingerprint.core_method_hash}".encode()
+    ).hexdigest()
+    kpoint_hash = hashlib.sha256(
+        f"triplet-kpoint-{fingerprint.core_method_hash}".encode()
+    ).hexdigest()
     encut_evidence = vasp.EncCutValidationEvidence(
         core_method_hash=fingerprint.core_method_hash,
         potcar_spec_hash=resolved.spec.metadata_hash,
