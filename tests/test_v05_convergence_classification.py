@@ -31,16 +31,18 @@ from ecatvasp.vasp import (
     RECIPE_FULL_FREQUENCY,
     RECIPE_GROUND_STATE_STATIC,
     RECIPE_SLAB_RELAX,
-    VaspConvergenceError,
-    VaspConvergenceEvidenceCode,
     VaspResultArtifactIntake,
     VaspResultInputFile,
     VaspResultSource,
     VaspResultSourceRole,
-    assess_vasp_convergence,
-    collect_vasp_convergence_evidence,
     parse_vasp_energy_metadata,
     result_source_artifact_type,
+)
+from ecatvasp.vasp.convergence import (
+    VaspConvergenceError,
+    VaspConvergenceEvidenceCode,
+    assess_vasp_convergence,
+    collect_vasp_convergence_evidence,
 )
 
 
