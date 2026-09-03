@@ -27,10 +27,10 @@ from ecatvasp.domain.ids import (
     new_structure_snapshot_id,
 )
 from ecatvasp.vasp import (
-    ConvergenceVerdict,
     RECIPE_FULL_FREQUENCY,
     RECIPE_GROUND_STATE_STATIC,
     RECIPE_SLAB_RELAX,
+    ConvergenceVerdict,
     VaspResultArtifactIntake,
     VaspResultInputFile,
     VaspResultSource,

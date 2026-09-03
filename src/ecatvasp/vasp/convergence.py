@@ -1,9 +1,7 @@
 """Recipe-aware scientific convergence classification for v0.5 Block 4.
 
-This module keeps raw convergence evidence collection separate from verdict
-classification. It consumes the exact Block 2 intake and Block 3 parsed result,
-then returns a parser-neutral ``VaspConvergenceAssessment`` without mutating
-Calculation or ExecutionAttempt lifecycle state.
+Evidence collection and verdict classification are deliberately separate. This
+module never mutates Calculation or ExecutionAttempt lifecycle state.
 """
 
 from __future__ import annotations
@@ -120,20 +118,21 @@ class VaspConvergenceEvidence:
     def __post_init__(self) -> None:
         if not self.recipe_id.strip():
             raise VaspConvergenceError("recipe_id must not be blank")
-        if len(self.intake_hash) != 64 or any(
-            character not in "0123456789abcdefABCDEF" for character in self.intake_hash
-        ):
+        valid_hash = len(self.intake_hash) == 64 and all(
+            char in "0123456789abcdefABCDEF" for char in self.intake_hash
+        )
+        if not valid_hash:
             raise VaspConvergenceError("intake_hash must be a SHA-256 digest")
-        for field_name in (
+        for name in (
             "electronic_step_limit",
             "ionic_step_limit",
             "ionic_steps",
             "final_electronic_steps",
             "max_electronic_steps",
         ):
-            value = getattr(self, field_name)
+            value = getattr(self, name)
             if value is not None and value < 0:
-                raise VaspConvergenceError(f"{field_name} must not be negative")
+                raise VaspConvergenceError(f"{name} must not be negative")
         if self.electronic_step_limit == 0:
             raise VaspConvergenceError("electronic_step_limit must be positive when present")
         if any(not code.strip() for code in self.evidence_codes):
@@ -159,31 +158,16 @@ def collect_vasp_convergence_evidence(
     if not root.is_dir():
         raise VaspConvergenceError("project_root must be an existing directory")
 
-    outcar_item = _require_file(intake, VaspResultSourceRole.OUTCAR)
-    electronic_limit, ionic_limit = _scan_outcar_limits(
-        path=_resolve_input_path(root=root, item=outcar_item),
-        item=outcar_item,
+    outcar = _require_file(intake, VaspResultSourceRole.OUTCAR)
+    nelm, nsw = _scan_outcar_limits(
+        path=_resolve_input_path(root=root, item=outcar),
+        item=outcar,
     )
-
-    oszicar_items = tuple(
-        item for item in intake.files if item.source.role is VaspResultSourceRole.OSZICAR
+    ionic_steps, final_electronic, max_electronic = _read_oszicar_evidence(
+        root=root,
+        intake=intake,
+        result=result,
     )
-    if len(oszicar_items) > 1:
-        raise VaspConvergenceError("result intake contains multiple OSZICAR sources")
-    ionic_steps: int | None = None
-    final_electronic_steps: int | None = None
-    max_electronic_steps: int | None = None
-    if oszicar_items:
-        ionic_steps, final_electronic_steps, max_electronic_steps = _scan_oszicar_steps(
-            path=_resolve_input_path(root=root, item=oszicar_items[0]),
-            item=oszicar_items[0],
-        )
-        if ionic_steps != result.ionic_steps:
-            raise VaspConvergenceError("OSZICAR ionic-step evidence changed after result parsing")
-        if final_electronic_steps != result.electronic_steps:
-            raise VaspConvergenceError(
-                "OSZICAR final electronic-step evidence changed after result parsing"
-            )
 
     parser_codes = set(result.evidence_codes)
     electronic_marker = (
@@ -194,25 +178,16 @@ def collect_vasp_convergence_evidence(
         in parser_codes
     )
     final_toten = result.energies.free_energy_toten_ev is not None
-
-    codes: set[VaspConvergenceEvidenceCode] = set()
-    if result.termination_observed is True:
-        codes.add(VaspConvergenceEvidenceCode.NORMAL_TERMINATION_OBSERVED)
-    if final_toten:
-        codes.add(VaspConvergenceEvidenceCode.FINAL_TOTEN_OBSERVED)
-    if electronic_marker:
-        codes.add(VaspConvergenceEvidenceCode.ELECTRONIC_EDIFF_OBSERVED)
-    if ionic_marker:
-        codes.add(VaspConvergenceEvidenceCode.IONIC_REQUIRED_ACCURACY_OBSERVED)
-    if electronic_limit is not None:
-        codes.add(VaspConvergenceEvidenceCode.OUTCAR_NELM_OBSERVED)
-    if ionic_limit is not None:
-        codes.add(VaspConvergenceEvidenceCode.OUTCAR_NSW_OBSERVED)
-    if max_electronic_steps is not None:
-        codes.add(VaspConvergenceEvidenceCode.OSZICAR_MAX_ELECTRONIC_STEP_OBSERVED)
-    if ionic_steps is not None:
-        codes.add(VaspConvergenceEvidenceCode.OSZICAR_IONIC_STEPS_OBSERVED)
-
+    codes = _initial_evidence_codes(
+        result=result,
+        electronic_marker=electronic_marker,
+        ionic_marker=ionic_marker,
+        final_toten=final_toten,
+        nelm=nelm,
+        nsw=nsw,
+        ionic_steps=ionic_steps,
+        max_electronic=max_electronic,
+    )
     return VaspConvergenceEvidence(
         calculation_id=intake.calculation_id,
         intake_hash=intake.intake_hash,
@@ -222,11 +197,11 @@ def collect_vasp_convergence_evidence(
         final_toten_observed=final_toten,
         electronic_ediff_reached=electronic_marker,
         ionic_required_accuracy_reached=ionic_marker,
-        electronic_step_limit=electronic_limit,
-        ionic_step_limit=ionic_limit,
+        electronic_step_limit=nelm,
+        ionic_step_limit=nsw,
         ionic_steps=ionic_steps,
-        final_electronic_steps=final_electronic_steps,
-        max_electronic_steps=max_electronic_steps,
+        final_electronic_steps=final_electronic,
+        max_electronic_steps=max_electronic,
         evidence_codes=tuple(sorted(code.value for code in codes)),
     )
 
@@ -239,11 +214,7 @@ def assess_vasp_convergence(
 ) -> VaspConvergenceAssessment:
     """Return a pure scientific convergence verdict from exact recipe-aware evidence."""
 
-    _validate_assessment_identity(
-        calculation=calculation,
-        fingerprint=fingerprint,
-        evidence=evidence,
-    )
+    _validate_assessment_identity(calculation, fingerprint, evidence)
     expected_nsw = _expected_ionic_step_limit(fingerprint)
     codes = set(evidence.evidence_codes)
     limit_mismatch = (
@@ -255,19 +226,12 @@ def assess_vasp_convergence(
     elif evidence.ionic_step_limit is not None:
         codes.add(VaspConvergenceEvidenceCode.IONIC_LIMIT_MATCHES_RECIPE.value)
 
-    electronic = _assess_electronic(evidence=evidence, codes=codes)
-    ionic = _assess_ionic(
-        evidence=evidence,
-        expected_nsw=expected_nsw,
-        limit_mismatch=limit_mismatch,
-        codes=codes,
-    )
-    overall = (
-        ConvergenceVerdict.INDETERMINATE
-        if limit_mismatch
-        else _combine_verdicts(electronic=electronic, ionic=ionic)
-    )
-
+    electronic = _assess_electronic(evidence, codes)
+    ionic = _assess_ionic(evidence, expected_nsw, limit_mismatch, codes)
+    if limit_mismatch:
+        overall = ConvergenceVerdict.INDETERMINATE
+    else:
+        overall = _combine_verdicts(electronic, ionic)
     return VaspConvergenceAssessment(
         calculation_type=calculation.calculation_type,
         electronic=electronic,
@@ -277,8 +241,38 @@ def assess_vasp_convergence(
     )
 
 
-def _assess_electronic(
+def _initial_evidence_codes(
     *,
+    result: VaspResultDocument,
+    electronic_marker: bool,
+    ionic_marker: bool,
+    final_toten: bool,
+    nelm: int | None,
+    nsw: int | None,
+    ionic_steps: int | None,
+    max_electronic: int | None,
+) -> set[VaspConvergenceEvidenceCode]:
+    codes: set[VaspConvergenceEvidenceCode] = set()
+    observations = (
+        (result.termination_observed is True, VaspConvergenceEvidenceCode.NORMAL_TERMINATION_OBSERVED),
+        (final_toten, VaspConvergenceEvidenceCode.FINAL_TOTEN_OBSERVED),
+        (electronic_marker, VaspConvergenceEvidenceCode.ELECTRONIC_EDIFF_OBSERVED),
+        (ionic_marker, VaspConvergenceEvidenceCode.IONIC_REQUIRED_ACCURACY_OBSERVED),
+        (nelm is not None, VaspConvergenceEvidenceCode.OUTCAR_NELM_OBSERVED),
+        (nsw is not None, VaspConvergenceEvidenceCode.OUTCAR_NSW_OBSERVED),
+        (
+            max_electronic is not None,
+            VaspConvergenceEvidenceCode.OSZICAR_MAX_ELECTRONIC_STEP_OBSERVED,
+        ),
+        (ionic_steps is not None, VaspConvergenceEvidenceCode.OSZICAR_IONIC_STEPS_OBSERVED),
+    )
+    for observed, code in observations:
+        if observed:
+            codes.add(code)
+    return codes
+
+
+def _assess_electronic(
     evidence: VaspConvergenceEvidence,
     codes: set[str],
 ) -> ConvergenceVerdict:
@@ -302,7 +296,6 @@ def _assess_electronic(
 
 
 def _assess_ionic(
-    *,
     evidence: VaspConvergenceEvidence,
     expected_nsw: int,
     limit_mismatch: bool,
@@ -326,7 +319,6 @@ def _assess_ionic(
 
 
 def _combine_verdicts(
-    *,
     electronic: ConvergenceVerdict,
     ionic: ConvergenceVerdict,
 ) -> ConvergenceVerdict:
@@ -341,7 +333,6 @@ def _combine_verdicts(
 
 
 def _validate_assessment_identity(
-    *,
     calculation: Calculation,
     fingerprint: MethodFingerprint,
     evidence: VaspConvergenceEvidence,
@@ -355,7 +346,9 @@ def _validate_assessment_identity(
     if evidence.recipe_id != calculation.recipe_id:
         raise VaspConvergenceError("convergence evidence recipe does not match Calculation")
     if evidence.calculation_type is not calculation.calculation_type:
-        raise VaspConvergenceError("convergence evidence CalculationType does not match Calculation")
+        raise VaspConvergenceError(
+            "convergence evidence CalculationType does not match Calculation"
+        )
     spec = get_vasp_recipe_spec(calculation.recipe_id)
     if spec.calculation_type is not calculation.calculation_type:
         raise VaspConvergenceError("CalculationType does not match canonical recipe contract")
@@ -373,7 +366,6 @@ def _expected_ionic_step_limit(fingerprint: MethodFingerprint) -> int:
         default = 0
     else:
         raise VaspConvergenceError(f"unsupported VASP convergence recipe: {recipe.recipe_id}")
-
     overrides = tuple(item.value for item in recipe.parameters if item.name == "NSW")
     if len(overrides) > 1:
         raise VaspConvergenceError("RecipeIdentity contains multiple NSW parameters")
@@ -389,6 +381,33 @@ def _expected_ionic_step_limit(fingerprint: MethodFingerprint) -> int:
     return value
 
 
+def _read_oszicar_evidence(
+    *,
+    root: Path,
+    intake: VaspResultArtifactIntake,
+    result: VaspResultDocument,
+) -> tuple[int | None, int | None, int | None]:
+    items = tuple(
+        item for item in intake.files if item.source.role is VaspResultSourceRole.OSZICAR
+    )
+    if len(items) > 1:
+        raise VaspConvergenceError("result intake contains multiple OSZICAR sources")
+    if not items:
+        return None, None, None
+    values = _scan_oszicar_steps(
+        path=_resolve_input_path(root=root, item=items[0]),
+        item=items[0],
+    )
+    ionic_steps, final_electronic, _ = values
+    if ionic_steps != result.ionic_steps:
+        raise VaspConvergenceError("OSZICAR ionic-step evidence changed after result parsing")
+    if final_electronic != result.electronic_steps:
+        raise VaspConvergenceError(
+            "OSZICAR final electronic-step evidence changed after result parsing"
+        )
+    return values
+
+
 def _require_file(
     intake: VaspResultArtifactIntake,
     role: VaspResultSourceRole,
@@ -401,12 +420,13 @@ def _require_file(
 
 def _resolve_input_path(*, root: Path, item: VaspResultInputFile) -> Path:
     relative = PurePosixPath(item.local_relative_path)
-    if (
+    invalid = (
         relative.is_absolute()
         or item.local_relative_path != relative.as_posix()
         or ".." in relative.parts
         or item.local_relative_path in {"", "."}
-    ):
+    )
+    if invalid:
         raise VaspConvergenceError(
             "convergence source path must be a normalized relative POSIX path"
         )
@@ -436,7 +456,7 @@ def _scan_outcar_limits(
             line = raw_line.decode("utf-8", errors="replace")
             nelm_values.update(int(match) for match in _NELM_PATTERN.findall(line))
             nsw_values.update(int(match) for match in _NSW_PATTERN.findall(line))
-    _validate_integrity(item=item, observed_size=size, observed_sha256=digest.hexdigest())
+    _validate_integrity(item, size, digest.hexdigest())
     if len(nelm_values) > 1:
         raise VaspConvergenceError("OUTCAR contains multiple distinct NELM values")
     if len(nsw_values) > 1:
@@ -469,13 +489,15 @@ def _scan_oszicar_steps(
             if match is not None:
                 value = int(match.group(1))
                 final_electronic = value
-                max_electronic = value if max_electronic is None else max(max_electronic, value)
-    _validate_integrity(item=item, observed_size=size, observed_sha256=digest.hexdigest())
+                if max_electronic is None:
+                    max_electronic = value
+                else:
+                    max_electronic = max(max_electronic, value)
+    _validate_integrity(item, size, digest.hexdigest())
     return ionic_count or None, final_electronic, max_electronic
 
 
 def _validate_integrity(
-    *,
     item: VaspResultInputFile,
     observed_size: int,
     observed_sha256: str,
