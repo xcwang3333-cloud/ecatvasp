@@ -227,7 +227,10 @@ def test_core_pipeline_materializes_supported_production_recipes(
     assert result.prepared_incar.recipe_id == recipe_id
     assert result.prepared_kpoints.system_context == case.context
     assert all(path.is_file() for path in result.resolved_potcars.ordered_paths)
-    assert all(case.project_root not in path.parents for path in result.resolved_potcars.ordered_paths)
+    assert all(
+        case.project_root not in path.parents
+        for path in result.resolved_potcars.ordered_paths
+    )
 
     input_dir = case.project_root / result.materialized.input_directory
     assert not (input_dir / "POTCAR").exists()
@@ -298,7 +301,7 @@ def test_core_pipeline_rejects_non_block7_recipe_before_materialization(tmp_path
 
     with pytest.raises(
         vasp.CoreInputPipelineError,
-        match="outside the v0.3 Block 7 core pipeline",
+        match=r"outside the v0.3 Block 7 core pipeline",
     ):
         vasp.prepare_core_calculation_inputs(
             project_root=base.project_root,
