@@ -9,9 +9,8 @@ from ecatvasp.domain.method import RecipeIdentity
 from ecatvasp.vasp.contracts import ProjectNumericalLock, VaspSystemContext
 from ecatvasp.vasp.incar import AtomMagmom, PreparedIncar, UidMagmom, prepare_incar
 from ecatvasp.vasp.kpoints import PreparedKPoints
+from ecatvasp.vasp.materialization import InputMaterializationError, MaterializedInputSet
 from ecatvasp.vasp.materialization import (
-    InputMaterializationError,
-    MaterializedInputSet,
     materialize_calculation_inputs as _materialize_calculation_inputs,
 )
 from ecatvasp.vasp.poscar import PreparedPoscar
@@ -115,4 +114,6 @@ def _magmom_values(prepared_incar: PreparedIncar) -> tuple[float, ...]:
     try:
         return tuple(float(item) for item in matches[0].value.split())
     except ValueError as error:
-        raise InputMaterializationError("PreparedIncar MAGMOM contains non-numeric values") from error
+        raise InputMaterializationError(
+            "PreparedIncar MAGMOM contains non-numeric values"
+        ) from error
