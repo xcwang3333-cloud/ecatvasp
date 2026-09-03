@@ -389,14 +389,3 @@ def test_naive_submission_timestamp_fails_before_sbatch(tmp_path: Path) -> None:
         )
 
     assert not any(command[0] == "sbatch" for command in transport.commands)
-
-
-def test_slurm_monitoring_and_cancellation_remain_deferred(tmp_path: Path) -> None:
-    staged = _staged(tmp_path)
-    transport = _FakeSlurmTransport()
-    scheduler = SlurmAdapter(transport)
-
-    with pytest.raises(SlurmSubmissionError, match="Block 6"):
-        scheduler.query(target=staged.target, scheduler_job_id="12345")
-    with pytest.raises(SlurmSubmissionError, match="Block 6"):
-        scheduler.cancel(target=staged.target, scheduler_job_id="12345")
