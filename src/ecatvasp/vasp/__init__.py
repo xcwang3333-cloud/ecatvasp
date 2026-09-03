@@ -20,9 +20,11 @@ from ecatvasp.vasp.kpoints import (
     ECATVASP_KPOINT_CENTERING,
     KPointCentering,
     KPointPreparationError,
+    KPointValidationEvidence,
     PreparedKPoints,
     prepare_kpoints,
     validate_kpoints_file_presence,
+    validate_project_lock_kpoints,
     validate_protocol_kpoint_contract,
 )
 from ecatvasp.vasp.poscar import (
@@ -92,6 +94,7 @@ __all__ = [
     "ExistingVaspImport",
     "KPointCentering",
     "KPointPreparationError",
+    "KPointValidationEvidence",
     "LatticeAxis",
     "LocalPotcarLibrary",
     "ParsedVaspResult",
@@ -123,5 +126,6 @@ __all__ = [
     "validate_encut_evidence",
     "validate_kpoints_file_presence",
     "validate_project_lock_encut",
+    "validate_project_lock_kpoints",
     "validate_protocol_kpoint_contract",
 ]

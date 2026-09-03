@@ -16,7 +16,11 @@ from ecatvasp.domain.method import (
     ProtocolDefinition,
     canonical_sha256,
 )
-from ecatvasp.vasp.contracts import VaspSystemContext, VaspSystemKind
+from ecatvasp.vasp.contracts import (
+    ProjectNumericalLock,
+    VaspSystemContext,
+    VaspSystemKind,
+)
 
 ECATVASP_KPOINT_CENTERING = "ECATVASP_KPOINT_CENTERING"
 
@@ -30,6 +34,53 @@ class KPointCentering(StrEnum):
 
     GAMMA = "gamma"
     MONKHORST_PACK = "monkhorst_pack"
+
+
+@dataclass(frozen=True, slots=True)
+class KPointValidationEvidence:
+    """Completed solid-state convergence evidence for one selected k-point plan."""
+
+    core_method_hash: str
+    system_kind: VaspSystemKind
+    tested_plan_hashes: tuple[str, ...]
+    selected_plan_hash: str
+    analysis_hash: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "core_method_hash",
+            _normalized_sha256(self.core_method_hash, "core_method_hash"),
+        )
+        if not self.tested_plan_hashes:
+            raise ValueError("tested_plan_hashes must not be empty")
+        tested = tuple(
+            sorted(
+                _normalized_sha256(value, "tested_plan_hash")
+                for value in self.tested_plan_hashes
+            )
+        )
+        if len(tested) != len(set(tested)):
+            raise ValueError("tested k-point plan hashes must be unique")
+        object.__setattr__(self, "tested_plan_hashes", tested)
+        object.__setattr__(
+            self,
+            "selected_plan_hash",
+            _normalized_sha256(self.selected_plan_hash, "selected_plan_hash"),
+        )
+        object.__setattr__(
+            self,
+            "analysis_hash",
+            _normalized_sha256(self.analysis_hash, "analysis_hash"),
+        )
+        if self.selected_plan_hash not in tested:
+            raise ValueError("selected_plan_hash must be one of the tested k-point plans")
+
+    @property
+    def evidence_hash(self) -> str:
+        """Return a deterministic digest for manifest/provenance use."""
+
+        return canonical_sha256(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +271,54 @@ def validate_protocol_kpoint_contract(
     if matches[0].value != prepared.centering.value:
         raise KPointPreparationError(
             "ProtocolDefinition k-point centering does not match the prepared plan"
+        )
+
+
+def validate_project_lock_kpoints(
+    *,
+    lock: ProjectNumericalLock,
+    prepared: PreparedKPoints,
+    evidence: KPointValidationEvidence | None,
+) -> None:
+    """Require production k-point preparation to inherit a validated project lock."""
+
+    if lock.system_kind is not prepared.system_context.kind:
+        raise KPointPreparationError(
+            "project lock system kind does not match the prepared k-point context"
+        )
+    if lock.kpoints != prepared.policy:
+        raise KPointPreparationError(
+            "project lock k-point policy does not match the prepared k-point policy"
+        )
+
+    if prepared.system_context.kind is VaspSystemKind.MOLECULE_0D:
+        if evidence is None and lock.kpoints_validation_hash is None:
+            return
+        if evidence is None:
+            raise KPointPreparationError(
+                "molecule k-point validation hash is present without matching evidence"
+            )
+    elif evidence is None:
+        raise KPointPreparationError(
+            "solid production k-point lock requires convergence evidence"
+        )
+
+    assert evidence is not None
+    if lock.core_method_hash != evidence.core_method_hash:
+        raise KPointPreparationError(
+            "k-point evidence core method does not match the project lock"
+        )
+    if evidence.system_kind is not prepared.system_context.kind:
+        raise KPointPreparationError(
+            "k-point evidence system kind does not match the prepared context"
+        )
+    if evidence.selected_plan_hash != prepared.identity_hash:
+        raise KPointPreparationError(
+            "k-point evidence selected plan does not match the prepared k-point plan"
+        )
+    if lock.kpoints_validation_hash != evidence.analysis_hash:
+        raise KPointPreparationError(
+            "project lock k-point validation hash does not match evidence"
         )
 
 
@@ -443,3 +542,11 @@ def _determinant(
 ) -> float:
     a, b, c = vectors
     return _dot(a, _cross(b, c))
+
+
+def _normalized_sha256(value: str, field_name: str) -> str:
+    normalized = value.lower()
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
+        raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
+    return normalized

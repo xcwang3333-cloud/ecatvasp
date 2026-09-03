@@ -45,7 +45,8 @@ The frozen `KPointPolicy` schema has no centering field, so the effective center
 without adding a persisted domain field.
 
 Geometrically hexagonal cells reject Monkhorst-Pack automatic meshes and require Gamma centering,
-consistent with VASP symmetry guidance. ECatVASP does not infer "graphene" from element names.
+consistent with VASP symmetry guidance. The geometry check is independent of A/B/C axis ordering;
+ECatVASP does not infer "graphene" from element names.
 
 ### Physical-system rules
 
@@ -57,6 +58,20 @@ consistent with VASP symmetry guidance. ECatVASP does not infer "graphene" from 
   policy when VASP would sample the declared vacuum axis with more than one division. KSPACING
   cannot override one axis independently, so silently clamping it would be scientifically false.
 - `PERIODIC_3D` has no forced unit axis.
+
+### Project lock and convergence evidence
+
+A solid-state production plan (`SLAB_2D` or `PERIODIC_3D`) must be backed by
+`KPointValidationEvidence`. The evidence is method-aware and binds the physical system kind, the
+set of tested prepared-plan hashes, the selected prepared-plan hash, and the convergence Analysis
+hash. Because `PreparedKPoints.identity_hash` contains policy, physical context, centering, final
+or predicted mesh, KPOINTS content hash, and KSPACING/KGAMMA values, the evidence also closes the
+centering gap that cannot be stored directly in the frozen `ProjectNumericalLock` schema.
+
+`validate_project_lock_kpoints()` requires the lock policy, physical context, core method,
+selected prepared plan, and `kpoints_validation_hash` to agree with that evidence. A canonical
+`MOLECULE_0D` Gamma-only lock may remain evidence-free because no Brillouin-zone convergence
+choice exists for an isolated molecule.
 
 ### KSPACING and KPOINTS are mutually exclusive
 
@@ -75,8 +90,9 @@ validation artifact into the full execution manifest.
 ## Consequences
 
 - K-point generation is deterministic and inspectable without changing frozen scientific schema.
-- Gamma/Monkhorst-Pack differences participate in Protocol identity.
+- Gamma/Monkhorst-Pack differences participate in Protocol identity and convergence evidence.
 - Molecule and slab inputs cannot silently acquire physically inappropriate sampling directions.
+- Solid production k-point settings cannot bypass the validated Project numerical lock.
 - KSPACING cannot be accidentally neutralized by a simultaneously materialized `KPOINTS` file.
 - Reciprocal-density values have a fixed unit/meaning, while the actual density remains a
   convergence decision rather than an ECatVASP default.

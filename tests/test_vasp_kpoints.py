@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from ecatvasp import domain, vasp
+from ecatvasp.domain.ids import new_project_id
 
 
 def _snapshot() -> domain.StructureSnapshot:
@@ -21,6 +22,23 @@ def _slab() -> vasp.VaspSystemContext:
     return vasp.VaspSystemContext(
         vasp.VaspSystemKind.SLAB_2D,
         vacuum_axis=vasp.LatticeAxis.C,
+    )
+
+
+def _lock(
+    *,
+    policy: domain.KPointPolicy,
+    system_kind: vasp.VaspSystemKind,
+    kpoints_validation_hash: str | None,
+) -> vasp.ProjectNumericalLock:
+    return vasp.ProjectNumericalLock(
+        project_id=new_project_id(),
+        system_kind=system_kind,
+        core_method_hash="a" * 64,
+        encut_ev=500.0,
+        encut_validation_hash="b" * 64,
+        kpoints=policy,
+        kpoints_validation_hash=kpoints_validation_hash,
     )
 
 
@@ -262,6 +280,107 @@ def test_protocol_contract_requires_namespaced_centering_identity() -> None:
             protocol=monkhorst_protocol,
             prepared=gamma,
         )
+
+
+def test_solid_project_lock_requires_matching_convergence_evidence() -> None:
+    policy = domain.KPointPolicy(
+        domain.KPointPolicyKind.EXPLICIT_MESH,
+        mesh=(3, 3, 1),
+    )
+    prepared = vasp.prepare_kpoints(
+        _snapshot(),
+        policy=policy,
+        system_context=_slab(),
+        centering=vasp.KPointCentering.GAMMA,
+    )
+    lock = _lock(
+        policy=policy,
+        system_kind=vasp.VaspSystemKind.SLAB_2D,
+        kpoints_validation_hash="d" * 64,
+    )
+    evidence = vasp.KPointValidationEvidence(
+        core_method_hash=lock.core_method_hash,
+        system_kind=vasp.VaspSystemKind.SLAB_2D,
+        tested_plan_hashes=(prepared.identity_hash,),
+        selected_plan_hash=prepared.identity_hash,
+        analysis_hash="d" * 64,
+    )
+
+    with pytest.raises(vasp.KPointPreparationError, match="requires convergence evidence"):
+        vasp.validate_project_lock_kpoints(
+            lock=lock,
+            prepared=prepared,
+            evidence=None,
+        )
+
+    vasp.validate_project_lock_kpoints(
+        lock=lock,
+        prepared=prepared,
+        evidence=evidence,
+    )
+
+    changed = vasp.prepare_kpoints(
+        _snapshot(),
+        policy=policy,
+        system_context=_slab(),
+        centering=vasp.KPointCentering.MONKHORST_PACK,
+    )
+    with pytest.raises(vasp.KPointPreparationError, match="selected plan"):
+        vasp.validate_project_lock_kpoints(
+            lock=lock,
+            prepared=changed,
+            evidence=evidence,
+        )
+
+
+def test_project_lock_rejects_different_kpoint_policy() -> None:
+    prepared_policy = domain.KPointPolicy(
+        domain.KPointPolicyKind.EXPLICIT_MESH,
+        mesh=(3, 3, 1),
+    )
+    lock_policy = domain.KPointPolicy(
+        domain.KPointPolicyKind.EXPLICIT_MESH,
+        mesh=(5, 5, 1),
+    )
+    prepared = vasp.prepare_kpoints(
+        _snapshot(),
+        policy=prepared_policy,
+        system_context=_slab(),
+        centering=vasp.KPointCentering.GAMMA,
+    )
+    lock = _lock(
+        policy=lock_policy,
+        system_kind=vasp.VaspSystemKind.SLAB_2D,
+        kpoints_validation_hash="d" * 64,
+    )
+
+    with pytest.raises(vasp.KPointPreparationError, match="project lock k-point policy"):
+        vasp.validate_project_lock_kpoints(
+            lock=lock,
+            prepared=prepared,
+            evidence=None,
+        )
+
+
+def test_molecule_gamma_only_lock_can_be_evidence_free() -> None:
+    molecule = vasp.VaspSystemContext(vasp.VaspSystemKind.MOLECULE_0D)
+    policy = domain.KPointPolicy(domain.KPointPolicyKind.GAMMA_ONLY)
+    prepared = vasp.prepare_kpoints(
+        _snapshot(),
+        policy=policy,
+        system_context=molecule,
+    )
+    lock = _lock(
+        policy=policy,
+        system_kind=vasp.VaspSystemKind.MOLECULE_0D,
+        kpoints_validation_hash=None,
+    )
+
+    vasp.validate_project_lock_kpoints(
+        lock=lock,
+        prepared=prepared,
+        evidence=None,
+    )
 
 
 def test_kpoints_backed_policy_requires_materialized_file() -> None:
