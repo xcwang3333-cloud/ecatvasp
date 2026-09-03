@@ -22,3 +22,4 @@ Frozen ADR set and accepted extensions:
 16. v0.3 Finite-Difference Frequency Contract
 17. v0.3 Analysis Prerequisite Contracts
 18. v0.3 Global Fail-Closed Matrix and Input Reconciliation
+19. v0.3 ExecutionPlan Handoff
