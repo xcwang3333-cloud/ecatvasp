@@ -33,6 +33,10 @@ from ecatvasp.vasp.incar import PreparedIncar
 from ecatvasp.vasp.kpoints import PreparedKPoints
 from ecatvasp.vasp.poscar import PreparedPoscar
 from ecatvasp.vasp.potcar import PotcarSpec
+from ecatvasp.vasp.recipes import (
+    VaspRecipeContractError,
+    validate_calculation_recipe_contract,
+)
 
 INPUT_MANIFEST_FORMAT = "ecatvasp-v03-input-manifest"
 INPUT_MANIFEST_VERSION = 1
@@ -302,6 +306,14 @@ def _validate_contracts(
         raise InputMaterializationError("Calculation recipe_id does not match RecipeIdentity")
     if fingerprint.recipe != recipe:
         raise InputMaterializationError("MethodFingerprint recipe does not match RecipeIdentity")
+    try:
+        validate_calculation_recipe_contract(
+            calculation=calculation,
+            system_context=system_context,
+            project_lock=project_lock,
+        )
+    except VaspRecipeContractError as error:
+        raise InputMaterializationError(str(error)) from error
     if prepared_poscar.structure_snapshot_id != snapshot.id:
         raise InputMaterializationError("PreparedPoscar targets a different StructureSnapshot")
     if prepared_incar.structure_snapshot_id != snapshot.id:
