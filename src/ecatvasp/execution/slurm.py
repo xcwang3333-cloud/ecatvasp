@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -55,7 +55,6 @@ class ResolvedSchedulerResources:
     memory_mb_total: int | None = None
     memory_mb_per_node: int | None = None
     queue_name: str | None = None
-    resource_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
         for name in (
@@ -87,7 +86,12 @@ class ResolvedSchedulerResources:
                 raise ValueError("memory_mb_total must equal nodes * memory_mb_per_node")
         if self.queue_name is not None and not _SAFE_SLURM_NAME.fullmatch(self.queue_name):
             raise ValueError("queue_name must be a single safe scheduler identifier")
-        object.__setattr__(self, "resource_hash", canonical_sha256(self))
+
+    @property
+    def resource_hash(self) -> str:
+        """Return a deterministic hash of scheduler-effective resources."""
+
+        return canonical_sha256(self)
 
 
 @dataclass(frozen=True, slots=True)
