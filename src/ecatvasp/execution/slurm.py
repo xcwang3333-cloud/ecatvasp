@@ -1,4 +1,4 @@
-"""Slurm resource resolution, job-script materialization, and submission for v0.4 Block 5."""
+"""Slurm resource, submission, monitoring, and cancellation for v0.4 Blocks 5-6."""
 
 from __future__ import annotations
 
@@ -35,10 +35,41 @@ from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
 
 _SAFE_SLURM_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _JOB_ID = re.compile(r"^[0-9]+$")
+_SLURM_STATE_TOKEN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+_SLURM_STATE_MAP: dict[str, SchedulerState] = {
+    "PENDING": SchedulerState.PENDING,
+    "CONFIGURING": SchedulerState.PENDING,
+    "RESIZING": SchedulerState.PENDING,
+    "REQUEUED": SchedulerState.PENDING,
+    "REQUEUE_FED": SchedulerState.PENDING,
+    "REQUEUE_HOLD": SchedulerState.PENDING,
+    "RUNNING": SchedulerState.RUNNING,
+    "COMPLETING": SchedulerState.RUNNING,
+    "SUSPENDED": SchedulerState.RUNNING,
+    "STOPPED": SchedulerState.RUNNING,
+    "SIGNALING": SchedulerState.RUNNING,
+    "STAGE_OUT": SchedulerState.RUNNING,
+    "COMPLETED": SchedulerState.COMPLETED,
+    "FAILED": SchedulerState.FAILED,
+    "BOOT_FAIL": SchedulerState.FAILED,
+    "DEADLINE": SchedulerState.FAILED,
+    "PREEMPTED": SchedulerState.FAILED,
+    "REVOKED": SchedulerState.FAILED,
+    "SPECIAL_EXIT": SchedulerState.FAILED,
+    "TIMEOUT": SchedulerState.TIMEOUT,
+    "CANCELLED": SchedulerState.CANCELLED,
+    "NODE_FAIL": SchedulerState.NODE_FAIL,
+    "OUT_OF_MEMORY": SchedulerState.OUT_OF_MEMORY,
+}
 
 
 class SlurmSubmissionError(RuntimeError):
     """Raised when one verified remote stage cannot be submitted safely to Slurm."""
+
+
+class SlurmObservationError(RuntimeError):
+    """Raised when Slurm state cannot be observed without guessing."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,11 +172,7 @@ class SlurmSubmissionPackage:
 
 @dataclass(frozen=True, slots=True)
 class SlurmAdapter:
-    """Concrete Slurm submission adapter over one transport.
-
-    Query/cancel semantics are intentionally deferred to Block 6. The methods exist to satisfy the
-    scheduler protocol but fail explicitly rather than returning invented scheduler truth.
-    """
+    """Concrete Slurm adapter over one transport with fail-closed observation semantics."""
 
     transport: TransportAdapter
 
@@ -193,8 +220,74 @@ class SlurmAdapter:
         target: ExecutionTargetProfile,
         scheduler_job_id: str,
     ) -> SchedulerObservation:
-        _ = (target, scheduler_job_id)
-        raise SlurmSubmissionError("Slurm query/reconciliation is deferred to v0.4 Block 6")
+        _validate_observation_target(target, self.transport)
+        _require_numeric_job_id(scheduler_job_id)
+
+        squeue = self.transport.run(
+            target=target,
+            command=CommandSpec(
+                argv=(
+                    "squeue",
+                    "--noheader",
+                    f"--jobs={scheduler_job_id},{scheduler_job_id}",
+                    "--format=%T",
+                )
+            ),
+        )
+        if squeue.exit_code != 0:
+            detail = squeue.stderr.strip() or squeue.stdout.strip() or "no diagnostic output"
+            raise SlurmObservationError(f"squeue query failed: {detail}")
+        queue_states = [line.strip() for line in squeue.stdout.splitlines() if line.strip()]
+        if queue_states:
+            raw_state = _require_consistent_slurm_states(queue_states, source="squeue")
+            return SchedulerObservation(
+                scheduler_job_id=scheduler_job_id,
+                state=_normalize_slurm_state(raw_state),
+                raw_state=_slurm_state_token(raw_state),
+            )
+
+        sacct = self.transport.run(
+            target=target,
+            command=CommandSpec(
+                argv=(
+                    "sacct",
+                    "--noheader",
+                    "--parsable2",
+                    f"--jobs={scheduler_job_id}",
+                    "--format=JobIDRaw,State",
+                )
+            ),
+        )
+        if sacct.exit_code != 0:
+            detail = sacct.stderr.strip() or sacct.stdout.strip() or "no diagnostic output"
+            raise SlurmObservationError(f"sacct query failed: {detail}")
+
+        accounting_states: list[str] = []
+        for line in sacct.stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            fields = stripped.split("|")
+            if len(fields) < 2:
+                raise SlurmObservationError("sacct returned malformed parsable output")
+            if fields[0].strip() == scheduler_job_id:
+                state_text = fields[1].strip()
+                if not state_text:
+                    raise SlurmObservationError("sacct returned a blank state")
+                accounting_states.append(state_text)
+
+        if not accounting_states:
+            return SchedulerObservation(
+                scheduler_job_id=scheduler_job_id,
+                state=SchedulerState.LOST,
+                raw_state="NOT_FOUND",
+            )
+        raw_state = _require_consistent_slurm_states(accounting_states, source="sacct")
+        return SchedulerObservation(
+            scheduler_job_id=scheduler_job_id,
+            state=_normalize_slurm_state(raw_state),
+            raw_state=_slurm_state_token(raw_state),
+        )
 
     def cancel(
         self,
@@ -202,8 +295,16 @@ class SlurmAdapter:
         target: ExecutionTargetProfile,
         scheduler_job_id: str,
     ) -> SchedulerObservation:
-        _ = (target, scheduler_job_id)
-        raise SlurmSubmissionError("Slurm cancellation is deferred to v0.4 Block 6")
+        _validate_observation_target(target, self.transport)
+        _require_numeric_job_id(scheduler_job_id)
+        result = self.transport.run(
+            target=target,
+            command=CommandSpec(argv=("scancel", scheduler_job_id)),
+        )
+        if result.exit_code != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
+            raise SlurmObservationError(f"scancel failed: {detail}")
+        return self.query(target=target, scheduler_job_id=scheduler_job_id)
 
 
 def resolve_scheduler_resources(settings: ExecutionSettings) -> ResolvedSchedulerResources:
@@ -515,6 +616,16 @@ def _validate_slurm_target(
         raise SlurmSubmissionError("Slurm execution requires an SSH transport")
 
 
+def _validate_observation_target(
+    target: ExecutionTargetProfile,
+    transport: TransportAdapter,
+) -> None:
+    try:
+        _validate_slurm_target(target, transport)
+    except SlurmSubmissionError as exc:
+        raise SlurmObservationError(str(exc)) from exc
+
+
 def _parse_sbatch_job_id(stdout: str) -> str:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
     if len(lines) != 1:
@@ -523,6 +634,32 @@ def _parse_sbatch_job_id(stdout: str) -> str:
     if not _JOB_ID.fullmatch(job_id):
         raise SlurmSubmissionError("sbatch returned an unsupported Slurm job id")
     return job_id
+
+
+def _require_numeric_job_id(job_id: str) -> None:
+    if not _JOB_ID.fullmatch(job_id):
+        raise SlurmObservationError("Slurm monitoring requires a numeric scheduler job id")
+
+
+def _slurm_state_token(raw_state: str) -> str:
+    stripped = raw_state.strip()
+    if not stripped:
+        raise SlurmObservationError("Slurm returned a blank scheduler state")
+    token = stripped.split(maxsplit=1)[0].rstrip("+").upper()
+    if not _SLURM_STATE_TOKEN.fullmatch(token):
+        raise SlurmObservationError("Slurm returned an unsafe scheduler state token")
+    return token
+
+
+def _normalize_slurm_state(raw_state: str) -> SchedulerState:
+    return _SLURM_STATE_MAP.get(_slurm_state_token(raw_state), SchedulerState.UNKNOWN)
+
+
+def _require_consistent_slurm_states(states: list[str], *, source: str) -> str:
+    tokens = {_slurm_state_token(state) for state in states}
+    if len(tokens) != 1:
+        raise SlurmObservationError(f"{source} returned conflicting states for one job")
+    return next(iter(tokens))
 
 
 def _format_slurm_walltime(seconds: int) -> str:
