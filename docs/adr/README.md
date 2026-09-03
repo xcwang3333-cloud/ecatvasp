@@ -30,3 +30,4 @@ Frozen ADR set and accepted extensions:
 24. v0.4 Slurm Resource and Submission Boundary
 25. v0.4 Slurm Monitoring and Reconciliation Boundary
 26. v0.4 Retrieval and Remote Artifact Lifecycle Boundary
+27. v0.4 Retry, Restart, and Recovery Identity Boundary
