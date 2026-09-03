@@ -29,3 +29,4 @@ Frozen ADR set and accepted extensions:
 23. v0.4 SSH Staging and Remote POTCAR Integrity Boundary
 24. v0.4 Slurm Resource and Submission Boundary
 25. v0.4 Slurm Monitoring and Reconciliation Boundary
+26. v0.4 Retrieval and Remote Artifact Lifecycle Boundary
