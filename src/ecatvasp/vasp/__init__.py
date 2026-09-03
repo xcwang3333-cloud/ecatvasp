@@ -161,6 +161,13 @@ from ecatvasp.vasp.result_intake import (
     VaspResultIntakeError,
     build_vasp_result_artifact_intake,
 )
+from ecatvasp.vasp.result_parser import (
+    VASP_ENERGY_METADATA_PARSER_NAME,
+    VASP_ENERGY_METADATA_PARSER_VERSION,
+    VaspParserEvidenceCode,
+    VaspResultParseError,
+    parse_vasp_energy_metadata,
+)
 from ecatvasp.vasp.results import (
     VASP_RESULT_DOCUMENT_FORMAT,
     VASP_RESULT_DOCUMENT_VERSION,
@@ -200,6 +207,8 @@ __all__ = [
     "RECIPE_LOBSTER_PREREQUISITE",
     "RECIPE_SELECTED_ATOM_FREQUENCY",
     "RECIPE_SLAB_RELAX",
+    "VASP_ENERGY_METADATA_PARSER_NAME",
+    "VASP_ENERGY_METADATA_PARSER_VERSION",
     "VASP_FAIL_CLOSED_RULES",
     "VASP_RECIPE_REGISTRY",
     "VASP_RECIPE_SPECS",
@@ -265,6 +274,7 @@ __all__ = [
     "VaspFailClosedRule",
     "VaspFolderInspection",
     "VaspImportError",
+    "VaspParserEvidenceCode",
     "VaspPreflightError",
     "VaspRecipeContractError",
     "VaspRecipeSpec",
@@ -273,6 +283,7 @@ __all__ = [
     "VaspResultDocument",
     "VaspResultInputFile",
     "VaspResultIntakeError",
+    "VaspResultParseError",
     "VaspResultSource",
     "VaspResultSourceRole",
     "VaspRuntimeCapability",
@@ -290,6 +301,7 @@ __all__ = [
     "inspect_vasp_folder",
     "lobster_recipe_parameters",
     "materialize_calculation_inputs",
+    "parse_vasp_energy_metadata",
     "prepare_analysis_prerequisite_incar",
     "prepare_analysis_prerequisite_inputs",
     "prepare_charge_difference_triplet_inputs",
