@@ -39,7 +39,9 @@ class CommandSpec:
             raise ValueError("CommandSpec requires at least one argv element")
         for argument in self.argv:
             if not argument or any(character in argument for character in ("\n", "\r", "\x00")):
-                raise ValueError("command arguments must be non-empty and free of control characters")
+                raise ValueError(
+                    "command arguments must be non-empty and free of control characters"
+                )
 
 
 @dataclass(frozen=True, slots=True)
