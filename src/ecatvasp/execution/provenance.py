@@ -23,7 +23,9 @@ def validate_execution_attempt_plan(
     if plan.calculation_id != calculation.id:
         raise ExecutionProvenanceError("ExecutionPlan does not reference the supplied Calculation")
     if attempt.calculation_id != calculation.id:
-        raise ExecutionProvenanceError("ExecutionAttempt does not reference the supplied Calculation")
+        raise ExecutionProvenanceError(
+            "ExecutionAttempt does not reference the supplied Calculation"
+        )
     if attempt.execution_plan_hash is None:
         raise ExecutionProvenanceError("v0.4 ExecutionAttempt requires execution_plan_hash")
     if attempt.execution_plan_hash != plan.plan_hash:
