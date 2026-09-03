@@ -25,3 +25,4 @@ Frozen ADR set and accepted extensions:
 19. v0.3 ExecutionPlan Handoff
 20. v0.4 ExecutionAttempt Provenance and RemoteJob Cardinality
 21. v0.4 Execution Target, Adapter, and Credential Boundary
+22. v0.4 Runtime Materialization and Local Execution Boundary
