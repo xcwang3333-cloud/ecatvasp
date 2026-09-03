@@ -289,7 +289,7 @@ def _reconciled_attempt_status(
         return ExecutionAttemptStatus.QUEUED
     if scheduler_state is SchedulerState.RUNNING:
         if current not in {ExecutionAttemptStatus.QUEUED, ExecutionAttemptStatus.RUNNING}:
-            raise ExecutionMonitoringError("scheduler RUNNING conflicts with terminal attempt state")
+            raise ExecutionMonitoringError("scheduler RUNNING conflicts with attempt state")
         return ExecutionAttemptStatus.RUNNING
     if scheduler_state is SchedulerState.COMPLETED:
         if current in {
