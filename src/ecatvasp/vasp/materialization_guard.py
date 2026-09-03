@@ -7,6 +7,10 @@ from pathlib import Path
 from ecatvasp.domain import Calculation, MethodFingerprint, SpinTreatment, StructureSnapshot
 from ecatvasp.domain.method import RecipeIdentity
 from ecatvasp.vasp.contracts import ProjectNumericalLock, VaspSystemContext
+from ecatvasp.vasp.frequency import (
+    prepare_frequency_incar,
+    validate_frequency_prepared_poscar,
+)
 from ecatvasp.vasp.incar import AtomMagmom, PreparedIncar, UidMagmom, prepare_incar
 from ecatvasp.vasp.kpoints import PreparedKPoints
 from ecatvasp.vasp.materialization import InputMaterializationError, MaterializedInputSet
@@ -15,6 +19,19 @@ from ecatvasp.vasp.materialization import (
 )
 from ecatvasp.vasp.poscar import PreparedPoscar
 from ecatvasp.vasp.potcar import PotcarSpec
+from ecatvasp.vasp.recipes import (
+    RECIPE_FULL_FREQUENCY,
+    RECIPE_GAS_FREQUENCY,
+    RECIPE_SELECTED_ATOM_FREQUENCY,
+)
+
+_FREQUENCY_RECIPE_IDS = frozenset(
+    {
+        RECIPE_SELECTED_ATOM_FREQUENCY,
+        RECIPE_FULL_FREQUENCY,
+        RECIPE_GAS_FREQUENCY,
+    }
+)
 
 
 def materialize_calculation_inputs(
@@ -31,7 +48,7 @@ def materialize_calculation_inputs(
     potcar_spec: PotcarSpec,
     project_lock: ProjectNumericalLock | None,
 ) -> MaterializedInputSet:
-    """Materialize only after exact Method/Protocol/Recipe recompilation matches INCAR bytes."""
+    """Materialize only after exact scientific recompilation matches INCAR bytes."""
 
     magmom = _recover_uid_magmom(
         fingerprint=fingerprint,
@@ -39,18 +56,42 @@ def materialize_calculation_inputs(
         prepared_incar=prepared_incar,
     )
     try:
-        expected_incar = prepare_incar(
-            snapshot=snapshot,
-            method=fingerprint.method,
-            protocol=fingerprint.protocol,
-            recipe=recipe,
-            system_context=system_context,
-            prepared_poscar=prepared_poscar,
-            prepared_kpoints=prepared_kpoints,
-            potcar_spec=potcar_spec,
-            project_lock=project_lock,
-            magmom=magmom,
-        )
+        if recipe.recipe_id in _FREQUENCY_RECIPE_IDS:
+            if project_lock is None:
+                raise InputMaterializationError(
+                    "frequency materialization requires a validated project numerical lock"
+                )
+            validate_frequency_prepared_poscar(
+                prepared_poscar=prepared_poscar,
+                fingerprint=fingerprint,
+            )
+            expected_incar = prepare_frequency_incar(
+                snapshot=snapshot,
+                method=fingerprint.method,
+                protocol=fingerprint.protocol,
+                recipe=recipe,
+                system_context=system_context,
+                prepared_poscar=prepared_poscar,
+                prepared_kpoints=prepared_kpoints,
+                potcar_spec=potcar_spec,
+                project_lock=project_lock,
+                magmom=magmom,
+            )
+        else:
+            expected_incar = prepare_incar(
+                snapshot=snapshot,
+                method=fingerprint.method,
+                protocol=fingerprint.protocol,
+                recipe=recipe,
+                system_context=system_context,
+                prepared_poscar=prepared_poscar,
+                prepared_kpoints=prepared_kpoints,
+                potcar_spec=potcar_spec,
+                project_lock=project_lock,
+                magmom=magmom,
+            )
+    except InputMaterializationError:
+        raise
     except ValueError as error:
         raise InputMaterializationError(
             f"prepared inputs do not satisfy the exact fingerprint contract: {error}"
