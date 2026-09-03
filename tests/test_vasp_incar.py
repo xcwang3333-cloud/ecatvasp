@@ -132,7 +132,7 @@ def _protocol(
             else None
         )
     )
-    extras = standard + (kpoints.protocol_centering_parameter,) + extra
+    extras = (*standard, kpoints.protocol_centering_parameter, *extra)
     initialization = (magmom.protocol_parameter,) if magmom is not None else ()
     return domain.ProtocolDefinition(
         encut_ev=450.0,
@@ -345,10 +345,29 @@ def test_dft_u_arrays_follow_poscar_species_order() -> None:
 
 def test_positive_charge_removes_electrons_using_potcar_zval() -> None:
     snapshot = _snapshot()
-    prepared = _prepare_core(snapshot, method=_method(charge_e=1.0))
+    prepared = _prepare_core(
+        snapshot,
+        method=_method(charge_e=1.0),
+        dipole_policy=domain.DipolePolicy.OFF,
+    )
 
     # Neutral valence count = 2*C(4) + Pb(14) + O(6) = 28.
     assert "NELECT = 27\n" in prepared.text
+    assert "LDIPOL = .FALSE.\n" in prepared.text
+
+
+def test_charged_ldipol_requires_cubic_supercell() -> None:
+    with pytest.raises(vasp.IncarPreparationError, match="cubic supercell"):
+        _prepare_core(_snapshot(), method=_method(charge_e=1.0))
+
+    cubic = _snapshot(
+        lattice=domain.Lattice(
+            vectors=((10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (0.0, 0.0, 10.0))
+        )
+    )
+    prepared = _prepare_core(cubic, method=_method(charge_e=1.0))
+    assert "NELECT = 27\n" in prepared.text
+    assert "LDIPOL = .TRUE.\n" in prepared.text
 
 
 def test_auto_dipole_uses_slab_vacuum_axis_and_checks_orthogonality() -> None:
@@ -372,7 +391,7 @@ def test_periodic_3d_requires_dipole_off() -> None:
         domain.KPointPolicyKind.EXPLICIT_MESH,
         mesh=(3, 3, 3),
     )
-    with pytest.raises(vasp.IncarPreparationError, match="DipolePolicy.OFF"):
+    with pytest.raises(vasp.IncarPreparationError, match=r"DipolePolicy\.OFF"):
         _prepare_core(
             snapshot,
             context=context,
