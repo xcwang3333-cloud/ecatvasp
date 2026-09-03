@@ -8,8 +8,12 @@ from ecatvasp.domain import (
     ExecutionAttempt,
     ExecutionSettings,
     Project,
+    RemoteJob,
+    SchedulerState,
+    SchedulerType,
     new_method_fingerprint_id,
     new_structure_snapshot_id,
+    validate_remote_job_context,
 )
 from ecatvasp.domain.ids import new_artifact_id
 from ecatvasp.execution import (
@@ -131,3 +135,34 @@ def test_execution_attempt_plan_validation_rejects_hash_drift() -> None:
 
     with pytest.raises(ExecutionProvenanceError, match="execution_plan_hash"):
         validate_execution_attempt_plan(plan=plan, calculation=calculation, attempt=drifted)
+
+
+def test_one_execution_attempt_may_reference_multiple_remote_jobs() -> None:
+    project = Project(name="Execution", slug="execution")
+    calculation = _calculation(project)
+    attempt = ExecutionAttempt(calculation_id=calculation.id, attempt_number=1)
+    jobs = (
+        RemoteJob(
+            execution_attempt_id=attempt.id,
+            scheduler=SchedulerType.SLURM,
+            scheduler_job_id="1001",
+            remote_directory="/scratch/ecatvasp/attempt-1/submission-1",
+        ),
+        RemoteJob(
+            execution_attempt_id=attempt.id,
+            scheduler=SchedulerType.SLURM,
+            scheduler_job_id="1002",
+            remote_directory="/scratch/ecatvasp/attempt-1/submission-2",
+        ),
+    )
+
+    for job in jobs:
+        validate_remote_job_context(remote_job=job, attempt=attempt)
+
+    assert jobs[0].id != jobs[1].id
+    assert {job.execution_attempt_id for job in jobs} == {attempt.id}
+
+
+def test_scheduler_lost_state_is_distinct_from_unknown() -> None:
+    assert SchedulerState.LOST.value == "lost"
+    assert SchedulerState.LOST is not SchedulerState.UNKNOWN
