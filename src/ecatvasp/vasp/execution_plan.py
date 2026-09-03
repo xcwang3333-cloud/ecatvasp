@@ -246,7 +246,10 @@ class ExecutionPlan:
         if len(targets) != len(set(targets)):
             raise ValueError("staging input target paths must be unique")
         output_roles = tuple(item.role for item in self.expected_outputs)
-        if output_roles != tuple(sorted(output_roles)) or len(output_roles) != len(set(output_roles)):
+        if (
+            output_roles != tuple(sorted(output_roles))
+            or len(output_roles) != len(set(output_roles))
+        ):
             raise ValueError("expected output roles must be unique and sorted")
         object.__setattr__(
             self,
@@ -528,8 +531,9 @@ def _potcar_request(
             )
         actual_sha = hashlib.sha256(item.path.read_bytes()).hexdigest()
         if actual_sha != item.entry.sha256:
+            identity = f"{item.entry.element}/{item.entry.symbol}"
             raise ExecutionPlanError(
-                f"licensed POTCAR changed after resolution: {item.entry.element}/{item.entry.symbol}"
+                f"licensed POTCAR changed after resolution: {identity}"
             )
     preparations = _mapping(materialized.manifest.payload, "preparations")
     if _string(preparations, "potcar_metadata_hash") != resolved.spec.metadata_hash:
