@@ -14,6 +14,7 @@ from ecatvasp.execution.adapters import (
 from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
 
 _SAFE_REMOTE_ARG = re.compile(r"^[A-Za-z0-9_./+,:=@%=-]+$")
+_SAFE_REMOTE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@%=-]*$")
 
 
 class OpenSshTransportError(RuntimeError):
@@ -138,6 +139,11 @@ def remote_absolute_path(
         raise OpenSshTransportError("SSH target is missing remote_work_root")
     root = PurePosixPath(root_text)
     relative = PurePosixPath(path.value)
+    for part in relative.parts:
+        if not _SAFE_REMOTE_PATH_PART.fullmatch(part):
+            raise OpenSshTransportError(
+                "SSH target-relative paths must use literal shell-inert path components"
+            )
     candidate = root / relative
     if candidate == root or root not in candidate.parents:
         raise OpenSshTransportError("remote path escaped configured work root")
