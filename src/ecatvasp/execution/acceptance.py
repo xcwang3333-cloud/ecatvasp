@@ -110,12 +110,7 @@ def validate_v04_execution_handoff(
     batch_snapshot: BatchDispatchSnapshot | None = None,
     batch_node_id: str | None = None,
 ) -> ExecutionAcceptanceReport:
-    """Validate one v0.4 execution handoff without transport, scheduler, or parsing side effects.
-
-    This is a cross-layer integrity gate, not a workflow engine.  It validates already-persisted
-    facts from Blocks 1-9 and deliberately does not infer scientific convergence from scheduler
-    completion, OUTCAR markers, retrieval, or parser state.
-    """
+    """Validate one v0.4 execution handoff without execution or scientific side effects."""
 
     checks: list[str] = []
     try:
@@ -131,6 +126,13 @@ def validate_v04_execution_handoff(
     _validate_execution_artifacts(attempt=attempt, artifacts=execution_artifacts)
     checks.append("execution artifact ownership")
 
+    _validate_target_and_remote_job(
+        attempt=attempt,
+        target=target,
+        remote_job=remote_job,
+    )
+    checks.append("target and remote-job boundary")
+
     stage = _stage_for_attempt(attempt.status)
     _validate_stage_artifact_contract(
         stage=stage,
@@ -139,13 +141,6 @@ def validate_v04_execution_handoff(
         retrieval=retrieval,
     )
     checks.append("stage artifact contract")
-
-    _validate_target_and_remote_job(
-        attempt=attempt,
-        target=target,
-        remote_job=remote_job,
-    )
-    checks.append("target and remote-job boundary")
 
     retrieval_hash: str | None = None
     if retrieval is not None:
@@ -219,7 +214,7 @@ def _validate_stage_artifact_contract(
     retrieval: RemoteRetrievalPackage | None,
 ) -> None:
     types = {item.artifact_type for item in artifacts}
-    if target.transport is TransportKind.SSH and stage in {
+    remote_stages = {
         ExecutionHandoffStage.STAGED,
         ExecutionHandoffStage.SUBMITTED,
         ExecutionHandoffStage.RUNNING,
@@ -228,34 +223,31 @@ def _validate_stage_artifact_contract(
         ExecutionHandoffStage.PARSED,
         ExecutionHandoffStage.FAILED,
         ExecutionHandoffStage.CANCELLED,
-    }:
+    }
+    submitted_stages = remote_stages.difference({ExecutionHandoffStage.STAGED})
+
+    if target.transport is TransportKind.SSH and stage in remote_stages:
         required_stage = {
             ArtifactType.EXECUTION_PLAN,
             ArtifactType.INCAR,
             ArtifactType.REMOTE_STAGE_MANIFEST,
         }
-        missing = sorted((item.value for item in required_stage.difference(types)))
+        missing = sorted(item.value for item in required_stage.difference(types))
         if missing:
             raise ExecutionAcceptanceError(
                 "SSH execution handoff is missing staged provenance artifacts: "
                 + ", ".join(missing)
             )
-    if target.transport is TransportKind.SSH and stage in {
-        ExecutionHandoffStage.SUBMITTED,
-        ExecutionHandoffStage.RUNNING,
-        ExecutionHandoffStage.EXITED,
-        ExecutionHandoffStage.RETRIEVAL,
-        ExecutionHandoffStage.PARSED,
-        ExecutionHandoffStage.FAILED,
-        ExecutionHandoffStage.CANCELLED,
-    }:
+
+    if target.transport is TransportKind.SSH and stage in submitted_stages:
         required_submission = {ArtifactType.JOB_SCRIPT, ArtifactType.SCHEDULER_RECORD}
-        missing = sorted((item.value for item in required_submission.difference(types)))
+        missing = sorted(item.value for item in required_submission.difference(types))
         if missing:
             raise ExecutionAcceptanceError(
                 "submitted SSH execution is missing scheduler provenance artifacts: "
                 + ", ".join(missing)
             )
+
     if stage is ExecutionHandoffStage.RETRIEVAL and retrieval is None:
         raise ExecutionAcceptanceError(
             "RETRIEVING attempt requires its RemoteRetrievalPackage for final handoff acceptance"
@@ -301,8 +293,7 @@ def _validate_target_and_remote_job(
         raise ExecutionAcceptanceError("RemoteJob does not belong to ExecutionAttempt")
     if remote_job.scheduler is not target.scheduler:
         raise ExecutionAcceptanceError("RemoteJob scheduler does not match execution target")
-    expected_directory = f"execution/{attempt.id}"
-    if remote_job.remote_directory != expected_directory:
+    if remote_job.remote_directory != f"execution/{attempt.id}":
         raise ExecutionAcceptanceError(
             "RemoteJob directory does not match the isolated ExecutionAttempt stage"
         )
@@ -360,6 +351,7 @@ def _validate_retrieval(
         raise ExecutionAcceptanceError("retrieval manifest does not pin supplied ExecutionPlan")
     if retrieval.manifest.target.target_hash != target.target_hash:
         raise ExecutionAcceptanceError("retrieval manifest target does not match execution target")
+
     expected = {
         item.role: (item.artifact_type, item.retrieval_policy, item.required)
         for item in plan.expected_outputs
@@ -372,6 +364,7 @@ def _validate_retrieval(
         raise ExecutionAcceptanceError(
             "retrieval manifest does not cover the exact ExecutionPlan expected-output contract"
         )
+
     producer = ExecutionAttemptProducerRef(attempt.id)
     for artifact in retrieval.artifacts:
         if artifact.producer != producer:
@@ -394,7 +387,9 @@ def _validate_batch_observation(
     if observation is None:
         raise ExecutionAcceptanceError("batch node is absent from scheduler-DAG snapshot")
     if observation.latest_attempt_id != attempt.id:
-        raise ExecutionAcceptanceError("batch observation does not reference supplied latest attempt")
+        raise ExecutionAcceptanceError(
+            "batch observation does not reference supplied latest attempt"
+        )
     if observation.latest_plan_hash != plan.plan_hash:
         raise ExecutionAcceptanceError("batch observation does not pin supplied ExecutionPlan")
 
