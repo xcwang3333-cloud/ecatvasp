@@ -12,6 +12,7 @@ from ecatvasp.domain import (
     ArtifactType,
     Calculation,
     CalculationType,
+    ExecutionAttemptStatus,
     ExecutionSettings,
     Project,
     SchedulerState,
@@ -133,21 +134,31 @@ def _calculation(project: Project) -> Calculation:
     )
 
 
-def _settings(**overrides: object) -> ExecutionSettings:
-    values: dict[str, object] = {
-        "ncore": 2,
-        "kpar": 2,
-        "nodes": 2,
-        "cores": 16,
-        "memory_mb": 32000,
-        "walltime_seconds": 5400,
-        "partition": "compute",
-        "mpi_ranks": 8,
-        "omp_threads": 2,
-        "executable": "vasp_std",
-    }
-    values.update(overrides)
-    return ExecutionSettings(**values)  # type: ignore[arg-type]
+def _settings(
+    *,
+    ncore: int | None = 2,
+    kpar: int | None = 2,
+    nodes: int | None = 2,
+    cores: int | None = 16,
+    memory_mb: int | None = 32000,
+    walltime_seconds: int | None = 5400,
+    partition: str | None = "compute",
+    mpi_ranks: int | None = 8,
+    omp_threads: int | None = 2,
+    executable: str = "vasp_std",
+) -> ExecutionSettings:
+    return ExecutionSettings(
+        ncore=ncore,
+        kpar=kpar,
+        nodes=nodes,
+        cores=cores,
+        memory_mb=memory_mb,
+        walltime_seconds=walltime_seconds,
+        partition=partition,
+        mpi_ranks=mpi_ranks,
+        omp_threads=omp_threads,
+        executable=executable,
+    )
 
 
 def _plan(calculation: Calculation, settings: ExecutionSettings) -> ExecutionPlan:
@@ -191,7 +202,7 @@ def _staged(tmp_path: Path, settings: ExecutionSettings | None = None) -> Remote
     calculation = _calculation(project)
     plan = _plan(calculation, settings or _settings())
     attempt = create_execution_attempt(plan=plan, calculation=calculation)
-    staged_attempt = replace(attempt, status=attempt.status.STAGING)
+    staged_attempt = replace(attempt, status=ExecutionAttemptStatus.STAGING)
     target = _target()
     remote_directory = TargetRelativePath(f"execution/{attempt.id}")
     manifest = RemoteStageManifest(
@@ -361,6 +372,21 @@ def test_sbatch_failure_or_malformed_identity_does_not_create_remote_job_record(
             transport=malformed_transport,
             scheduler=SlurmAdapter(malformed_transport),
         )
+
+
+def test_naive_submission_timestamp_fails_before_sbatch(tmp_path: Path) -> None:
+    staged = _staged(tmp_path)
+    transport = _FakeSlurmTransport()
+
+    with pytest.raises(SlurmSubmissionError, match="timezone-aware"):
+        submit_remote_slurm(
+            staged=staged,
+            transport=transport,
+            scheduler=SlurmAdapter(transport),
+            submitted_at=datetime(2026, 9, 3, 5, 40),
+        )
+
+    assert not any(command[0] == "sbatch" for command in transport.commands)
 
 
 def test_slurm_monitoring_and_cancellation_remain_deferred(tmp_path: Path) -> None:
