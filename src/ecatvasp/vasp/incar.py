@@ -488,6 +488,8 @@ def _add_protocol_parameters(
         _validate_dipole_cell_geometry(
             snapshot=snapshot, system_context=system_context, idipol=idipol
         )
+        if method.charge_e != 0.0:
+            _validate_charged_ldipol_cell(snapshot)
 
 
 def _add_spin_parameters(
@@ -706,6 +708,19 @@ def _validate_dipole_cell_geometry(
             raise IncarPreparationError(
                 "molecule IDIPOL=4 requires an orthogonal simulation cell"
             )
+
+
+def _validate_charged_ldipol_cell(snapshot: StructureSnapshot) -> None:
+    """Enforce VASP's current cubic-cell restriction for charged LDIPOL calculations."""
+
+    vectors = snapshot.lattice.vectors
+    pairs = ((0, 1), (0, 2), (1, 2))
+    if any(not _orthogonal(vectors[first], vectors[second]) for first, second in pairs):
+        raise IncarPreparationError("charged LDIPOL requires a cubic supercell in current VASP")
+    lengths = tuple(sum(value * value for value in vector) ** 0.5 for vector in vectors)
+    scale = max(lengths)
+    if scale <= 0 or max(lengths) - min(lengths) > 1e-10 * scale:
+        raise IncarPreparationError("charged LDIPOL requires a cubic supercell in current VASP")
 
 
 def _orthogonal(
