@@ -16,6 +16,17 @@ from ecatvasp.vasp.importer import (
     import_existing_vasp_folder,
     inspect_vasp_folder,
 )
+from ecatvasp.vasp.kpoints import (
+    ECATVASP_KPOINT_CENTERING,
+    KPointCentering,
+    KPointPreparationError,
+    KPointValidationEvidence,
+    PreparedKPoints,
+    prepare_kpoints,
+    validate_kpoints_file_presence,
+    validate_project_lock_kpoints,
+    validate_protocol_kpoint_contract,
+)
 from ecatvasp.vasp.poscar import (
     AtomSelectiveFlags,
     PoscarIndexEntry,
@@ -62,6 +73,7 @@ from ecatvasp.vasp.recipes import (
 __all__ = [
     "ECATVASP_ECAT_STANDARD",
     "ECATVASP_ECAT_STANDARD_EDIFFG_EV_PER_ANGSTROM",
+    "ECATVASP_KPOINT_CENTERING",
     "RECIPE_ADSORBATE_RELAX",
     "RECIPE_CHARGE_DENSITY_STATIC",
     "RECIPE_DOS_PREREQUISITE",
@@ -80,6 +92,9 @@ __all__ = [
     "EncCutBaseline",
     "EncCutValidationEvidence",
     "ExistingVaspImport",
+    "KPointCentering",
+    "KPointPreparationError",
+    "KPointValidationEvidence",
     "LatticeAxis",
     "LocalPotcarLibrary",
     "ParsedVaspResult",
@@ -89,6 +104,7 @@ __all__ = [
     "PotcarPreparationError",
     "PotcarSpec",
     "PotcarSpecEntry",
+    "PreparedKPoints",
     "PreparedPoscar",
     "ProjectNumericalLock",
     "ResolvedPotcarFile",
@@ -103,9 +119,13 @@ __all__ = [
     "get_vasp_recipe_spec",
     "import_existing_vasp_folder",
     "inspect_vasp_folder",
+    "prepare_kpoints",
     "prepare_poscar",
     "suggest_encut_baseline",
     "validate_calculation_recipe_contract",
     "validate_encut_evidence",
+    "validate_kpoints_file_presence",
     "validate_project_lock_encut",
+    "validate_project_lock_kpoints",
+    "validate_protocol_kpoint_contract",
 ]

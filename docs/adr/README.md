@@ -15,3 +15,4 @@ Frozen ADR set and accepted extensions:
 9. External Tool Boundary
 10. Licensing Strategy
 11. v0.3 VASP Input Preparation Contracts
+12. v0.3 K-Point Policy Semantics
