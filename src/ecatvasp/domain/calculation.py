@@ -114,6 +114,7 @@ class SchedulerState(StrEnum):
     NODE_FAIL = "node_fail"
     OUT_OF_MEMORY = "out_of_memory"
     UNKNOWN = "unknown"
+    LOST = "lost"
 
 
 class ArtifactType(StrEnum):
@@ -136,6 +137,13 @@ class ArtifactType(StrEnum):
     DOSCAR = "doscar"
     ACF_DAT = "acf_dat"
     COHPCAR_LOBSTER = "cohpcar_lobster"
+    EXECUTION_PLAN = "execution_plan"
+    JOB_SCRIPT = "job_script"
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    REMOTE_STAGE_MANIFEST = "remote_stage_manifest"
+    RETRIEVAL_MANIFEST = "retrieval_manifest"
+    SCHEDULER_RECORD = "scheduler_record"
     PARSED_RESULT = "parsed_result"
     DERIVED_DATASET = "derived_dataset"
 
@@ -253,6 +261,7 @@ class ExecutionAttempt:
     status: ExecutionAttemptStatus = ExecutionAttemptStatus.CREATED
     previous_attempt_id: ExecutionAttemptId | None = None
     input_manifest_hash: str | None = None
+    execution_plan_hash: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -262,6 +271,7 @@ class ExecutionAttempt:
         if self.previous_attempt_id == self.id:
             raise ValueError("an ExecutionAttempt cannot reference itself as previous")
         _validate_sha256(self.input_manifest_hash, "input_manifest_hash")
+        _validate_sha256(self.execution_plan_hash, "execution_plan_hash")
         _validate_time_window(self.started_at, self.finished_at)
 
 
