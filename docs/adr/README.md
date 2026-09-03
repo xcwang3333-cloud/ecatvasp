@@ -23,3 +23,4 @@ Frozen ADR set and accepted extensions:
 17. v0.3 Analysis Prerequisite Contracts
 18. v0.3 Global Fail-Closed Matrix and Input Reconciliation
 19. v0.3 ExecutionPlan Handoff
+20. v0.4 ExecutionAttempt Provenance and RemoteJob Cardinality
