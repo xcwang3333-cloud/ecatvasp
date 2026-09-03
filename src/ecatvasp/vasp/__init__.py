@@ -111,6 +111,13 @@ from ecatvasp.vasp.potcar import (
     validate_encut_evidence,
     validate_project_lock_encut,
 )
+from ecatvasp.vasp.preflight import (
+    VASP_FAIL_CLOSED_RULES,
+    VaspFailClosedCode,
+    VaspFailClosedRule,
+    VaspPreflightError,
+    fail_closed,
+)
 from ecatvasp.vasp.recipes import (
     RECIPE_ADSORBATE_RELAX,
     RECIPE_CHARGE_DENSITY_STATIC,
@@ -130,6 +137,11 @@ from ecatvasp.vasp.recipes import (
     VaspRecipeSpec,
     get_vasp_recipe_spec,
     validate_calculation_recipe_contract,
+)
+from ecatvasp.vasp.reconciliation import (
+    GeneratedInputReconciliationError,
+    ReconciledGeneratedInputs,
+    reconcile_generated_input_directory,
 )
 
 __all__ = [
@@ -157,6 +169,7 @@ __all__ = [
     "RECIPE_LOBSTER_PREREQUISITE",
     "RECIPE_SELECTED_ATOM_FREQUENCY",
     "RECIPE_SLAB_RELAX",
+    "VASP_FAIL_CLOSED_RULES",
     "VASP_RECIPE_REGISTRY",
     "VASP_RECIPE_SPECS",
     "AnalysisPrerequisiteInputPipelineError",
@@ -177,6 +190,7 @@ __all__ = [
     "FrequencyInputPipelineResult",
     "FrequencyPreparationError",
     "FrequencySelection",
+    "GeneratedInputReconciliationError",
     "IncarPreparationError",
     "IncarSourceLayer",
     "InputManifest",
@@ -199,18 +213,23 @@ __all__ = [
     "PreparedKPoints",
     "PreparedPoscar",
     "ProjectNumericalLock",
+    "ReconciledGeneratedInputs",
     "ResolvedPotcarFile",
     "ResolvedPotcarSet",
     "UidMagmom",
     "UidSelectiveDynamics",
+    "VaspFailClosedCode",
+    "VaspFailClosedRule",
     "VaspFolderInspection",
     "VaspImportError",
+    "VaspPreflightError",
     "VaspRecipeContractError",
     "VaspRecipeSpec",
     "VaspSystemContext",
     "VaspSystemKind",
     "dos_recipe_parameters",
     "ecat_standard_protocol_parameters",
+    "fail_closed",
     "frequency_recipe_parameters",
     "get_vasp_recipe_spec",
     "import_existing_vasp_folder",
@@ -227,6 +246,7 @@ __all__ = [
     "prepare_incar",
     "prepare_kpoints",
     "prepare_poscar",
+    "reconcile_generated_input_directory",
     "suggest_encut_baseline",
     "validate_analysis_prerequisite_recipe",
     "validate_calculation_recipe_contract",
