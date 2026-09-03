@@ -461,6 +461,35 @@ def _validate_charge_difference_triplet(triplet: ChargeDifferenceTriplet) -> Non
             "charge-difference members must share the same numerical/electronic Protocol"
         )
     _validate_triplet_magmom(triplet)
+    _validate_triplet_member_bindings(triplet)
+
+
+def _validate_triplet_member_bindings(triplet: ChargeDifferenceTriplet) -> None:
+    for member in (triplet.combined, triplet.slab, triplet.adsorbate):
+        if member.calculation.input_structure_snapshot_id != member.snapshot.id:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference Calculation input snapshot does not match member snapshot"
+            )
+        if member.calculation.method_fingerprint_id != member.fingerprint.id:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference Calculation MethodFingerprint does not match member fingerprint"
+            )
+        if member.calculation.recipe_id != member.fingerprint.recipe.recipe_id:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference Calculation recipe does not match member fingerprint"
+            )
+        if member.project_lock.core_method_hash != member.fingerprint.core_method_hash:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference project lock core method does not match member fingerprint"
+            )
+        if member.project_lock.encut_ev != member.fingerprint.protocol.encut_ev:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference project lock ENCUT does not match member Protocol"
+            )
+        if member.project_lock.kpoints != member.fingerprint.protocol.kpoints:
+            raise AnalysisPrerequisiteInputPipelineError(
+                "charge-difference project lock k-points do not match member Protocol"
+            )
 
 
 def _global_method_hash(method: MethodDefinition) -> str:
