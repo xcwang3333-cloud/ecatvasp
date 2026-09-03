@@ -398,6 +398,20 @@ def reconcile_batch_dispatch(
             raise BatchDispatchError(str(error)) from error
         jobs_by_attempt[job_attempt.id].append(job)
 
+    for node in dag.nodes:
+        ordered_history = tuple(
+            sorted(histories[node.calculation.id], key=lambda item: item.attempt_number)
+        )
+        for prior_attempt in ordered_history[:-1]:
+            if prior_attempt.status not in _RECOVERY_TERMINAL_ATTEMPTS:
+                raise BatchDispatchError(
+                    "older ExecutionAttempt must be terminal before a newer attempt exists"
+                )
+            _validate_remote_job_consistency(
+                prior_attempt,
+                tuple(jobs_by_attempt.get(prior_attempt.id, ())),
+            )
+
     base: dict[str, BatchNodeObservation] = {}
     for node_id in dag.topological_order:
         node = dag.node(node_id)
@@ -671,6 +685,10 @@ def _validate_remote_job_consistency(
         raise BatchDispatchError("CREATED/STAGING attempt cannot already have a RemoteJob")
 
     active_jobs = tuple(job for job in remote_jobs if job.state in _SCHEDULER_MAY_BE_ACTIVE)
+    if len(active_jobs) > 1:
+        raise BatchDispatchError(
+            "one ExecutionAttempt cannot have multiple active/uncertain RemoteJobs"
+        )
     if attempt.status in {
         ExecutionAttemptStatus.QUEUED,
         ExecutionAttemptStatus.RUNNING,
