@@ -88,7 +88,8 @@ class LocalExecutor:
             stdout = b""
             _write_log(stdout_path, stdout)
             _write_log(stderr_path, stderr)
-            artifacts = package.artifacts + (
+            artifacts = (
+                *package.artifacts,
                 _log_artifact(
                     package=package,
                     path=stdout_path,
@@ -117,7 +118,8 @@ class LocalExecutor:
         finished_at = datetime.now(UTC)
         _write_log(stdout_path, completed.stdout)
         _write_log(stderr_path, completed.stderr)
-        artifacts = package.artifacts + (
+        artifacts = (
+            *package.artifacts,
             _log_artifact(
                 package=package,
                 path=stdout_path,
