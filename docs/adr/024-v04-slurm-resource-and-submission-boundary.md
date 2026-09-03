@@ -99,7 +99,9 @@ A successful submission creates:
 
 - a `RemoteJob` with scheduler `SLURM` and normalized state `PENDING`;
 - an `ExecutionAttempt` view transitioned from `STAGING` to `QUEUED`;
-- a local `SCHEDULER_RECORD` artifact containing scheduler job id, sanitized target snapshot, resource hash/resources, job-script SHA, relative remote stage, timestamp, and raw submit stdout/stderr.
+- a local `SCHEDULER_RECORD` artifact containing scheduler job id, sanitized target snapshot, resource hash/resources, job-script SHA, relative remote stage, timestamp, and SHA-256 digests of the raw submit stdout/stderr.
+
+The in-memory `SchedulerSubmission` retains raw submit stdout/stderr for immediate diagnostics, but the portable project record does not persist those strings because `sbatch --parsable` may include a scheduler cluster name. This preserves the ADR-021/023 host-detail boundary while retaining tamper-evident evidence that diagnostic output existed.
 
 Scheduler acceptance does not change scientific calculation status and does not imply VASP launch, convergence, or success.
 
@@ -137,6 +139,7 @@ No Block 5 operation changes POSCAR, scientific INCAR content, KPOINTS, POTCAR i
 - **Infer MPI/OpenMP topology from allocated cores** — rejected because multiple valid layouts exist.
 - **Use a default launcher such as `srun` for every cluster** — rejected because HPC sites differ.
 - **Store absolute remote work roots in the immutable job script** — rejected because target-local path configuration is not portable scientific provenance.
+- **Persist raw `sbatch` stdout/stderr in the portable project** — rejected because machine-readable stdout may contain a scheduler cluster name; only diagnostic hashes are persisted.
 - **Parse human-readable `sbatch` output heuristically** — rejected in favor of `--parsable`.
 - **Treat accepted submission as Calculation success** — rejected because scheduler truth and scientific truth remain separate.
 
