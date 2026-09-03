@@ -373,20 +373,27 @@ def _reciprocal_vectors_without_2pi(
 
 
 def _is_hexagonal_lattice(snapshot: StructureSnapshot) -> bool:
-    a, b, c = snapshot.lattice.vectors
-    a_len = _norm(a)
-    b_len = _norm(b)
-    c_len = _norm(c)
-    if min(a_len, b_len, c_len) <= 0:
-        return False
-    if abs(a_len - b_len) > 1e-5 * max(a_len, b_len):
-        return False
-    if abs(_dot(a, c)) > 1e-5 * a_len * c_len:
-        return False
-    if abs(_dot(b, c)) > 1e-5 * b_len * c_len:
-        return False
-    angle = _angle_degrees(a, b)
-    return min(abs(angle - 60.0), abs(angle - 120.0)) <= 1e-4
+    vectors = snapshot.lattice.vectors
+    lengths = tuple(_norm(vector) for vector in vectors)
+    for first_index, second_index, third_index in ((0, 1, 2), (0, 2, 1), (1, 2, 0)):
+        first = vectors[first_index]
+        second = vectors[second_index]
+        third = vectors[third_index]
+        first_length = lengths[first_index]
+        second_length = lengths[second_index]
+        third_length = lengths[third_index]
+        if min(first_length, second_length, third_length) <= 0:
+            continue
+        if abs(first_length - second_length) > 1e-5 * max(first_length, second_length):
+            continue
+        if abs(_dot(first, third)) > 1e-5 * first_length * third_length:
+            continue
+        if abs(_dot(second, third)) > 1e-5 * second_length * third_length:
+            continue
+        angle = _angle_degrees(first, second)
+        if min(abs(angle - 60.0), abs(angle - 120.0)) <= 1e-4:
+            return True
+    return False
 
 
 def _angle_degrees(

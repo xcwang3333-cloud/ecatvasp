@@ -191,6 +191,35 @@ def test_hexagonal_lattice_rejects_monkhorst_pack() -> None:
         )
 
 
+def test_hexagonal_detection_is_independent_of_vacuum_axis_order() -> None:
+    snapshot = replace(
+        _snapshot(),
+        lattice=domain.Lattice(
+            vectors=(
+                (0.0, 0.0, 20.0),
+                (2.46, 0.0, 0.0),
+                (1.23, 2.130422493, 0.0),
+            )
+        ),
+    )
+    context = vasp.VaspSystemContext(
+        vasp.VaspSystemKind.SLAB_2D,
+        vacuum_axis=vasp.LatticeAxis.A,
+    )
+    policy = domain.KPointPolicy(
+        domain.KPointPolicyKind.EXPLICIT_MESH,
+        mesh=(1, 6, 6),
+    )
+
+    with pytest.raises(vasp.KPointPreparationError, match="hexagonal"):
+        vasp.prepare_kpoints(
+            snapshot,
+            policy=policy,
+            system_context=context,
+            centering=vasp.KPointCentering.MONKHORST_PACK,
+        )
+
+
 def test_protocol_contract_requires_namespaced_centering_identity() -> None:
     policy = domain.KPointPolicy(
         domain.KPointPolicyKind.EXPLICIT_MESH,
