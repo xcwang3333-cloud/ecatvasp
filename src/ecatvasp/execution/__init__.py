@@ -1,5 +1,11 @@
 """Execution-layer provenance, target, runtime, and adapter contracts for ECatVASP."""
 
+from ecatvasp.execution.acceptance import (
+    ExecutionAcceptanceError,
+    ExecutionAcceptanceReport,
+    ExecutionHandoffStage,
+    validate_v04_execution_handoff,
+)
 from ecatvasp.execution.adapters import (
     CommandResult,
     CommandSpec,
@@ -77,6 +83,7 @@ from ecatvasp.execution.slurm import (
     ResolvedSchedulerResources,
     SlurmAdapter,
     SlurmJobScript,
+    SlurmMonitoringPackage,
     SlurmObservationError,
     SlurmSubmissionError,
     SlurmSubmissionPackage,
@@ -107,8 +114,11 @@ __all__ = [
     "BatchNodeState",
     "CommandResult",
     "CommandSpec",
+    "ExecutionAcceptanceError",
+    "ExecutionAcceptanceReport",
     "ExecutionEnvironmentSnapshot",
     "ExecutionEvidence",
+    "ExecutionHandoffStage",
     "ExecutionMonitoringError",
     "ExecutionProvenanceError",
     "ExecutionTargetProfile",
@@ -172,4 +182,5 @@ __all__ = [
     "submit_remote_slurm",
     "validate_adapter_target",
     "validate_execution_attempt_plan",
+    "validate_v04_execution_handoff",
 ]
