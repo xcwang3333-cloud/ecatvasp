@@ -126,12 +126,12 @@ def validate_v04_execution_handoff(
     _validate_execution_artifacts(attempt=attempt, artifacts=execution_artifacts)
     checks.append("execution artifact ownership")
 
-    _validate_target_and_remote_job(
+    _validate_target_and_supplied_job(
         attempt=attempt,
         target=target,
         remote_job=remote_job,
     )
-    checks.append("target and remote-job boundary")
+    checks.append("target and supplied remote-job coherence")
 
     stage = _stage_for_attempt(attempt.status)
     _validate_stage_artifact_contract(
@@ -141,6 +141,13 @@ def validate_v04_execution_handoff(
         retrieval=retrieval,
     )
     checks.append("stage artifact contract")
+
+    _require_remote_job_for_submitted_stage(
+        attempt=attempt,
+        target=target,
+        remote_job=remote_job,
+    )
+    checks.append("remote-job existence")
 
     retrieval_hash: str | None = None
     if retrieval is not None:
@@ -254,7 +261,7 @@ def _validate_stage_artifact_contract(
         )
 
 
-def _validate_target_and_remote_job(
+def _validate_target_and_supplied_job(
     *,
     attempt: ExecutionAttempt,
     target: ExecutionTargetProfile,
@@ -273,7 +280,27 @@ def _validate_target_and_remote_job(
         raise ExecutionAcceptanceError(
             "v0.4 final remote acceptance supports only the concrete Slurm scheduler"
         )
+    if remote_job is None:
+        return
+    if remote_job.execution_attempt_id != attempt.id:
+        raise ExecutionAcceptanceError("RemoteJob does not belong to ExecutionAttempt")
+    if remote_job.scheduler is not target.scheduler:
+        raise ExecutionAcceptanceError("RemoteJob scheduler does not match execution target")
+    if remote_job.remote_directory != f"execution/{attempt.id}":
+        raise ExecutionAcceptanceError(
+            "RemoteJob directory does not match the isolated ExecutionAttempt stage"
+        )
+    _validate_scheduler_attempt_state(attempt.status, remote_job.state)
 
+
+def _require_remote_job_for_submitted_stage(
+    *,
+    attempt: ExecutionAttempt,
+    target: ExecutionTargetProfile,
+    remote_job: RemoteJob | None,
+) -> None:
+    if target.transport is not TransportKind.SSH:
+        return
     needs_job = attempt.status in {
         ExecutionAttemptStatus.QUEUED,
         ExecutionAttemptStatus.RUNNING,
@@ -287,17 +314,6 @@ def _validate_target_and_remote_job(
         raise ExecutionAcceptanceError(
             "submitted/terminal SSH ExecutionAttempt requires its persisted RemoteJob"
         )
-    if remote_job is None:
-        return
-    if remote_job.execution_attempt_id != attempt.id:
-        raise ExecutionAcceptanceError("RemoteJob does not belong to ExecutionAttempt")
-    if remote_job.scheduler is not target.scheduler:
-        raise ExecutionAcceptanceError("RemoteJob scheduler does not match execution target")
-    if remote_job.remote_directory != f"execution/{attempt.id}":
-        raise ExecutionAcceptanceError(
-            "RemoteJob directory does not match the isolated ExecutionAttempt stage"
-        )
-    _validate_scheduler_attempt_state(attempt.status, remote_job.state)
 
 
 def _validate_scheduler_attempt_state(
