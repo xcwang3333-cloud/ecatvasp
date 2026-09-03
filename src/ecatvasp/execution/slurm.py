@@ -6,7 +6,7 @@ import hashlib
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from ecatvasp.domain import (
     Artifact,
@@ -346,6 +346,8 @@ def submit_remote_slurm(
         raise SlurmSubmissionError("SlurmAdapter must use the same transport as remote staging")
     if staged.attempt.status is not ExecutionAttemptStatus.STAGING:
         raise SlurmSubmissionError("Slurm submission requires a STAGING ExecutionAttempt")
+    if submitted_at is not None and submitted_at.tzinfo is None:
+        raise SlurmSubmissionError("submitted_at must be timezone-aware")
 
     resources = resolve_scheduler_resources(staged.plan.execution_settings)
     job_script = render_slurm_job_script(staged, resources)
@@ -356,8 +358,6 @@ def submit_remote_slurm(
     )
     submission = scheduler.submit(target=staged.target, script=script_remote)
     timestamp = submitted_at or datetime.now(timezone.utc)
-    if timestamp.tzinfo is None:
-        raise SlurmSubmissionError("submitted_at must be timezone-aware")
 
     queued_attempt = replace(staged.attempt, status=ExecutionAttemptStatus.QUEUED)
     remote_job = RemoteJob(
