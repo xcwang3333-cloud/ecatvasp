@@ -1,4 +1,4 @@
-"""Execution-layer provenance, target, and adapter contracts for ECatVASP."""
+"""Execution-layer provenance, target, runtime, and adapter contracts for ECatVASP."""
 
 from ecatvasp.execution.adapters import (
     CommandResult,
@@ -10,10 +10,19 @@ from ecatvasp.execution.adapters import (
     TransportAdapter,
     validate_adapter_target,
 )
+from ecatvasp.execution.local import LocalExecutionError, LocalExecutionResult, LocalExecutor
 from ecatvasp.execution.provenance import (
     ExecutionProvenanceError,
     create_execution_attempt,
     validate_execution_attempt_plan,
+)
+from ecatvasp.execution.runtime import (
+    LocalPotcarResolution,
+    LocalRuntimePackage,
+    RuntimeFileRecord,
+    RuntimeInputManifest,
+    RuntimeMaterializationError,
+    materialize_local_runtime,
 )
 from ecatvasp.execution.targets import (
     ExecutionEnvironmentSnapshot,
@@ -28,6 +37,14 @@ __all__ = [
     "ExecutionEnvironmentSnapshot",
     "ExecutionProvenanceError",
     "ExecutionTargetProfile",
+    "LocalExecutionError",
+    "LocalExecutionResult",
+    "LocalExecutor",
+    "LocalPotcarResolution",
+    "LocalRuntimePackage",
+    "RuntimeFileRecord",
+    "RuntimeInputManifest",
+    "RuntimeMaterializationError",
     "SchedulerAdapter",
     "SchedulerObservation",
     "SchedulerSubmission",
@@ -36,6 +53,7 @@ __all__ = [
     "TransportAdapter",
     "TransportKind",
     "create_execution_attempt",
+    "materialize_local_runtime",
     "validate_adapter_target",
     "validate_execution_attempt_plan",
 ]
