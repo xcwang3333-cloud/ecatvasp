@@ -19,3 +19,4 @@ Frozen ADR set and accepted extensions:
 13. v0.3 Scientific INCAR Resolution
 14. v0.3 Immutable VASP Input Materialization and Manifest
 15. v0.3 Core VASP End-to-End Input Pipeline
+16. v0.3 Finite-Difference Frequency Contract
