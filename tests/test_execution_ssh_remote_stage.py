@@ -195,7 +195,7 @@ def _plan(root: Path, calculation: Calculation, potcar_body: bytes) -> Execution
 
 def _target() -> ExecutionTargetProfile:
     return ExecutionTargetProfile(
-        target_id="cluster-a",
+        target_id="hpc-prod",
         transport=TransportKind.SSH,
         scheduler=SchedulerType.SLURM,
         host_alias="cluster-a",
@@ -312,7 +312,7 @@ def test_remote_stage_fails_closed_on_uploaded_input_corruption(tmp_path: Path) 
 def test_ssh_target_rejects_remote_root_shell_expansion() -> None:
     with pytest.raises(ValueError, match="literal safe POSIX"):
         ExecutionTargetProfile(
-            target_id="cluster-a",
+            target_id="hpc-prod",
             transport=TransportKind.SSH,
             scheduler=SchedulerType.SLURM,
             host_alias="cluster-a",
@@ -359,3 +359,5 @@ def test_openssh_transport_uses_strict_batch_mode_and_rejects_shell_tokens(
             target=target,
             command=CommandSpec(argv=("echo", "unsafe;token")),
         )
+    with pytest.raises(OpenSshTransportError, match="path components"):
+        remote_absolute_path(target, TargetRelativePath("execution/bad;path"))
