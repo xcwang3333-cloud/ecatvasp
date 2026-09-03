@@ -18,6 +18,7 @@ from ecatvasp.domain import (
     ExecutionAttemptStatus,
     ExecutionSettings,
     Project,
+    RemoteJob,
     RetrievalPolicy,
     SchedulerState,
     SchedulerType,
@@ -409,11 +410,18 @@ def test_v04_remote_execution_acceptance_runs_blocks_1_through_9_handoff(
         batch_node_id="pb3-cooh",
     ).acceptance_hash
 
-    original_incar = (tmp_path / "inputs" / "INCAR").read_text()
-    assert original_incar == "ENCUT = 450\nEDIFF = 1E-5\n"
+    assert (tmp_path / "inputs" / "INCAR").read_text() == "ENCUT = 450\nEDIFF = 1E-5\n"
     artifact_directory = tmp_path / "artifacts" / "execution" / str(attempt.id)
     assert not (artifact_directory / "POTCAR").exists()
-    assert not any(item.endswith("WAVECAR") for item in transport.commands)
+    wavecar_remote = remote_absolute_path(
+        target,
+        TargetRelativePath(f"{retrieved.remote_job.remote_directory}/WAVECAR"),
+    )
+    wavecar_artifact = next(
+        item for item in retrieved.output_artifacts if item.artifact_type is ArtifactType.WAVECAR
+    )
+    assert wavecar_remote in transport.files
+    assert wavecar_artifact.availability is ArtifactAvailability.REMOTE
 
 
 def test_local_final_handoff_remains_scheduler_free() -> None:
@@ -480,8 +488,6 @@ def test_acceptance_rejects_scheduler_completion_without_reconciled_attempt_stat
         status=ExecutionAttemptStatus.RUNNING,
     )
     target = _target()
-    from ecatvasp.domain import RemoteJob
-
     remote_job = RemoteJob(
         execution_attempt_id=attempt.id,
         scheduler=SchedulerType.SLURM,
