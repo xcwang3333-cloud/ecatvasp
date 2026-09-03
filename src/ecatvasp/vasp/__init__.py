@@ -17,9 +17,9 @@ from ecatvasp.vasp.importer import (
     inspect_vasp_folder,
 )
 from ecatvasp.vasp.incar import (
+    ECAT_STANDARD_ALGO,
     ECATVASP_DIPOLE_AXIS,
     ECATVASP_MAGMOM_UID_HASH,
-    ECAT_STANDARD_ALGO,
     AtomMagmom,
     EffectiveIncarParameter,
     IncarPreparationError,
