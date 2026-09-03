@@ -32,6 +32,13 @@ from ecatvasp.execution.remote import (
     RemoteStagingError,
     stage_remote_runtime,
 )
+from ecatvasp.execution.retrieval import (
+    RemoteRetrievalPackage,
+    RetrievalError,
+    RetrievalFileRecord,
+    RetrievalManifest,
+    retrieve_remote_outputs,
+)
 from ecatvasp.execution.runtime import (
     LocalPotcarResolution,
     LocalRuntimePackage,
@@ -78,11 +85,15 @@ __all__ = [
     "OpenSshTransport",
     "OpenSshTransportError",
     "RemotePotcarLibrary",
+    "RemoteRetrievalPackage",
     "RemoteStageFileRecord",
     "RemoteStageManifest",
     "RemoteStagePackage",
     "RemoteStagingError",
     "ResolvedSchedulerResources",
+    "RetrievalError",
+    "RetrievalFileRecord",
+    "RetrievalManifest",
     "RuntimeFileRecord",
     "RuntimeInputManifest",
     "RuntimeMaterializationError",
@@ -108,6 +119,7 @@ __all__ = [
     "remote_absolute_path",
     "render_slurm_job_script",
     "resolve_scheduler_resources",
+    "retrieve_remote_outputs",
     "stage_remote_runtime",
     "submit_remote_slurm",
     "validate_adapter_target",
