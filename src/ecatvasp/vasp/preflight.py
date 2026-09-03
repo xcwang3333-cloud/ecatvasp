@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
-from collections.abc import Mapping
+from typing import NoReturn
 
 
 class VaspFailClosedCode(StrEnum):
@@ -88,7 +89,11 @@ _RULES = (
         "kpoints",
         "kpoints compiler/reconciliation",
     ),
-    VaspFailClosedRule(VaspFailClosedCode.ILLEGAL_KPOINT_CENTERING, "kpoints", "kpoints compiler"),
+    VaspFailClosedRule(
+        VaspFailClosedCode.ILLEGAL_KPOINT_CENTERING,
+        "kpoints",
+        "kpoints compiler",
+    ),
     VaspFailClosedRule(VaspFailClosedCode.SPIN_POLICY_UNRESOLVED, "incar", "incar compiler"),
     VaspFailClosedRule(VaspFailClosedCode.MAGMOM_UID_MISSING, "incar", "incar/frequency compiler"),
     VaspFailClosedRule(VaspFailClosedCode.VDW_POLICY_UNRESOLVED, "incar", "incar compiler"),
@@ -98,7 +103,11 @@ _RULES = (
         "incar",
         "incar compiler",
     ),
-    VaspFailClosedRule(VaspFailClosedCode.FREQUENCY_UID_NOT_FOUND, "frequency", "frequency compiler"),
+    VaspFailClosedRule(
+        VaspFailClosedCode.FREQUENCY_UID_NOT_FOUND,
+        "frequency",
+        "frequency compiler",
+    ),
     VaspFailClosedRule(
         VaspFailClosedCode.FREQUENCY_UID_DUPLICATED,
         "frequency",
@@ -231,7 +240,7 @@ class VaspPreflightError(ValueError):
         super().__init__(f"{code.value}: {message}")
 
 
-def fail_closed(code: VaspFailClosedCode, message: str) -> None:
+def fail_closed(code: VaspFailClosedCode, message: str) -> NoReturn:
     """Raise a coded VASP fail-closed error."""
 
     raise VaspPreflightError(code, message)
