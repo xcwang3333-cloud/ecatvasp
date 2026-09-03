@@ -424,7 +424,11 @@ def _validate_retrieval_context(
     target: ExecutionTargetProfile,
     transport: TransportAdapter,
 ) -> None:
-    if target.transport is not TransportKind.SSH or transport.transport_kind is not TransportKind.SSH:
+    ssh_mismatch = (
+        target.transport is not TransportKind.SSH
+        or transport.transport_kind is not TransportKind.SSH
+    )
+    if ssh_mismatch:
         raise RetrievalError("remote retrieval requires matching SSH target and transport")
     if transport.transport_kind is not target.transport:
         raise RetrievalError("transport does not match ExecutionTargetProfile")
