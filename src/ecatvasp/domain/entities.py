@@ -1,4 +1,4 @@
-"""Core electrocatalysis domain entities frozen for ECatVASP schema version 1."""
+"""Core electrocatalysis domain entities for versioned ECatVASP project schemas."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class Project:
     name: str
     slug: str
     id: ProjectId = field(default_factory=new_project_id)
-    schema_version: int = 1
+    schema_version: int = 2
     description: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
 
