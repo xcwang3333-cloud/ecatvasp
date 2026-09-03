@@ -254,7 +254,10 @@ def _initial_evidence_codes(
 ) -> set[VaspConvergenceEvidenceCode]:
     codes: set[VaspConvergenceEvidenceCode] = set()
     observations = (
-        (result.termination_observed is True, VaspConvergenceEvidenceCode.NORMAL_TERMINATION_OBSERVED),
+        (
+            result.termination_observed is True,
+            VaspConvergenceEvidenceCode.NORMAL_TERMINATION_OBSERVED,
+        ),
         (final_toten, VaspConvergenceEvidenceCode.FINAL_TOTEN_OBSERVED),
         (electronic_marker, VaspConvergenceEvidenceCode.ELECTRONIC_EDIFF_OBSERVED),
         (ionic_marker, VaspConvergenceEvidenceCode.IONIC_REQUIRED_ACCURACY_OBSERVED),
@@ -489,10 +492,11 @@ def _scan_oszicar_steps(
             if match is not None:
                 value = int(match.group(1))
                 final_electronic = value
-                if max_electronic is None:
-                    max_electronic = value
-                else:
-                    max_electronic = max(max_electronic, value)
+                max_electronic = (
+                    value
+                    if max_electronic is None
+                    else max(max_electronic, value)
+                )
     _validate_integrity(item, size, digest.hexdigest())
     return ionic_count or None, final_electronic, max_electronic
 
