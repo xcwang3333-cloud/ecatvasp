@@ -13,6 +13,7 @@ from ecatvasp.domain.method import canonical_sha256
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _COMMAND_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _MODULE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@/-]*$")
+_REMOTE_PATH_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@%=-]*$")
 
 
 class TransportKind(StrEnum):
@@ -149,3 +150,10 @@ def _validate_remote_root(value: str) -> None:
         raise ValueError("remote_work_root must be an explicit non-root absolute POSIX path")
     if ".." in path.parts:
         raise ValueError("remote_work_root must not traverse parent directories")
+    unsafe = tuple(
+        part for part in path.parts[1:] if not _REMOTE_PATH_PART_PATTERN.fullmatch(part)
+    )
+    if unsafe:
+        raise ValueError(
+            "remote_work_root must use literal safe POSIX path components without shell syntax"
+        )

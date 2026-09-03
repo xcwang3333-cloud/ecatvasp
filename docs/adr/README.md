@@ -26,3 +26,4 @@ Frozen ADR set and accepted extensions:
 20. v0.4 ExecutionAttempt Provenance and RemoteJob Cardinality
 21. v0.4 Execution Target, Adapter, and Credential Boundary
 22. v0.4 Runtime Materialization and Local Execution Boundary
+23. v0.4 SSH Staging and Remote POTCAR Integrity Boundary

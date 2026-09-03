@@ -16,6 +16,14 @@ from ecatvasp.execution.provenance import (
     create_execution_attempt,
     validate_execution_attempt_plan,
 )
+from ecatvasp.execution.remote import (
+    RemotePotcarLibrary,
+    RemoteStageFileRecord,
+    RemoteStageManifest,
+    RemoteStagePackage,
+    RemoteStagingError,
+    stage_remote_runtime,
+)
 from ecatvasp.execution.runtime import (
     LocalPotcarResolution,
     LocalRuntimePackage,
@@ -23,6 +31,11 @@ from ecatvasp.execution.runtime import (
     RuntimeInputManifest,
     RuntimeMaterializationError,
     materialize_local_runtime,
+)
+from ecatvasp.execution.ssh import (
+    OpenSshTransport,
+    OpenSshTransportError,
+    remote_absolute_path,
 )
 from ecatvasp.execution.targets import (
     ExecutionEnvironmentSnapshot,
@@ -42,6 +55,13 @@ __all__ = [
     "LocalExecutor",
     "LocalPotcarResolution",
     "LocalRuntimePackage",
+    "OpenSshTransport",
+    "OpenSshTransportError",
+    "RemotePotcarLibrary",
+    "RemoteStageFileRecord",
+    "RemoteStageManifest",
+    "RemoteStagePackage",
+    "RemoteStagingError",
     "RuntimeFileRecord",
     "RuntimeInputManifest",
     "RuntimeMaterializationError",
@@ -54,6 +74,8 @@ __all__ = [
     "TransportKind",
     "create_execution_attempt",
     "materialize_local_runtime",
+    "remote_absolute_path",
+    "stage_remote_runtime",
     "validate_adapter_target",
     "validate_execution_attempt_plan",
 ]
