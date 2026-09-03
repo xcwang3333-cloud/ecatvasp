@@ -91,7 +91,8 @@ def materialize_calculation_inputs(
         elif recipe.recipe_id in _ANALYSIS_PREREQUISITE_RECIPE_IDS:
             if project_lock is None:
                 raise InputMaterializationError(
-                    "analysis prerequisite materialization requires a validated project numerical lock"
+                    "analysis prerequisite materialization requires a validated "
+                    "project numerical lock"
                 )
             expected_incar = prepare_analysis_prerequisite_incar(
                 snapshot=snapshot,
