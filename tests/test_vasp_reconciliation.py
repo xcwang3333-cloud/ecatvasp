@@ -20,6 +20,7 @@ class _RoundtripCase:
     lock: vasp.ProjectNumericalLock
     encut_evidence: vasp.EncCutValidationEvidence
     kpoint_evidence: vasp.KPointValidationEvidence
+    selection: vasp.FrequencySelection | None = None
 
 
 def _write_potcar(
@@ -40,7 +41,11 @@ def _write_potcar(
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _roundtrip_case(tmp_path: Path) -> _RoundtripCase:
+def _roundtrip_case(
+    tmp_path: Path,
+    *,
+    selected_frequency: bool = False,
+) -> _RoundtripCase:
     project = domain.Project(name="Roundtrip", slug="roundtrip")
     project_root = tmp_path / "project"
     potcar_root = tmp_path / "licensed-potcars"
@@ -101,7 +106,7 @@ def _roundtrip_case(tmp_path: Path) -> _RoundtripCase:
         encut_ev=450.0,
         kpoints=kpoints,
         precision="Accurate",
-        ediff_ev=1e-6,
+        ediff_ev=1e-8 if selected_frequency else 1e-6,
         ediffg_ev_per_angstrom=-0.02,
         ismear=0,
         sigma_ev=0.05,
@@ -112,20 +117,45 @@ def _roundtrip_case(tmp_path: Path) -> _RoundtripCase:
             domain.ParameterEntry(vasp.ECATVASP_KPOINT_CENTERING, "gamma"),
         ),
     )
-    recipe = domain.RecipeIdentity(vasp.RECIPE_GROUND_STATE_STATIC)
+    selection = (
+        vasp.FrequencySelection((snapshot.sites[1].atom_uid,))
+        if selected_frequency
+        else None
+    )
+    recipe = (
+        domain.RecipeIdentity(
+            vasp.RECIPE_SELECTED_ATOM_FREQUENCY,
+            parameters=vasp.frequency_recipe_parameters(potim_angstrom=0.015),
+        )
+        if selected_frequency
+        else domain.RecipeIdentity(vasp.RECIPE_GROUND_STATE_STATIC)
+    )
     fingerprint = domain.MethodFingerprint(
         method=method,
         protocol=protocol,
         recipe=recipe,
+        input_digests=() if selection is None else (selection.input_digest,),
     )
     calculation = domain.Calculation(
         project_id=project.id,
-        calculation_type=domain.CalculationType.STATIC,
+        calculation_type=(
+            domain.CalculationType.FREQUENCY
+            if selected_frequency
+            else domain.CalculationType.STATIC
+        ),
         input_structure_snapshot_id=snapshot.id,
         recipe_id=recipe.recipe_id,
         method_fingerprint_id=fingerprint.id,
     )
-    prepared_poscar = vasp.prepare_poscar(snapshot)
+    prepared_poscar = (
+        vasp.prepare_frequency_poscar(
+            snapshot,
+            fingerprint=fingerprint,
+            selection=selection,
+        )
+        if selected_frequency
+        else vasp.prepare_poscar(snapshot)
+    )
     prepared_kpoints = vasp.prepare_kpoints(
         snapshot,
         policy=kpoints,
@@ -172,21 +202,36 @@ def _roundtrip_case(tmp_path: Path) -> _RoundtripCase:
         lock=lock,
         encut_evidence=encut_evidence,
         kpoint_evidence=kpoint_evidence,
+        selection=selection,
     )
 
 
 def _materialize(case: _RoundtripCase) -> Path:
-    result = vasp.prepare_core_calculation_inputs(
-        project_root=case.project_root,
-        calculation=case.calculation,
-        snapshot=case.snapshot,
-        fingerprint=case.fingerprint,
-        system_context=case.context,
-        potcar_library=case.library,
-        project_lock=case.lock,
-        encut_evidence=case.encut_evidence,
-        kpoint_evidence=case.kpoint_evidence,
-    )
+    if case.selection is not None:
+        result = vasp.prepare_frequency_calculation_inputs(
+            project_root=case.project_root,
+            calculation=case.calculation,
+            snapshot=case.snapshot,
+            fingerprint=case.fingerprint,
+            system_context=case.context,
+            potcar_library=case.library,
+            project_lock=case.lock,
+            encut_evidence=case.encut_evidence,
+            kpoint_evidence=case.kpoint_evidence,
+            selection=case.selection,
+        )
+    else:
+        result = vasp.prepare_core_calculation_inputs(
+            project_root=case.project_root,
+            calculation=case.calculation,
+            snapshot=case.snapshot,
+            fingerprint=case.fingerprint,
+            system_context=case.context,
+            potcar_library=case.library,
+            project_lock=case.lock,
+            encut_evidence=case.encut_evidence,
+            kpoint_evidence=case.kpoint_evidence,
+        )
     return case.project_root / result.materialized.input_directory
 
 
@@ -215,6 +260,38 @@ def test_generated_core_inputs_roundtrip_through_reconciliation(tmp_path: Path) 
     assert reconciled.prepared_incar.text == (input_dir / "INCAR").read_text()
     assert reconciled.prepared_kpoints.text == (input_dir / "KPOINTS").read_text()
     assert reconciled.preparation_hash
+
+
+def test_selected_frequency_uid_selection_roundtrips(tmp_path: Path) -> None:
+    case = _roundtrip_case(tmp_path, selected_frequency=True)
+    assert case.selection is not None
+    input_dir = _materialize(case)
+
+    reconciled = vasp.reconcile_generated_input_directory(
+        folder=input_dir,
+        calculation=case.calculation,
+        snapshot=case.snapshot,
+        fingerprint=case.fingerprint,
+        system_context=case.context,
+        project_lock=case.lock,
+    )
+
+    flags = reconciled.prepared_poscar.selective_flags
+    assert flags is not None
+    selected_uids = tuple(
+        entry.atom_uid
+        for entry, atom_flags in zip(
+            reconciled.prepared_poscar.index_map.entries,
+            flags,
+            strict=True,
+        )
+        if atom_flags == (True, True, True)
+    )
+    assert selected_uids == case.selection.atom_uids
+    parameters = {item.name: item.value for item in reconciled.prepared_incar.parameters}
+    assert parameters["IBRION"] == 5
+    assert parameters["NFREE"] == 2
+    assert parameters["POTIM"] == pytest.approx(0.015)
 
 
 def test_reconciliation_rejects_tampered_generated_file(tmp_path: Path) -> None:
