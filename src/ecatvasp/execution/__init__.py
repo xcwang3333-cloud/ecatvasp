@@ -10,6 +10,20 @@ from ecatvasp.execution.adapters import (
     TransportAdapter,
     validate_adapter_target,
 )
+from ecatvasp.execution.batch import (
+    BatchConcurrencyPolicy,
+    BatchDispatchError,
+    BatchDispatchMode,
+    BatchDispatchSnapshot,
+    BatchDispatchTicket,
+    BatchDispatchWave,
+    BatchNodeObservation,
+    BatchNodeState,
+    SchedulerDag,
+    SchedulerDagNode,
+    prepare_batch_dispatch_wave,
+    reconcile_batch_dispatch,
+)
 from ecatvasp.execution.local import LocalExecutionError, LocalExecutionResult, LocalExecutor
 from ecatvasp.execution.monitoring import (
     ExecutionMonitoringError,
@@ -83,6 +97,14 @@ from ecatvasp.execution.targets import (
 )
 
 __all__ = [
+    "BatchConcurrencyPolicy",
+    "BatchDispatchError",
+    "BatchDispatchMode",
+    "BatchDispatchSnapshot",
+    "BatchDispatchTicket",
+    "BatchDispatchWave",
+    "BatchNodeObservation",
+    "BatchNodeState",
     "CommandResult",
     "CommandSpec",
     "ExecutionEnvironmentSnapshot",
@@ -117,6 +139,8 @@ __all__ = [
     "RuntimeInputManifest",
     "RuntimeMaterializationError",
     "SchedulerAdapter",
+    "SchedulerDag",
+    "SchedulerDagNode",
     "SchedulerObservation",
     "SchedulerSubmission",
     "SlurmAdapter",
@@ -137,7 +161,9 @@ __all__ = [
     "derive_execution_recovery_plan",
     "materialize_local_runtime",
     "monitor_remote_slurm",
+    "prepare_batch_dispatch_wave",
     "probe_vasp_runtime_progress",
+    "reconcile_batch_dispatch",
     "remote_absolute_path",
     "render_slurm_job_script",
     "resolve_scheduler_resources",
