@@ -333,7 +333,9 @@ def test_discardable_output_can_be_explicitly_removed_without_local_copy(tmp_pat
     assert record.remote_sha256 == scratch.sha256
 
 
-def test_remote_only_policy_rejects_local_request_and_release_before_transport(tmp_path: Path) -> None:
+def test_remote_only_policy_rejects_local_request_before_transport(
+    tmp_path: Path,
+) -> None:
     plan, attempt, remote_job = _plan_and_attempt()
     target = _target()
     transport = _FakeRetrievalTransport()
@@ -402,7 +404,10 @@ def test_download_checksum_mismatch_fails_closed_without_manifest(tmp_path: Path
     _prepare_root(tmp_path, attempt.id)
     _seed_outputs(transport=transport, target=target, remote_job=remote_job)
 
-    with pytest.raises(RetrievalError, match="size does not match|SHA-256 does not match"):
+    with pytest.raises(
+        RetrievalError,
+        match=r"size does not match|SHA-256 does not match",
+    ):
         retrieve_remote_outputs(
             project_root=tmp_path,
             plan=plan,
