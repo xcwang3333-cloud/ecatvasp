@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import TypedDict
 
 from ecatvasp.domain import (
     Calculation,
@@ -56,6 +57,14 @@ _RECOVERY_TERMINAL_ATTEMPTS = frozenset(
         ExecutionAttemptStatus.CANCELLED,
     }
 )
+
+
+class _ObservationCommon(TypedDict):
+    node_id: str
+    latest_attempt_id: ExecutionAttemptId
+    latest_attempt_number: int
+    latest_plan_hash: str | None
+    remote_job_count: int
 
 
 class BatchDispatchError(ValueError):
@@ -369,25 +378,25 @@ def reconcile_batch_dispatch(
         except ValueError as error:
             raise BatchDispatchError(str(error)) from error
         histories[node.calculation.id] = history
-        for attempt in history:
-            if attempt.id in attempt_by_id:
+        for history_attempt in history:
+            if history_attempt.id in attempt_by_id:
                 raise BatchDispatchError(
                     "ExecutionAttempt ids must be unique in batch resume input"
                 )
-            attempt_by_id[attempt.id] = attempt
+            attempt_by_id[history_attempt.id] = history_attempt
 
     jobs_by_attempt: dict[ExecutionAttemptId, list[RemoteJob]] = {
         attempt_id: [] for attempt_id in attempt_by_id
     }
     for job in job_values:
-        attempt = attempt_by_id.get(job.execution_attempt_id)
-        if attempt is None:
+        job_attempt = attempt_by_id.get(job.execution_attempt_id)
+        if job_attempt is None:
             continue
         try:
-            validate_remote_job_context(remote_job=job, attempt=attempt)
+            validate_remote_job_context(remote_job=job, attempt=job_attempt)
         except ValueError as error:
             raise BatchDispatchError(str(error)) from error
-        jobs_by_attempt[attempt.id].append(job)
+        jobs_by_attempt[job_attempt.id].append(job)
 
     base: dict[str, BatchNodeObservation] = {}
     for node_id in dag.topological_order:
@@ -555,7 +564,7 @@ def _base_observation(
 
     _validate_remote_job_consistency(latest, remote_jobs)
     latest_hash = latest.execution_plan_hash
-    common = {
+    common: _ObservationCommon = {
         "node_id": node.node_id,
         "latest_attempt_id": latest.id,
         "latest_attempt_number": latest.attempt_number,
