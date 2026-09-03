@@ -139,7 +139,9 @@ def classify_recovery(
             ),
         )
 
-    non_execution_tags = tuple(tag for tag in proposed_tags if tag not in _EXECUTION_ONLY_INCAR_TAGS)
+    non_execution_tags = tuple(
+        tag for tag in proposed_tags if tag not in _EXECUTION_ONLY_INCAR_TAGS
+    )
     if non_execution_tags:
         initialization_only = set(non_execution_tags).issubset(_INITIALIZATION_RESTART_TAGS)
         layer = (
