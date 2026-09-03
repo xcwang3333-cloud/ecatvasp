@@ -155,6 +155,18 @@ from ecatvasp.vasp.reconciliation import (
     ReconciledGeneratedInputs,
     reconcile_generated_input_directory,
 )
+from ecatvasp.vasp.results import (
+    VASP_RESULT_DOCUMENT_FORMAT,
+    VASP_RESULT_DOCUMENT_VERSION,
+    ConvergenceVerdict,
+    VaspConvergenceAssessment,
+    VaspEnergySummary,
+    VaspResultContractError,
+    VaspResultDocument,
+    VaspResultSource,
+    VaspResultSourceRole,
+    validate_result_parse_analysis,
+)
 
 __all__ = [
     "ECATVASP_DIPOLE_AXIS",
@@ -184,6 +196,8 @@ __all__ = [
     "VASP_FAIL_CLOSED_RULES",
     "VASP_RECIPE_REGISTRY",
     "VASP_RECIPE_SPECS",
+    "VASP_RESULT_DOCUMENT_FORMAT",
+    "VASP_RESULT_DOCUMENT_VERSION",
     "AnalysisPrerequisiteInputPipelineError",
     "AnalysisPrerequisiteInputResult",
     "AnalysisPrerequisitePreparationError",
@@ -192,6 +206,7 @@ __all__ = [
     "ChargeDifferenceTriplet",
     "ChargeDifferenceTripletInputResult",
     "ChargeDifferenceTripletMember",
+    "ConvergenceVerdict",
     "CoreInputPipelineError",
     "CoreInputPipelineResult",
     "EffectiveIncarParameter",
@@ -237,6 +252,8 @@ __all__ = [
     "StagingInputKind",
     "UidMagmom",
     "UidSelectiveDynamics",
+    "VaspConvergenceAssessment",
+    "VaspEnergySummary",
     "VaspFailClosedCode",
     "VaspFailClosedRule",
     "VaspFolderInspection",
@@ -244,6 +261,10 @@ __all__ = [
     "VaspPreflightError",
     "VaspRecipeContractError",
     "VaspRecipeSpec",
+    "VaspResultContractError",
+    "VaspResultDocument",
+    "VaspResultSource",
+    "VaspResultSourceRole",
     "VaspRuntimeCapability",
     "VaspRuntimeConstraints",
     "VaspSystemContext",
@@ -280,4 +301,5 @@ __all__ = [
     "validate_project_lock_encut",
     "validate_project_lock_kpoints",
     "validate_protocol_kpoint_contract",
+    "validate_result_parse_analysis",
 ]
