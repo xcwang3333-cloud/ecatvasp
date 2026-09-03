@@ -351,7 +351,7 @@ def _atom_index_map_text(
     prepared_poscar: PreparedPoscar,
 ) -> str:
     snapshot_hash = scientific_hash(snapshot)
-    entries = []
+    entries: list[dict[str, object]] = []
     for entry in prepared_poscar.index_map.entries:
         flags = (
             None
@@ -396,7 +396,7 @@ def _manifest_payload(
     files: tuple[ManifestFileRecord, ...],
     preparation_hash: str,
 ) -> dict[str, object]:
-    effective_parameters = [
+    effective_parameters: list[dict[str, object]] = [
         {
             "name": item.name,
             "value": item.value,
@@ -404,7 +404,7 @@ def _manifest_payload(
         }
         for item in prepared_incar.parameters
     ]
-    file_payload = [
+    file_payload: list[dict[str, object]] = [
         {
             "role": item.role,
             "artifact_type": item.artifact_type.value,
@@ -414,7 +414,7 @@ def _manifest_payload(
         }
         for item in files
     ]
-    potcar_entries = [
+    potcar_entries: list[dict[str, object]] = [
         {
             "element": item.element,
             "symbol": item.symbol,
@@ -572,11 +572,11 @@ def _write_immutable_text(path: Path, text: str) -> None:
             os.fsync(handle.fileno())
         try:
             os.link(temporary, path)
-        except FileExistsError:
+        except FileExistsError as error:
             if path.read_bytes() != data:
                 raise InputMaterializationError(
                     f"immutable input was concurrently created with different content: {path}"
-                )
+                ) from error
     finally:
         if temporary.exists():
             temporary.unlink()
