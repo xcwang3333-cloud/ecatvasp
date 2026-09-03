@@ -155,6 +155,12 @@ from ecatvasp.vasp.reconciliation import (
     ReconciledGeneratedInputs,
     reconcile_generated_input_directory,
 )
+from ecatvasp.vasp.result_intake import (
+    VaspResultArtifactIntake,
+    VaspResultInputFile,
+    VaspResultIntakeError,
+    build_vasp_result_artifact_intake,
+)
 from ecatvasp.vasp.results import (
     VASP_RESULT_DOCUMENT_FORMAT,
     VASP_RESULT_DOCUMENT_VERSION,
@@ -167,12 +173,6 @@ from ecatvasp.vasp.results import (
     VaspResultSourceRole,
     result_source_artifact_type,
     validate_result_parse_analysis,
-)
-from ecatvasp.vasp.result_intake import (
-    VaspResultArtifactIntake,
-    VaspResultInputFile,
-    VaspResultIntakeError,
-    build_vasp_result_artifact_intake,
 )
 
 __all__ = [
