@@ -170,6 +170,7 @@ class RetrievalPolicy(StrEnum):
 class AnalysisType(StrEnum):
     """Derived scientific analyses; these are not VASP Calculation types."""
 
+    RESULT_PARSE = "result_parse"
     CONVERGENCE = "convergence"
     BADER = "bader"
     CHARGE_DIFFERENCE = "charge_difference"

@@ -3,7 +3,7 @@ from ecatvasp.schema.version import SCHEMA_VERSION
 
 
 def test_package_version_is_development_version() -> None:
-    assert __version__ == "0.4.0.dev0"
+    assert __version__ == "0.5.0.dev0"
 
 
 def test_schema_version_is_two() -> None:
