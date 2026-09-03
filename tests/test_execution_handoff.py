@@ -327,7 +327,11 @@ def test_local_output_package_rejects_foreign_producer(tmp_path: Path) -> None:
         calculation=calculation,
         plan=plan,
     )
-    foreign = create_execution_attempt(plan=plan, calculation=calculation, existing_attempts=(attempt,))
+    foreign = create_execution_attempt(
+        plan=plan,
+        calculation=calculation,
+        existing_attempts=(attempt,),
+    )
     artifact = Artifact(
         artifact_type=ArtifactType.OUTCAR,
         producer=ExecutionAttemptProducerRef(foreign.id),
