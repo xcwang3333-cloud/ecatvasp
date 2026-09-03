@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
@@ -557,11 +558,14 @@ def _add_recipe_parameters(
     *,
     recipe: RecipeIdentity,
 ) -> None:
-    values = dict(_CORE_RECIPE_DEFAULTS[recipe.recipe_id])
-    values.update({item.name: item.value for item in recipe.parameters})
+    values: dict[str, IncarValue] = dict(_CORE_RECIPE_DEFAULTS[recipe.recipe_id])
+    for item in recipe.parameters:
+        _validate_recipe_value(name=item.name, value=item.value)
+        value = item.value
+        assert isinstance(value, (str, int, float, bool))
+        values[item.name] = value
     for name, value in values.items():
         _validate_recipe_value(name=name, value=value)
-        assert isinstance(value, (str, int, float, bool))
         _put(parameters, name, value, IncarSourceLayer.RECIPE)
 
 
@@ -633,7 +637,7 @@ def _resolve_dipole(
     *,
     protocol: ProtocolDefinition,
     system_context: VaspSystemContext,
-    extras: dict[str, object],
+    extras: Mapping[str, object],
 ) -> int | None:
     policy = protocol.dipole_policy.value
     if policy == "off":
@@ -732,7 +736,7 @@ def _orthogonal(
     second_norm = sum(value * value for value in second) ** 0.5
     if first_norm <= 0 or second_norm <= 0:
         return False
-    return abs(dot) <= 1e-10 * first_norm * second_norm
+    return bool(abs(dot) <= 1e-10 * first_norm * second_norm)
 
 
 def _xc_parameters(xc_functional: str) -> dict[str, IncarValue]:
