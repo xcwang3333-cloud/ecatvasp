@@ -38,7 +38,7 @@ def _source(
 
 
 def test_result_parse_is_durable_analysis_type_without_schema_change() -> None:
-    project = Project(name="v0.5 result contracts")
+    project = Project(name="v0.5 result contracts", slug="v05-result-contracts")
     analysis = Analysis(
         project_id=project.id,
         analysis_type=AnalysisType.RESULT_PARSE,
@@ -127,7 +127,7 @@ def test_convergence_assessment_is_separate_scientific_contract() -> None:
 
 
 def test_result_parse_analysis_requires_explicit_parser_provenance() -> None:
-    project = Project(name="parser provenance")
+    project = Project(name="parser provenance", slug="parser-provenance")
     missing_version = Analysis(
         project_id=project.id,
         analysis_type=AnalysisType.RESULT_PARSE,
