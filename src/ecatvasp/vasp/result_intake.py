@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from ecatvasp.domain import (
     Artifact,
     ArtifactAvailability,
+    ArtifactType,
     Calculation,
     CalculationEngine,
     CalculationType,
@@ -185,7 +186,7 @@ def build_vasp_result_artifact_intake(
         raise VaspResultIntakeError("supplied Artifact ids must be unique")
 
     source_types = {item.artifact_type for item in contracts.values()}
-    candidates_by_type: dict[object, list[Artifact]] = {}
+    candidates_by_type: dict[ArtifactType, list[Artifact]] = {}
     for artifact in artifacts:
         if artifact.artifact_type in source_types:
             candidates_by_type.setdefault(artifact.artifact_type, []).append(artifact)
