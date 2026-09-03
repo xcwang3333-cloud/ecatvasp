@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ecatvasp.domain import Calculation, MethodFingerprint, SpinTreatment, StructureSnapshot
 from ecatvasp.domain.method import RecipeIdentity
+from ecatvasp.vasp.analysis_prerequisites import prepare_analysis_prerequisite_incar
 from ecatvasp.vasp.contracts import ProjectNumericalLock, VaspSystemContext
 from ecatvasp.vasp.frequency import (
     prepare_frequency_incar,
@@ -20,8 +21,11 @@ from ecatvasp.vasp.materialization import (
 from ecatvasp.vasp.poscar import PreparedPoscar
 from ecatvasp.vasp.potcar import PotcarSpec
 from ecatvasp.vasp.recipes import (
+    RECIPE_CHARGE_DENSITY_STATIC,
+    RECIPE_DOS_PREREQUISITE,
     RECIPE_FULL_FREQUENCY,
     RECIPE_GAS_FREQUENCY,
+    RECIPE_LOBSTER_PREREQUISITE,
     RECIPE_SELECTED_ATOM_FREQUENCY,
 )
 
@@ -30,6 +34,13 @@ _FREQUENCY_RECIPE_IDS = frozenset(
         RECIPE_SELECTED_ATOM_FREQUENCY,
         RECIPE_FULL_FREQUENCY,
         RECIPE_GAS_FREQUENCY,
+    }
+)
+_ANALYSIS_PREREQUISITE_RECIPE_IDS = frozenset(
+    {
+        RECIPE_DOS_PREREQUISITE,
+        RECIPE_CHARGE_DENSITY_STATIC,
+        RECIPE_LOBSTER_PREREQUISITE,
     }
 )
 
@@ -66,6 +77,23 @@ def materialize_calculation_inputs(
                 fingerprint=fingerprint,
             )
             expected_incar = prepare_frequency_incar(
+                snapshot=snapshot,
+                method=fingerprint.method,
+                protocol=fingerprint.protocol,
+                recipe=recipe,
+                system_context=system_context,
+                prepared_poscar=prepared_poscar,
+                prepared_kpoints=prepared_kpoints,
+                potcar_spec=potcar_spec,
+                project_lock=project_lock,
+                magmom=magmom,
+            )
+        elif recipe.recipe_id in _ANALYSIS_PREREQUISITE_RECIPE_IDS:
+            if project_lock is None:
+                raise InputMaterializationError(
+                    "analysis prerequisite materialization requires a validated project numerical lock"
+                )
+            expected_incar = prepare_analysis_prerequisite_incar(
                 snapshot=snapshot,
                 method=fingerprint.method,
                 protocol=fingerprint.protocol,
