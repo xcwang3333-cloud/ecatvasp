@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
 from ecatvasp.domain import (
@@ -357,7 +357,7 @@ def submit_remote_slurm(
         job_script=job_script,
     )
     submission = scheduler.submit(target=staged.target, script=script_remote)
-    timestamp = submitted_at or datetime.now(timezone.utc)
+    timestamp = submitted_at or datetime.now(UTC)
 
     queued_attempt = replace(staged.attempt, status=ExecutionAttemptStatus.QUEUED)
     remote_job = RemoteJob(
@@ -382,7 +382,7 @@ def submit_remote_slurm(
         submission=submission,
         attempt=queued_attempt,
         remote_job=remote_job,
-        artifacts=staged.artifacts + (script_artifact, scheduler_artifact),
+        artifacts=(*staged.artifacts, script_artifact, scheduler_artifact),
     )
 
 
@@ -441,6 +441,8 @@ def _persist_scheduler_record(
     path = artifact_directory / "scheduler-submit.json"
     if path.exists():
         raise SlurmSubmissionError("scheduler submission record already exists")
+    stdout_sha256 = hashlib.sha256(submission.raw_stdout.encode("utf-8")).hexdigest()
+    stderr_sha256 = hashlib.sha256(submission.raw_stderr.encode("utf-8")).hexdigest()
     text = canonical_json(
         {
             "schema_version": 1,
@@ -453,8 +455,8 @@ def _persist_scheduler_record(
             "resources": resources,
             "job_script_sha256": job_script.sha256,
             "submitted_at": submitted_at.isoformat(),
-            "raw_stdout": submission.raw_stdout,
-            "raw_stderr": submission.raw_stderr,
+            "submit_stdout_sha256": stdout_sha256,
+            "submit_stderr_sha256": stderr_sha256,
         }
     ) + "\n"
     path.write_text(text, encoding="utf-8")
