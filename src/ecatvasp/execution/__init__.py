@@ -83,7 +83,6 @@ from ecatvasp.execution.slurm import (
     ResolvedSchedulerResources,
     SlurmAdapter,
     SlurmJobScript,
-    SlurmMonitoringPackage,
     SlurmObservationError,
     SlurmSubmissionError,
     SlurmSubmissionPackage,
