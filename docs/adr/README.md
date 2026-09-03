@@ -32,3 +32,4 @@ Frozen ADR set and accepted extensions:
 26. v0.4 Retrieval and Remote Artifact Lifecycle Boundary
 27. v0.4 Retry, Restart, and Recovery Identity Boundary
 28. v0.4 Batch Dispatch and Scheduler DAG Boundary
+29. v0.4 Final Execution Acceptance and Handoff Boundary
