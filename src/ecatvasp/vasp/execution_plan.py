@@ -8,6 +8,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from ecatvasp.domain import (
+    Artifact,
     ArtifactAvailability,
     ArtifactType,
     Calculation,
@@ -66,7 +67,8 @@ class VaspRuntimeCapability(StrEnum):
 
 def _validate_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
         raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
     return normalized
 
@@ -197,8 +199,10 @@ class VaspRuntimeConstraints:
                 "required_version",
                 _require_text(self.required_version, "required_version"),
             )
-        ordered = tuple(sorted(set(self.required_capabilities), key=lambda item: item.value))
-        object.__setattr__(self, "required_capabilities", ordered)
+        capabilities = tuple(
+            sorted(set(self.required_capabilities), key=lambda item: item.value)
+        )
+        object.__setattr__(self, "required_capabilities", capabilities)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +275,7 @@ class ExecutionPlan:
 
 def build_execution_plan(
     *,
+    project_root: Path | str,
     calculation: Calculation,
     fingerprint: MethodFingerprint,
     system_context: VaspSystemContext,
@@ -289,7 +294,14 @@ def build_execution_plan(
         materialized=materialized,
         resolved_potcars=resolved_potcars,
     )
-    staging_inputs, manifest_artifact_id = _staging_inputs(materialized, calculation)
+    root = Path(project_root).resolve()
+    if not root.is_dir():
+        raise ExecutionPlanError("project_root must be an existing project directory")
+    staging_inputs, manifest_artifact_id = _staging_inputs(
+        project_root=root,
+        materialized=materialized,
+        calculation=calculation,
+    )
     potcar_request = _potcar_request(resolved_potcars, fingerprint, materialized)
     return ExecutionPlan(
         calculation_id=calculation.id,
@@ -320,6 +332,10 @@ def _validate_v03_execution_settings(settings: ExecutionSettings) -> None:
             "v0.3 ExecutionPlan defers scheduler resource fields to v0.4 adapters: "
             + ", ".join(configured)
         )
+    if "/" in settings.executable or "\\" in settings.executable:
+        raise ExecutionPlanError(
+            "v0.3 ExecutionPlan executable must be a portable command name, not a host path"
+        )
 
 
 def _validate_plan_identity(
@@ -340,7 +356,13 @@ def _validate_plan_identity(
         raise ExecutionPlanError("Calculation MethodFingerprint id does not match fingerprint")
     if calculation.recipe_id != fingerprint.recipe.recipe_id:
         raise ExecutionPlanError("Calculation recipe does not match MethodFingerprint")
-    get_vasp_recipe_spec(calculation.recipe_id)
+    spec = get_vasp_recipe_spec(calculation.recipe_id)
+    if calculation.calculation_type is not spec.calculation_type:
+        raise ExecutionPlanError("CalculationType does not match canonical VASP recipe")
+    if system_context.kind not in spec.allowed_system_kinds:
+        raise ExecutionPlanError("VASP system context is incompatible with canonical recipe")
+    if fingerprint.recipe.version != spec.version:
+        raise ExecutionPlanError("MethodFingerprint recipe version is not canonical")
     if fingerprint.method.engine.casefold() != "vasp":
         raise ExecutionPlanError("MethodFingerprint engine must be VASP")
     if resolved_potcars.spec.core_method_hash != fingerprint.core_method_hash:
@@ -364,14 +386,21 @@ def _validate_plan_identity(
         raise ExecutionPlanError("manifest Recipe version does not match")
     if _string(context_payload, "kind") != system_context.kind.value:
         raise ExecutionPlanError("manifest VASP system kind does not match")
-    expected_axis = system_context.vacuum_axis.value if system_context.vacuum_axis is not None else None
+    expected_axis = (
+        system_context.vacuum_axis.value if system_context.vacuum_axis is not None else None
+    )
     if context_payload.get("vacuum_axis") != expected_axis:
         raise ExecutionPlanError("manifest VASP vacuum axis does not match")
-    if _string(preparations_payload, "potcar_metadata_hash") != resolved_potcars.spec.metadata_hash:
+    if (
+        _string(preparations_payload, "potcar_metadata_hash")
+        != resolved_potcars.spec.metadata_hash
+    ):
         raise ExecutionPlanError("manifest POTCAR metadata hash does not match resolved set")
 
 
 def _staging_inputs(
+    *,
+    project_root: Path,
     materialized: MaterializedInputSet,
     calculation: Calculation,
 ) -> tuple[tuple[StagingInput, ...], ArtifactId]:
@@ -380,13 +409,26 @@ def _staging_inputs(
         for artifact in materialized.artifacts
         if artifact.local_path is not None
     }
+    manifest_artifact = next(
+        (item for item in materialized.artifacts if item.id == materialized.manifest_artifact_id),
+        None,
+    )
+    if manifest_artifact is None or manifest_artifact.local_path is None:
+        raise ExecutionPlanError("input-manifest Artifact is missing")
+
+    expected_paths = {record.relative_path for record in materialized.manifest.files}
+    expected_paths.add(manifest_artifact.local_path)
+    if set(artifacts_by_path) != expected_paths:
+        raise ExecutionPlanError("materialized Artifact paths do not exactly match input manifest")
+
     items: list[StagingInput] = []
     vasp_roles = frozenset({"incar", "poscar", "kpoints"})
     for record in materialized.manifest.files:
         artifact = artifacts_by_path.get(record.relative_path)
         if artifact is None:
-            raise ExecutionPlanError(f"manifest artifact is missing: {record.relative_path}")
+            raise ExecutionPlanError(f"manifest Artifact is missing: {record.relative_path}")
         _validate_materialized_artifact(
+            project_root=project_root,
             artifact=artifact,
             calculation=calculation,
             artifact_type=record.artifact_type,
@@ -410,18 +452,14 @@ def _staging_inputs(
             )
         )
 
-    manifest_artifact = next(
-        (item for item in materialized.artifacts if item.id == materialized.manifest_artifact_id),
-        None,
-    )
-    if manifest_artifact is None or manifest_artifact.local_path is None:
-        raise ExecutionPlanError("input-manifest Artifact is missing")
+    manifest_size = len(materialized.manifest.text.encode("utf-8"))
     _validate_materialized_artifact(
+        project_root=project_root,
         artifact=manifest_artifact,
         calculation=calculation,
         artifact_type=ArtifactType.DERIVED_DATASET,
         sha256=materialized.manifest.sha256,
-        size_bytes=len(materialized.manifest.text.encode("utf-8")),
+        size_bytes=manifest_size,
     )
     items.append(
         StagingInput(
@@ -432,33 +470,46 @@ def _staging_inputs(
             source_relative_path=manifest_artifact.local_path,
             target_relative_path="input-manifest.json",
             sha256=materialized.manifest.sha256,
-            size_bytes=len(materialized.manifest.text.encode("utf-8")),
+            size_bytes=manifest_size,
         )
     )
-    ordered = tuple(sorted(items, key=lambda item: item.role))
-    return ordered, manifest_artifact.id
+    return tuple(sorted(items, key=lambda item: item.role)), manifest_artifact.id
 
 
 def _validate_materialized_artifact(
     *,
-    artifact: object,
+    project_root: Path,
+    artifact: Artifact,
     calculation: Calculation,
     artifact_type: ArtifactType,
     sha256: str,
     size_bytes: int,
 ) -> None:
-    from ecatvasp.domain import Artifact
-
-    if not isinstance(artifact, Artifact):
-        raise ExecutionPlanError("invalid materialized Artifact")
     if artifact.artifact_type is not artifact_type:
         raise ExecutionPlanError("materialized Artifact type does not match manifest")
     if artifact.availability not in {ArtifactAvailability.LOCAL, ArtifactAvailability.BOTH}:
         raise ExecutionPlanError("staging Artifact must be locally available")
-    if not isinstance(artifact.producer, CalculationProducerRef) or artifact.producer.id != calculation.id:
+    if not isinstance(artifact.producer, CalculationProducerRef):
+        raise ExecutionPlanError("staging Artifact must be Calculation-produced")
+    if artifact.producer.id != calculation.id:
         raise ExecutionPlanError("staging Artifact producer must be the exact Calculation")
     if artifact.sha256 != sha256 or artifact.size_bytes != size_bytes:
         raise ExecutionPlanError("staging Artifact digest/size does not match manifest")
+    if artifact.local_path is None:
+        raise ExecutionPlanError("staging Artifact must have a local path")
+
+    relative = _validate_relative_path(artifact.local_path, "Artifact.local_path")
+    source = (project_root / Path(*PurePosixPath(relative).parts)).resolve()
+    if not source.is_relative_to(project_root):
+        raise ExecutionPlanError("staging Artifact resolves outside project_root")
+    if not source.is_file():
+        raise ExecutionPlanError(f"staging Artifact file is missing: {relative}")
+    actual_size = source.stat().st_size
+    if actual_size != size_bytes:
+        raise ExecutionPlanError(f"staging Artifact file size changed: {relative}")
+    actual_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    if actual_sha != sha256:
+        raise ExecutionPlanError(f"staging Artifact file hash changed: {relative}")
 
 
 def _potcar_request(
@@ -472,7 +523,9 @@ def _potcar_request(
         raise ExecutionPlanError("POTCAR spec order is internally inconsistent")
     for item in resolved.files:
         if not item.path.is_file():
-            raise ExecutionPlanError(f"licensed POTCAR disappeared before handoff: {item.entry.symbol}")
+            raise ExecutionPlanError(
+                f"licensed POTCAR disappeared before handoff: {item.entry.symbol}"
+            )
         actual_sha = hashlib.sha256(item.path.read_bytes()).hexdigest()
         if actual_sha != item.entry.sha256:
             raise ExecutionPlanError(
@@ -497,24 +550,60 @@ def _potcar_request(
 
 def _expected_outputs(recipe_id: str) -> tuple[ExpectedOutput, ...]:
     outputs: list[ExpectedOutput] = [
-        ExpectedOutput("outcar", ArtifactType.OUTCAR, "OUTCAR", RetrievalPolicy.ALWAYS, True),
-        ExpectedOutput("oszicar", ArtifactType.OSZICAR, "OSZICAR", RetrievalPolicy.ALWAYS, False),
+        ExpectedOutput(
+            "outcar",
+            ArtifactType.OUTCAR,
+            "OUTCAR",
+            RetrievalPolicy.ALWAYS,
+            True,
+        ),
+        ExpectedOutput(
+            "oszicar",
+            ArtifactType.OSZICAR,
+            "OSZICAR",
+            RetrievalPolicy.ALWAYS,
+            False,
+        ),
     ]
     if recipe_id in {RECIPE_SLAB_RELAX, RECIPE_ADSORBATE_RELAX, RECIPE_GAS_RELAX}:
         outputs.append(
-            ExpectedOutput("contcar", ArtifactType.CONTCAR, "CONTCAR", RetrievalPolicy.ALWAYS, True)
+            ExpectedOutput(
+                "contcar",
+                ArtifactType.CONTCAR,
+                "CONTCAR",
+                RetrievalPolicy.ALWAYS,
+                True,
+            )
         )
     elif recipe_id == RECIPE_DOS_PREREQUISITE:
         outputs.append(
-            ExpectedOutput("doscar", ArtifactType.DOSCAR, "DOSCAR", RetrievalPolicy.ALWAYS, True)
+            ExpectedOutput(
+                "doscar",
+                ArtifactType.DOSCAR,
+                "DOSCAR",
+                RetrievalPolicy.ALWAYS,
+                True,
+            )
         )
     elif recipe_id == RECIPE_CHARGE_DENSITY_STATIC:
         outputs.append(
-            ExpectedOutput("chgcar", ArtifactType.CHGCAR, "CHGCAR", RetrievalPolicy.ALWAYS, True)
+            ExpectedOutput(
+                "chgcar",
+                ArtifactType.CHGCAR,
+                "CHGCAR",
+                RetrievalPolicy.ALWAYS,
+                True,
+            )
         )
     elif recipe_id == RECIPE_LOBSTER_PREREQUISITE:
         outputs.append(
-            ExpectedOutput("wavecar", ArtifactType.WAVECAR, "WAVECAR", RetrievalPolicy.ON_DEMAND, True)
+            ExpectedOutput(
+                "wavecar",
+                ArtifactType.WAVECAR,
+                "WAVECAR",
+                RetrievalPolicy.ON_DEMAND,
+                True,
+            )
         )
     elif recipe_id not in {
         RECIPE_GROUND_STATE_STATIC,
@@ -561,9 +650,14 @@ def _runtime_constraints(fingerprint: MethodFingerprint) -> VaspRuntimeConstrain
 
 def _mapping(payload: dict[str, object], key: str) -> dict[str, object]:
     value = payload.get(key)
-    if not isinstance(value, dict) or not all(isinstance(item, str) for item in value):
-        raise ExecutionPlanError(f"manifest {key} must be an object with string keys")
-    return value
+    if not isinstance(value, dict):
+        raise ExecutionPlanError(f"manifest {key} must be an object")
+    normalized: dict[str, object] = {}
+    for raw_key, raw_value in value.items():
+        if not isinstance(raw_key, str):
+            raise ExecutionPlanError(f"manifest {key} must have string keys")
+        normalized[raw_key] = raw_value
+    return normalized
 
 
 def _string(payload: dict[str, object], key: str) -> str:
