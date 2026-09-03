@@ -47,6 +47,12 @@ _SOURCE_ARTIFACT_TYPES: dict[VaspResultSourceRole, ArtifactType] = {
 }
 
 
+def result_source_artifact_type(role: VaspResultSourceRole) -> ArtifactType:
+    """Return the only ArtifactType valid for one scientific result source role."""
+
+    return _SOURCE_ARTIFACT_TYPES[role]
+
+
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
     valid_hex = all(character in "0123456789abcdef" for character in normalized)
@@ -84,7 +90,7 @@ class VaspResultSource:
     sha256: str
 
     def __post_init__(self) -> None:
-        expected_type = _SOURCE_ARTIFACT_TYPES[self.role]
+        expected_type = result_source_artifact_type(self.role)
         if self.artifact_type is not expected_type:
             raise VaspResultContractError(
                 f"{self.role.value} source requires ArtifactType.{expected_type.name}"

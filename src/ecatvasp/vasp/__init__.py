@@ -165,7 +165,14 @@ from ecatvasp.vasp.results import (
     VaspResultDocument,
     VaspResultSource,
     VaspResultSourceRole,
+    result_source_artifact_type,
     validate_result_parse_analysis,
+)
+from ecatvasp.vasp.result_intake import (
+    VaspResultArtifactIntake,
+    VaspResultInputFile,
+    VaspResultIntakeError,
+    build_vasp_result_artifact_intake,
 )
 
 __all__ = [
@@ -261,8 +268,11 @@ __all__ = [
     "VaspPreflightError",
     "VaspRecipeContractError",
     "VaspRecipeSpec",
+    "VaspResultArtifactIntake",
     "VaspResultContractError",
     "VaspResultDocument",
+    "VaspResultInputFile",
+    "VaspResultIntakeError",
     "VaspResultSource",
     "VaspResultSourceRole",
     "VaspRuntimeCapability",
@@ -270,6 +280,7 @@ __all__ = [
     "VaspSystemContext",
     "VaspSystemKind",
     "build_execution_plan",
+    "build_vasp_result_artifact_intake",
     "dos_recipe_parameters",
     "ecat_standard_protocol_parameters",
     "fail_closed",
@@ -290,6 +301,7 @@ __all__ = [
     "prepare_kpoints",
     "prepare_poscar",
     "reconcile_generated_input_directory",
+    "result_source_artifact_type",
     "suggest_encut_baseline",
     "validate_analysis_prerequisite_recipe",
     "validate_calculation_recipe_contract",

@@ -34,3 +34,4 @@ Frozen ADR set and accepted extensions:
 28. v0.4 Batch Dispatch and Scheduler DAG Boundary
 29. v0.4 Final Execution Acceptance and Handoff Boundary
 30. v0.5 Scientific Result Parsing Boundary
+31. v0.5 Result Artifact Intake and Integrity Boundary
