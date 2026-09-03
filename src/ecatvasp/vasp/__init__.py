@@ -49,8 +49,8 @@ from ecatvasp.vasp.materialization import (
     InputMaterializationError,
     ManifestFileRecord,
     MaterializedInputSet,
-    materialize_calculation_inputs,
 )
+from ecatvasp.vasp.materialization_guard import materialize_calculation_inputs
 from ecatvasp.vasp.poscar import (
     AtomSelectiveFlags,
     PoscarIndexEntry,
