@@ -51,6 +51,11 @@ from ecatvasp.vasp.materialization import (
     MaterializedInputSet,
 )
 from ecatvasp.vasp.materialization_guard import materialize_calculation_inputs
+from ecatvasp.vasp.pipeline import (
+    CoreInputPipelineError,
+    CoreInputPipelineResult,
+    prepare_core_calculation_inputs,
+)
 from ecatvasp.vasp.poscar import (
     AtomSelectiveFlags,
     PoscarIndexEntry,
@@ -121,6 +126,8 @@ __all__ = [
     "VASP_RECIPE_SPECS",
     "AtomMagmom",
     "AtomSelectiveFlags",
+    "CoreInputPipelineError",
+    "CoreInputPipelineResult",
     "EffectiveIncarParameter",
     "EncCutBaseline",
     "EncCutValidationEvidence",
@@ -162,6 +169,7 @@ __all__ = [
     "import_existing_vasp_folder",
     "inspect_vasp_folder",
     "materialize_calculation_inputs",
+    "prepare_core_calculation_inputs",
     "prepare_incar",
     "prepare_kpoints",
     "prepare_poscar",
