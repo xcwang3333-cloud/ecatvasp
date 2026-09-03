@@ -28,3 +28,4 @@ Frozen ADR set and accepted extensions:
 22. v0.4 Runtime Materialization and Local Execution Boundary
 23. v0.4 SSH Staging and Remote POTCAR Integrity Boundary
 24. v0.4 Slurm Resource and Submission Boundary
+25. v0.4 Slurm Monitoring and Reconciliation Boundary
