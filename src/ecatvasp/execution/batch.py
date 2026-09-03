@@ -10,7 +10,9 @@ from enum import StrEnum
 
 from ecatvasp.domain import (
     Calculation,
+    CalculationId,
     ExecutionAttempt,
+    ExecutionAttemptId,
     ExecutionAttemptStatus,
     RemoteJob,
     SchedulerState,
@@ -18,7 +20,10 @@ from ecatvasp.domain import (
     validate_attempt_history,
     validate_remote_job_context,
 )
-from ecatvasp.execution.provenance import create_execution_attempt, validate_execution_attempt_plan
+from ecatvasp.execution.provenance import (
+    create_execution_attempt,
+    validate_execution_attempt_plan,
+)
 from ecatvasp.execution.recovery import (
     RecoveryAction,
     RecoveryDecision,
@@ -178,7 +183,7 @@ class BatchNodeObservation:
     node_id: str
     state: BatchNodeState
     reason: str
-    latest_attempt_id: object | None = None
+    latest_attempt_id: ExecutionAttemptId | None = None
     latest_attempt_number: int | None = None
     latest_plan_hash: str | None = None
     remote_job_count: int = 0
@@ -353,9 +358,8 @@ def reconcile_batch_dispatch(
             "recovery decisions reference unknown batch nodes: " + ", ".join(unknown_decisions)
         )
 
-    nodes_by_calculation = {node.calculation.id: node for node in dag.nodes}
-    histories: dict[object, tuple[ExecutionAttempt, ...]] = {}
-    attempt_by_id: dict[object, ExecutionAttempt] = {}
+    histories: dict[CalculationId, tuple[ExecutionAttempt, ...]] = {}
+    attempt_by_id: dict[ExecutionAttemptId, ExecutionAttempt] = {}
     for node in dag.nodes:
         history = tuple(
             item for item in attempt_values if item.calculation_id == node.calculation.id
@@ -367,10 +371,14 @@ def reconcile_batch_dispatch(
         histories[node.calculation.id] = history
         for attempt in history:
             if attempt.id in attempt_by_id:
-                raise BatchDispatchError("ExecutionAttempt ids must be unique in batch resume input")
+                raise BatchDispatchError(
+                    "ExecutionAttempt ids must be unique in batch resume input"
+                )
             attempt_by_id[attempt.id] = attempt
 
-    jobs_by_attempt: dict[object, list[RemoteJob]] = {attempt_id: [] for attempt_id in attempt_by_id}
+    jobs_by_attempt: dict[ExecutionAttemptId, list[RemoteJob]] = {
+        attempt_id: [] for attempt_id in attempt_by_id
+    }
     for job in job_values:
         attempt = attempt_by_id.get(job.execution_attempt_id)
         if attempt is None:
@@ -573,13 +581,19 @@ def _base_observation(
         return BatchNodeObservation(
             **common,
             state=BatchNodeState.STALE_PLAN,
-            reason="legacy attempt lacks v0.4 ExecutionPlan provenance; automatic batch resume is unsafe",
+            reason=(
+                "legacy attempt lacks v0.4 ExecutionPlan provenance; automatic batch resume "
+                "is unsafe"
+            ),
         )
     if latest_hash != node.plan.plan_hash:
         return BatchNodeObservation(
             **common,
             state=BatchNodeState.STALE_PLAN,
-            reason="latest attempt pins a different ExecutionPlan; explicit recovery authorization is required",
+            reason=(
+                "latest attempt pins a different ExecutionPlan; explicit recovery "
+                "authorization is required"
+            ),
         )
 
     validate_execution_attempt_plan(
@@ -695,12 +709,18 @@ def _validate_recovery_authorization(
         if node.plan.plan_hash == decision.source_plan_hash:
             raise BatchDispatchError("execution-tuning recovery requires a distinct ExecutionPlan")
         if decision.target_execution_hash != node.plan.execution_settings.execution_hash:
-            raise BatchDispatchError("recovery decision target execution hash does not match node plan")
+            raise BatchDispatchError(
+                "recovery decision target execution hash does not match node plan"
+            )
     else:
         if decision.source_plan_hash != node.plan.plan_hash:
-            raise BatchDispatchError("same-plan recovery decision does not match scheduler node plan")
+            raise BatchDispatchError(
+                "same-plan recovery decision does not match scheduler node plan"
+            )
         if latest.execution_plan_hash != node.plan.plan_hash:
-            raise BatchDispatchError("same-plan recovery does not match latest attempt provenance")
+            raise BatchDispatchError(
+                "same-plan recovery does not match latest attempt provenance"
+            )
 
 
 def _topological_order(nodes: tuple[SchedulerDagNode, ...]) -> tuple[str, ...]:
