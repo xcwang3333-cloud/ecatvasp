@@ -11,7 +11,6 @@ from pathlib import Path, PurePosixPath
 from ecatvasp.domain import (
     Artifact,
     ArtifactAvailability,
-    ArtifactType,
     Calculation,
     ExecutionAttempt,
     ExecutionAttemptProducerRef,
@@ -128,7 +127,9 @@ class ExecutionResultHandoff:
             if self.retrieval_manifest_artifact_id is None:
                 raise ValueError("remote execution handoff requires retrieval-manifest provenance")
             if self.process_exit_code is not None:
-                raise ValueError("remote execution handoff does not invent a local process exit code")
+                raise ValueError(
+                    "remote execution handoff does not invent a local process exit code"
+                )
 
         object.__setattr__(
             self,
@@ -252,7 +253,9 @@ def build_local_execution_handoff(
     if result.attempt.status not in _HANDOFF_ATTEMPT_STATES:
         raise ExecutionHandoffError("local attempt has not reached an execution-result boundary")
     if runtime.attempt.id != result.attempt.id or outputs.attempt.id != result.attempt.id:
-        raise ExecutionHandoffError("local runtime/result/output packages refer to different attempts")
+        raise ExecutionHandoffError(
+            "local runtime/result/output packages refer to different attempts"
+        )
     if runtime.plan.plan_hash != plan.plan_hash:
         raise ExecutionHandoffError("local runtime package does not use this ExecutionPlan")
     _validate_output_contract(plan, result.attempt, outputs.output_artifacts)
@@ -352,23 +355,30 @@ def _validate_output_contract(
     if len(actual) != len(artifacts):
         raise ExecutionHandoffError("output Artifact types must be unique")
     if set(actual) != set(expected):
-        raise ExecutionHandoffError("execution output Artifacts do not match ExecutionPlan contract")
+        raise ExecutionHandoffError(
+            "execution output Artifacts do not match ExecutionPlan contract"
+        )
 
     producer = ExecutionAttemptProducerRef(attempt.id)
     for artifact_type, output in expected.items():
         artifact = actual[artifact_type]
         if artifact.producer != producer:
             raise ExecutionHandoffError("execution output Artifact producer does not match attempt")
-        if output.required and attempt.status in _REQUIRED_OUTPUT_STATES:
-            if artifact.availability is ArtifactAvailability.MISSING:
-                raise ExecutionHandoffError(
-                    f"required execution output is missing at handoff: {output.role}"
-                )
-        if artifact.availability is not ArtifactAvailability.MISSING:
-            if artifact.sha256 is None or artifact.size_bytes is None:
-                raise ExecutionHandoffError(
-                    "available execution outputs require SHA-256 and size provenance"
-                )
+        if (
+            output.required
+            and attempt.status in _REQUIRED_OUTPUT_STATES
+            and artifact.availability is ArtifactAvailability.MISSING
+        ):
+            raise ExecutionHandoffError(
+                f"required execution output is missing at handoff: {output.role}"
+            )
+        if (
+            artifact.availability is not ArtifactAvailability.MISSING
+            and (artifact.sha256 is None or artifact.size_bytes is None)
+        ):
+            raise ExecutionHandoffError(
+                "available execution outputs require SHA-256 and size provenance"
+            )
 
 
 def _require_unique_expected_artifact_types(plan: ExecutionPlan) -> None:
