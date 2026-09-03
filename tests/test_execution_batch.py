@@ -21,6 +21,7 @@ from ecatvasp.execution import (
     BatchConcurrencyPolicy,
     BatchDispatchError,
     BatchDispatchMode,
+    BatchDispatchSnapshot,
     BatchNodeState,
     ExecutionEvidence,
     RecoveryCause,
@@ -92,9 +93,8 @@ def _node(
     )
 
 
-def _state(snapshot: object, node_id: str) -> BatchNodeState:
-    observations = getattr(snapshot, "observations")
-    return next(item.state for item in observations if item.node_id == node_id)
+def _state(snapshot: BatchDispatchSnapshot, node_id: str) -> BatchNodeState:
+    return next(item.state for item in snapshot.observations if item.node_id == node_id)
 
 
 def test_scheduler_dag_is_deterministic_and_rejects_cycles() -> None:
@@ -135,7 +135,10 @@ def test_batch_wave_respects_concurrency_and_is_resume_idempotent() -> None:
     project = Project(name="Batch", slug="batch")
     calculations = tuple(_calculation(project, value) for value in ("a", "b", "c"))
     dag = SchedulerDag(
-        nodes=tuple(_node(value, calculation) for value, calculation in zip("abc", calculations))
+        nodes=tuple(
+            _node(value, calculation)
+            for value, calculation in zip("abc", calculations, strict=True)
+        )
     )
     concurrency = BatchConcurrencyPolicy(max_active=2)
 
