@@ -18,10 +18,15 @@ from ecatvasp.domain import (
     RetrievalPolicy,
     SchedulerState,
 )
+from ecatvasp.domain.ids import ExecutionAttemptId, RemoteJobId
 from ecatvasp.domain.method import canonical_json, canonical_sha256
 from ecatvasp.execution.adapters import CommandSpec, TargetRelativePath, TransportAdapter
 from ecatvasp.execution.ssh import remote_absolute_path
-from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
+from ecatvasp.execution.targets import (
+    ExecutionEnvironmentSnapshot,
+    ExecutionTargetProfile,
+    TransportKind,
+)
 from ecatvasp.vasp.execution_plan import ExecutionPlan, ExpectedOutput
 
 _TERMINAL_REMOTE_STATES = frozenset(
@@ -84,10 +89,10 @@ class RetrievalFileRecord:
 class RetrievalManifest:
     """Portable attempt-level record of one retrieval/retention operation."""
 
-    attempt_id: object
-    remote_job_id: object
+    attempt_id: ExecutionAttemptId
+    remote_job_id: RemoteJobId
     plan_hash: str
-    target: object
+    target: ExecutionEnvironmentSnapshot
     remote_directory: str
     requested_roles: tuple[str, ...]
     release_remote_roles: tuple[str, ...]
@@ -99,8 +104,12 @@ class RetrievalManifest:
         if self.retrieved_at.tzinfo is None:
             raise ValueError("retrieved_at must be timezone-aware")
         TargetRelativePath(self.remote_directory)
-        if len(self.plan_hash) != 64:
+        normalized_hash = self.plan_hash.lower()
+        if len(normalized_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized_hash
+        ):
             raise ValueError("plan_hash must be a SHA-256 digest")
+        object.__setattr__(self, "plan_hash", normalized_hash)
         roles = tuple(item.role for item in self.files)
         if roles != tuple(sorted(roles)) or len(roles) != len(set(roles)):
             raise ValueError("retrieval file roles must be unique and sorted")
@@ -131,13 +140,15 @@ class RetrievalManifest:
 
     @property
     def retrieval_hash(self) -> str:
-        """Return deterministic semantic identity independent of file location."""
+        """Return deterministic semantic identity independent of local manifest location."""
 
         return canonical_sha256(
             {
                 "attempt_id": self.attempt_id,
                 "remote_job_id": self.remote_job_id,
                 "plan_hash": self.plan_hash,
+                "target_hash": self.target.target_hash,
+                "remote_directory": self.remote_directory,
                 "requested_roles": self.requested_roles,
                 "release_remote_roles": self.release_remote_roles,
                 "discard_remote_roles": self.discard_remote_roles,
@@ -159,8 +170,17 @@ class RemoteRetrievalPackage:
     def __post_init__(self) -> None:
         if self.remote_job.execution_attempt_id != self.attempt.id:
             raise ValueError("retrieval RemoteJob must belong to ExecutionAttempt")
+        if self.manifest.attempt_id != self.attempt.id:
+            raise ValueError("retrieval manifest must belong to ExecutionAttempt")
+        if self.manifest.remote_job_id != self.remote_job.id:
+            raise ValueError("retrieval manifest must belong to RemoteJob")
         if self.manifest_artifact.artifact_type is not ArtifactType.RETRIEVAL_MANIFEST:
             raise ValueError("retrieval package requires RETRIEVAL_MANIFEST Artifact")
+        expected_producer = ExecutionAttemptProducerRef(self.attempt.id)
+        if self.manifest_artifact.producer != expected_producer:
+            raise ValueError("retrieval manifest Artifact must be attempt-produced")
+        if any(item.producer != expected_producer for item in self.output_artifacts):
+            raise ValueError("retrieved output Artifacts must be attempt-produced")
 
     @property
     def artifacts(self) -> tuple[Artifact, ...]:
@@ -229,23 +249,39 @@ def retrieve_remote_outputs(
         ExecutionAttemptStatus.RETRIEVING,
     }
 
+    remote_paths = {
+        item.role: TargetRelativePath(
+            f"{remote_job.remote_directory}/{item.relative_path}"
+        )
+        for item in plan.expected_outputs
+    }
+    observations = {
+        item.role: _inspect_remote_file(
+            target=target,
+            transport=transport,
+            path=remote_paths[item.role],
+        )
+        for item in plan.expected_outputs
+    }
+    missing_required = sorted(
+        item.role
+        for item in plan.expected_outputs
+        if item.required and observations[item.role] is None and enforce_required
+    )
+    if missing_required:
+        raise RetrievalError(
+            "required remote output is missing: " + ", ".join(missing_required)
+        )
+
     output_directory = root / "artifacts" / "execution" / str(attempt.id) / "outputs"
     output_directory.mkdir(parents=True, exist_ok=True)
     records: list[RetrievalFileRecord] = []
     artifacts: list[Artifact] = []
 
     for expected in plan.expected_outputs:
-        remote_path = TargetRelativePath(
-            f"{remote_job.remote_directory}/{expected.relative_path}"
-        )
-        remote_info = _inspect_remote_file(
-            target=target,
-            transport=transport,
-            path=remote_path,
-        )
+        remote_path = remote_paths[expected.role]
+        remote_info = observations[expected.role]
         if remote_info is None:
-            if expected.required and enforce_required:
-                raise RetrievalError(f"required remote output is missing: {expected.role}")
             records.append(
                 RetrievalFileRecord(
                     role=expected.role,
@@ -268,6 +304,7 @@ def retrieve_remote_outputs(
                     producer=ExecutionAttemptProducerRef(attempt.id),
                     availability=ArtifactAvailability.MISSING,
                     retrieval_policy=expected.retrieval_policy,
+                    remote_path=remote_path.value,
                 )
             )
             continue
@@ -292,10 +329,22 @@ def retrieve_remote_outputs(
         if expected.role in release:
             if not local_retrieved:
                 raise RetrievalError("remote release requires a verified local copy")
-            _delete_remote_file(target=target, transport=transport, path=remote_path)
+            _delete_remote_file(
+                target=target,
+                transport=transport,
+                path=remote_path,
+                expected_sha=remote_sha,
+                expected_size=remote_size,
+            )
             remote_retained = False
         elif expected.role in discard:
-            _delete_remote_file(target=target, transport=transport, path=remote_path)
+            _delete_remote_file(
+                target=target,
+                transport=transport,
+                path=remote_path,
+                expected_sha=remote_sha,
+                expected_size=remote_size,
+            )
             remote_retained = False
 
         if local_retrieved and remote_retained:
@@ -419,11 +468,15 @@ def _validate_policy_selection(
     overlap = release & discard
     if overlap:
         raise RetrievalError(
-            "release_remote_roles and discard_remote_roles overlap: " + ", ".join(sorted(overlap))
+            "release_remote_roles and discard_remote_roles overlap: "
+            + ", ".join(sorted(overlap))
         )
     for role in requested:
         if expected_by_role[role].retrieval_policy is RetrievalPolicy.REMOTE_ONLY:
             raise RetrievalError(f"REMOTE_ONLY output cannot be requested locally: {role}")
+    for role in release:
+        if expected_by_role[role].retrieval_policy is RetrievalPolicy.REMOTE_ONLY:
+            raise RetrievalError(f"REMOTE_ONLY output must remain remote: {role}")
     download_roles = {
         role
         for role, item in expected_by_role.items()
@@ -433,11 +486,9 @@ def _validate_policy_selection(
     invalid_release = sorted(release - download_roles)
     if invalid_release:
         raise RetrievalError(
-            "release_remote_roles require local retrieval first: " + ", ".join(invalid_release)
+            "release_remote_roles require local retrieval first: "
+            + ", ".join(invalid_release)
         )
-    for role in release:
-        if expected_by_role[role].retrieval_policy is RetrievalPolicy.REMOTE_ONLY:
-            raise RetrievalError(f"REMOTE_ONLY output must remain remote: {role}")
     invalid_discard = sorted(
         role
         for role in discard
@@ -546,7 +597,15 @@ def _delete_remote_file(
     target: ExecutionTargetProfile,
     transport: TransportAdapter,
     path: TargetRelativePath,
+    expected_sha: str,
+    expected_size: int,
 ) -> None:
+    current = _inspect_remote_file(target=target, transport=transport, path=path)
+    if current is None:
+        raise RetrievalError(f"remote file disappeared before retention action: {path.value}")
+    if current != (expected_sha, expected_size):
+        raise RetrievalError(f"remote file changed before retention action: {path.value}")
+
     absolute = remote_absolute_path(target, path)
     removed = transport.run(
         target=target,
