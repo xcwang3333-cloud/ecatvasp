@@ -204,7 +204,9 @@ def _validate_core_contract(
     if fingerprint.recipe.version != spec.version:
         raise CoreInputPipelineError("MethodFingerprint recipe version is not canonical")
     if project_lock.core_method_hash != fingerprint.core_method_hash:
-        raise CoreInputPipelineError("Project numerical lock core method does not match fingerprint")
+        raise CoreInputPipelineError(
+            "Project numerical lock core method does not match fingerprint"
+        )
     if project_lock.encut_ev != fingerprint.protocol.encut_ev:
         raise CoreInputPipelineError("Project numerical lock ENCUT does not match Protocol")
     if project_lock.kpoints != fingerprint.protocol.kpoints:
