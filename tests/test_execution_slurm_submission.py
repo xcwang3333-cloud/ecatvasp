@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -277,7 +277,7 @@ def test_submit_remote_slurm_creates_remote_job_and_attempt_artifacts(tmp_path: 
     staged = _staged(tmp_path)
     transport = _FakeSlurmTransport()
     scheduler = SlurmAdapter(transport)
-    submitted_at = datetime(2026, 9, 3, 5, 40, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 9, 3, 5, 40, tzinfo=UTC)
 
     assert isinstance(scheduler, SchedulerAdapter)
     result = submit_remote_slurm(
@@ -319,6 +319,8 @@ def test_submit_remote_slurm_creates_remote_job_and_attempt_artifacts(tmp_path: 
     assert '"scheduler_job_id":"12345"' in record
     assert result.resources.resource_hash in record
     assert result.job_script.sha256 in record
+    assert '"submit_stdout_sha256"' in record
+    assert '"submit_stderr_sha256"' in record
     assert "/scratch/ecatvasp" not in record
     assert "cluster-a" not in record
 
