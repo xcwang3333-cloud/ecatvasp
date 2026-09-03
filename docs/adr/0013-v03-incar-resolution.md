@@ -115,8 +115,10 @@ Dipole behavior remains a Protocol decision resolved with explicit physical cont
   match the declared vacuum axis.
 
 Whenever `LDIPOL` is active, the correction direction must be geometrically orthogonal to the
-other lattice vectors; molecule `IDIPOL=4` requires an orthogonal cell. Unsupported cells fail
-closed instead of relying on numerically invalid electrostatic corrections.
+other lattice vectors; molecule `IDIPOL=4` requires an orthogonal cell. For charged systems,
+VASP's potential correction is currently implemented only for cubic supercells, so a non-cubic
+charged calculation with `LDIPOL=.TRUE.` fails closed during Block 5 preparation instead of being
+allowed to reach a VASP runtime stop. Unsupported cells are never silently accepted.
 
 `electric_field_ev_per_angstrom` is emitted as VASP `EFIELD` without changing VASP's sign
 convention. In Block 5 it is supported only for slab contexts with a resolved `IDIPOL=1..3`.
@@ -140,5 +142,7 @@ editor. Broader expert overrides can be added later with explicit layer ownershi
 - Magnetic initialization, dipole axis, k-point centering, vdW policy, and project numerical
   locks cannot silently diverge from scientific identity.
 - Charged calculations use POTCAR metadata correctly rather than confusing charge with NELECT.
+- Charged `LDIPOL` calculations are rejected before execution when the cell violates VASP's
+  current cubic-supercell restriction.
 - Frequency and analysis-prerequisite semantics remain isolated to their planned Blocks 8 and 9.
 - Execution performance tuning remains cleanly separated for the later execution handoff.
