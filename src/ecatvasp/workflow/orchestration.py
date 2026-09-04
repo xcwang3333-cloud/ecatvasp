@@ -170,7 +170,9 @@ class WorkflowOrchestrationEvaluation:
                 "scheduler recovery handoffs must have unique node ids"
             )
         scheduler_node_ids = (
-            set() if self.scheduler_dag is None else {item.node_id for item in self.scheduler_dag.nodes}
+            set()
+            if self.scheduler_dag is None
+            else {item.node_id for item in self.scheduler_dag.nodes}
         )
         if self.scheduler_dag is None and self.scheduler_recoveries:
             raise WorkflowOrchestrationError(
