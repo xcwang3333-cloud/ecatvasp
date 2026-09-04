@@ -96,12 +96,6 @@ def _validate_vector(value: Vector3, field_name: str) -> None:
         )
 
 
-def _validate_unique_atom_uids(values: tuple[object, ...], field_name: str) -> None:
-    atom_uids = tuple(getattr(value, "atom_uid") for value in values)
-    if len(atom_uids) != len(set(atom_uids)):
-        raise VaspResultContractError(f"{field_name} must reference unique atom_uids")
-
-
 @dataclass(frozen=True, slots=True)
 class VaspResultSource:
     """Exact content-addressed raw Artifact consumed by a scientific result parse."""
@@ -195,6 +189,18 @@ class VaspSiteVectorMagnetization:
 
     def __post_init__(self) -> None:
         _validate_vector(self.projected_moment_mu_b, "projected_moment_mu_b")
+
+
+_UidBoundResult = VaspSiteForce | VaspSiteScalarMagnetization | VaspSiteVectorMagnetization
+
+
+def _validate_unique_atom_uids(
+    values: tuple[_UidBoundResult, ...],
+    field_name: str,
+) -> None:
+    atom_uids = tuple(value.atom_uid for value in values)
+    if len(atom_uids) != len(set(atom_uids)):
+        raise VaspResultContractError(f"{field_name} must reference unique atom_uids")
 
 
 @dataclass(frozen=True, slots=True)
