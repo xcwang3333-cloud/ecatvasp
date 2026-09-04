@@ -27,7 +27,13 @@ from ecatvasp.domain import (
     new_atom_uid,
 )
 from ecatvasp.provenance import ProvenanceRecord
-from ecatvasp.storage import ProjectBundle, ProjectIntegrityError, ProjectStore, dumps_storage, loads_storage
+from ecatvasp.storage import (
+    ProjectBundle,
+    ProjectIntegrityError,
+    ProjectStore,
+    dumps_storage,
+    loads_storage,
+)
 
 
 def _digest(label: str) -> str:
@@ -148,7 +154,10 @@ def test_workflow_plan_rejects_cycles_and_unknown_edge_steps() -> None:
             workflow_recipe=WorkflowRecipeIdentity("ECatVASP.Workflow.Cycle"),
             root_structure_snapshot_id=snapshot.id,
             steps=(relax, static),
-            edges=(WorkflowEdgeSpec("relax", "static"), WorkflowEdgeSpec("static", "relax")),
+            edges=(
+                WorkflowEdgeSpec("relax", "static"),
+                WorkflowEdgeSpec("static", "relax"),
+            ),
         )
 
     with pytest.raises(ValueError, match="reference steps"):
