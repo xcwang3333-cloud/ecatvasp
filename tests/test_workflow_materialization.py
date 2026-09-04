@@ -14,6 +14,7 @@ from ecatvasp.domain import (
     Project,
     ProtocolDefinition,
     RecipeIdentity,
+    ScientificWorkflowPlan,
     StructureOrigin,
     StructureSite,
     StructureSnapshot,
@@ -21,7 +22,7 @@ from ecatvasp.domain import (
     VariantType,
     WorkflowRecipeIdentity,
 )
-from ecatvasp.domain.ids import new_atom_uid, new_catalyst_id, new_project_id
+from ecatvasp.domain.ids import ProjectId, new_atom_uid, new_catalyst_id, new_project_id
 from ecatvasp.storage import ProjectBundle
 from ecatvasp.vasp.contracts import (
     LatticeAxis,
@@ -42,6 +43,7 @@ from ecatvasp.workflow import (
 from ecatvasp.workflow.materialization import (
     AcceptedStructureSource,
     WorkflowMaterializationError,
+    WorkflowStepMaterialization,
     materialize_workflow_step,
 )
 
@@ -96,9 +98,9 @@ def _context() -> VaspSystemContext:
     )
 
 
-def _lock(project_id: object, fingerprint: MethodFingerprint) -> ProjectNumericalLock:
+def _lock(project_id: ProjectId, fingerprint: MethodFingerprint) -> ProjectNumericalLock:
     return ProjectNumericalLock(
-        project_id=project_id,  # type: ignore[arg-type]
+        project_id=project_id,
         system_kind=VaspSystemKind.SLAB_2D,
         core_method_hash=fingerprint.core_method_hash,
         encut_ev=fingerprint.protocol.encut_ev,
@@ -108,7 +110,7 @@ def _lock(project_id: object, fingerprint: MethodFingerprint) -> ProjectNumerica
     )
 
 
-def _plan(root: StructureSnapshot):
+def _plan(root: StructureSnapshot) -> ScientificWorkflowPlan:
     project_id = new_project_id()
     return plan_scientific_workflow(
         project_id=project_id,
@@ -119,7 +121,16 @@ def _plan(root: StructureSnapshot):
     ).plan
 
 
-def _promotion_source(*, plan, root: StructureSnapshot):
+def _promotion_source(
+    *,
+    plan: ScientificWorkflowPlan,
+    root: StructureSnapshot,
+) -> tuple[
+    MethodFingerprint,
+    WorkflowStepMaterialization,
+    StructureSnapshot,
+    AcceptedStructureSource,
+]:
     relax_fingerprint = _fingerprint(RECIPE_SLAB_RELAX)
     relax = materialize_workflow_step(
         plan=plan,
@@ -270,8 +281,8 @@ def test_downstream_step_rejects_bypassing_promotion_or_nonconverged_source() ->
         convergence=VaspConvergenceAssessment(
             calculation_type=relax.calculation.calculation_type,
             electronic=ConvergenceVerdict.CONVERGED,
-            ionic=ConvergenceVerdict.NOT_CONVERGED,
-            overall=ConvergenceVerdict.NOT_CONVERGED,
+            ionic=ConvergenceVerdict.UNCONVERGED,
+            overall=ConvergenceVerdict.UNCONVERGED,
         ),
     )
     with pytest.raises(WorkflowMaterializationError, match="scientifically converged"):
