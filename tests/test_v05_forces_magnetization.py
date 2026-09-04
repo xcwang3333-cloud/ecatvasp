@@ -31,10 +31,10 @@ from ecatvasp.domain.ids import (
     new_structure_snapshot_id,
 )
 from ecatvasp.vasp import (
+    RECIPE_GROUND_STATE_STATIC,
     ExpectedOutput,
     PotcarResolutionEntry,
     PotcarResolutionRequest,
-    RECIPE_GROUND_STATE_STATIC,
     StagingInput,
     StagingInputKind,
     VaspCollinearMagnetization,
