@@ -43,3 +43,4 @@ Frozen ADR set and accepted extensions:
 37. v0.5 Result Provenance, Freshness, and Existing-Import Unification Boundary
 38. v0.5 Final Scientific Result Acceptance and Hardening Boundary
 39. v0.6 Scientific Workflow Domain Contracts and Schema v3 Boundary
+40. v0.6 Canonical Workflow Recipe Registry Boundary

@@ -1,1 +1,29 @@
-"""Workflow package boundary for ECatVASP."""
+"""Scientific workflow orchestration contracts."""
+
+from ecatvasp.workflow.recipes import (
+    WORKFLOW_EDGE_ACCEPTED_STRUCTURE,
+    WORKFLOW_RECIPE_ADSORBATE_SCIENTIFIC_PREPARATION,
+    WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION,
+    WORKFLOW_RECIPE_REGISTRY,
+    WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
+    WORKFLOW_RECIPE_SPECS,
+    WorkflowRecipeContractError,
+    WorkflowRecipeSpec,
+    get_workflow_recipe_spec,
+    list_workflow_recipe_specs,
+    validate_workflow_plan_recipe_contract,
+)
+
+__all__ = [
+    "WORKFLOW_EDGE_ACCEPTED_STRUCTURE",
+    "WORKFLOW_RECIPE_ADSORBATE_SCIENTIFIC_PREPARATION",
+    "WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION",
+    "WORKFLOW_RECIPE_REGISTRY",
+    "WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION",
+    "WORKFLOW_RECIPE_SPECS",
+    "WorkflowRecipeContractError",
+    "WorkflowRecipeSpec",
+    "get_workflow_recipe_spec",
+    "list_workflow_recipe_specs",
+    "validate_workflow_plan_recipe_contract",
+]
