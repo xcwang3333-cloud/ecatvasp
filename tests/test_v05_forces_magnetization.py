@@ -39,7 +39,9 @@ from ecatvasp.vasp import (
     StagingInputKind,
     VaspCollinearMagnetization,
     VaspNoncollinearMagnetization,
+    VaspObservableParseError,
     VaspResultArtifactIntake,
+    VaspResultDocument,
     VaspResultInputFile,
     VaspResultSource,
     VaspResultSourceRole,
@@ -47,13 +49,10 @@ from ecatvasp.vasp import (
     VaspSystemContext,
     VaspSystemKind,
     parse_vasp_energy_metadata,
+    parse_vasp_forces_magnetization,
     result_source_artifact_type,
 )
 from ecatvasp.vasp.execution_plan import ExecutionPlan
-from ecatvasp.vasp.observables import (
-    VaspObservableParseError,
-    parse_vasp_forces_magnetization,
-)
 
 
 @dataclass(frozen=True)
@@ -63,7 +62,7 @@ class _Case:
     fingerprint: MethodFingerprint
     plan: ExecutionPlan
     intake: VaspResultArtifactIntake
-    result: object
+    result: VaspResultDocument
     atom_uids: tuple[AtomUid, ...]
     outcar_path: Path
 
@@ -269,7 +268,7 @@ def _finish(text: str) -> bytes:
     return (text + " General timing and accounting informations for this job:\n").encode()
 
 
-def _enrich(case: _Case):
+def _enrich(case: _Case) -> VaspResultDocument:
     return parse_vasp_forces_magnetization(
         project_root=case.root,
         calculation=case.calculation,
