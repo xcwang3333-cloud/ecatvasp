@@ -153,15 +153,17 @@ def _case(
         atom_map,
     )
     input_manifest_sha = "a" * 64
-    context_kind = (
-        vasp.VaspSystemKind.MOLECULE_0D
-        if recipe_id == vasp.RECIPE_GAS_FREQUENCY
-        else vasp.VaspSystemKind.SLAB_2D
-    )
+    if recipe_id == vasp.RECIPE_GAS_FREQUENCY:
+        system_context = vasp.VaspSystemContext(vasp.VaspSystemKind.MOLECULE_0D)
+    else:
+        system_context = vasp.VaspSystemContext(
+            vasp.VaspSystemKind.SLAB_2D,
+            vacuum_axis=vasp.LatticeAxis.C,
+        )
     plan = ExecutionPlan(
         calculation_id=calculation.id,
         recipe_id=recipe.recipe_id,
-        system_context=vasp.VaspSystemContext(context_kind),
+        system_context=system_context,
         input_manifest_artifact_id=domain.new_artifact_id(),
         input_manifest_sha256=input_manifest_sha,
         preparation_hash="b" * 64,
