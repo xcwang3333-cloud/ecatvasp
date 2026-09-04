@@ -1,4 +1,5 @@
 vasp.6.4.3 18Apr24 (build Aug 20 2026)
+ NELM = 60; NSW = 200
  free  energy   TOTEN  =       -122.900000 eV
  E-fermi :   2.2000     XC(G=0): -8.0000
  POSITION                                       TOTAL-FORCE (eV/Angst)
@@ -19,3 +20,4 @@ vasp.6.4.3 18Apr24 (build Aug 20 2026)
  -----------------------------------------------------------------------------------
  aborting loop because EDIFF is reached
  reached required accuracy - stopping structural energy minimisation
+ General timing and accounting information for this job:
