@@ -60,13 +60,22 @@ VASP_CONVERGENCE_ARTIFACT_VERSION = 1
 
 
 class VaspScientificResultIntake(Protocol):
-    """Structural contract shared by managed and compatibility result intakes."""
+    """Read-only structural contract shared by managed and compatibility result intakes."""
 
-    calculation_id: CalculationId
-    calculation_type: CalculationType
-    recipe_id: str
-    files: tuple[VaspResultInputFile, ...]
-    intake_hash: str
+    @property
+    def calculation_id(self) -> CalculationId: ...
+
+    @property
+    def calculation_type(self) -> CalculationType: ...
+
+    @property
+    def recipe_id(self) -> str: ...
+
+    @property
+    def files(self) -> tuple[VaspResultInputFile, ...]: ...
+
+    @property
+    def intake_hash(self) -> str: ...
 
     @property
     def sources(self) -> tuple[VaspResultSource, ...]: ...
