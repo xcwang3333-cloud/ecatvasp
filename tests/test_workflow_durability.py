@@ -30,9 +30,11 @@ from ecatvasp.execution import (
     BatchDispatchMode,
     ExecutionEvidence,
     RecoveryCause,
+    RecoveryRequest,
     classify_recovery,
     create_execution_attempt,
 )
+from ecatvasp.execution.batch import SchedulerDag, SchedulerDagNode
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp.contracts import (
     LatticeAxis,
@@ -60,7 +62,6 @@ from ecatvasp.workflow import (
     plan_scientific_workflow,
     reopen_workflow_resume_state,
 )
-from ecatvasp.execution.batch import SchedulerDag, SchedulerDagNode
 
 
 def _snapshot() -> StructureSnapshot:
@@ -83,7 +84,7 @@ def _snapshot() -> StructureSnapshot:
     )
 
 
-def _fingerprint(*, encut_ev: float = 500.0) -> MethodFingerprint:
+def _fingerprint() -> MethodFingerprint:
     return MethodFingerprint(
         method=MethodDefinition(
             xc_functional="PBE",
@@ -97,7 +98,7 @@ def _fingerprint(*, encut_ev: float = 500.0) -> MethodFingerprint:
             ),
         ),
         protocol=ProtocolDefinition(
-            encut_ev=encut_ev,
+            encut_ev=500.0,
             kpoints=KPointPolicy(KPointPolicyKind.GAMMA_ONLY),
         ),
         recipe=RecipeIdentity(recipe_id=RECIPE_SLAB_RELAX, version="1"),
@@ -327,7 +328,7 @@ def test_materialization_replay_fails_closed_on_scientific_identity_conflict(
 ) -> None:
     project, root, store, _, plan = _persist_plan_and_root(tmp_path)
     first_fingerprint = _fingerprint()
-    conflicting_fingerprint = _fingerprint(encut_ev=550.0)
+    conflicting_fingerprint = _fingerprint()
     bundle = store.open()
     store.save(
         replace(
@@ -426,7 +427,7 @@ def test_old_recovery_source_cannot_allocate_second_successor_after_reopen(
     )
     decision = classify_recovery(
         plan=execution_plan,
-        request=__import__("ecatvasp.execution", fromlist=["RecoveryRequest"]).RecoveryRequest(
+        request=RecoveryRequest(
             cause=RecoveryCause.VASP_FAILURE,
             evidence=ExecutionEvidence.VASP_LAUNCH_CONFIRMED,
         ),
@@ -488,7 +489,10 @@ def test_recovery_requires_explicit_latest_source_when_decision_is_unconsumed(
     tmp_path: Path,
 ) -> None:
     _, _, store, plan, _, materialization = _persist_root_materialization(tmp_path)
-    calculation = replace(materialization.calculation, status=CalculationScientificStatus.FAILED)
+    calculation = replace(
+        materialization.calculation,
+        status=CalculationScientificStatus.FAILED,
+    )
     execution_plan = _execution_plan(calculation)
     attempt_1 = replace(
         create_execution_attempt(plan=execution_plan, calculation=calculation),
@@ -501,6 +505,7 @@ def test_recovery_requires_explicit_latest_source_when_decision_is_unconsumed(
             existing_attempts=(attempt_1,),
         ),
         status=ExecutionAttemptStatus.FAILED,
+        previous_attempt_id=None,
     )
     bundle = store.open()
     store.save(
@@ -513,8 +518,6 @@ def test_recovery_requires_explicit_latest_source_when_decision_is_unconsumed(
             execution_attempts=(attempt_1, attempt_2),
         )
     )
-    from ecatvasp.execution import RecoveryRequest
-
     decision = classify_recovery(
         plan=execution_plan,
         request=RecoveryRequest(
