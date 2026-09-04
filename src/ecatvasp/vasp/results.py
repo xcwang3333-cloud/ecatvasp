@@ -1,20 +1,29 @@
 """Parser-neutral scientific result contracts for VASP outputs.
 
-v0.5 Block 1 defines immutable value semantics only. This module performs no
-file I/O, VASP parsing, convergence classification, Calculation status mutation,
-or relaxed-structure promotion.
+The contracts carry explicit scientific semantics only. File parsing, convergence
+classification, lifecycle mutation, and relaxed-structure promotion remain in
+separate adapters.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from math import isfinite
+from math import isfinite, sqrt
 
-from ecatvasp.domain import Analysis, AnalysisType, ArtifactId, ArtifactType, CalculationType
+from ecatvasp.domain import (
+    Analysis,
+    AnalysisType,
+    ArtifactId,
+    ArtifactType,
+    CalculationType,
+)
+from ecatvasp.domain.ids import AtomUid
 
 VASP_RESULT_DOCUMENT_FORMAT = "ecatvasp-vasp-scientific-result"
-VASP_RESULT_DOCUMENT_VERSION = 1
+VASP_RESULT_DOCUMENT_VERSION = 2
+
+Vector3 = tuple[float, float, float]
 
 
 class VaspResultContractError(ValueError):
@@ -80,6 +89,13 @@ def _validate_codes(values: tuple[str, ...], field_name: str) -> None:
         raise VaspResultContractError(f"{field_name} must contain unique values")
 
 
+def _validate_vector(value: Vector3, field_name: str) -> None:
+    if len(value) != 3 or any(not isfinite(component) for component in value):
+        raise VaspResultContractError(
+            f"{field_name} must contain exactly three finite components"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class VaspResultSource:
     """Exact content-addressed raw Artifact consumed by a scientific result parse."""
@@ -118,12 +134,141 @@ class VaspEnergySummary:
 
 
 @dataclass(frozen=True, slots=True)
+class VaspSiteForce:
+    """Final Cartesian force vector bound to permanent atom identity."""
+
+    atom_uid: AtomUid
+    vector_ev_per_angstrom: Vector3
+
+    def __post_init__(self) -> None:
+        _validate_vector(self.vector_ev_per_angstrom, "vector_ev_per_angstrom")
+
+    @property
+    def norm_ev_per_angstrom(self) -> float:
+        """Return Euclidean force magnitude in eV/angstrom."""
+
+        x, y, z = self.vector_ev_per_angstrom
+        return sqrt(x * x + y * y + z * z)
+
+
+@dataclass(frozen=True, slots=True)
+class VaspForceDataset:
+    """Final VASP force block in exact POSCAR/VASP atom order."""
+
+    site_forces: tuple[VaspSiteForce, ...]
+    max_force_ev_per_angstrom: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.site_forces:
+            raise VaspResultContractError("force dataset requires at least one site")
+        _validate_unique_atom_uids(self.site_forces, "site_forces")
+        object.__setattr__(
+            self,
+            "max_force_ev_per_angstrom",
+            max(item.norm_ev_per_angstrom for item in self.site_forces),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class VaspSiteScalarMagnetization:
+    """One site-projected collinear spin moment in Bohr magnetons."""
+
+    atom_uid: AtomUid
+    projected_moment_mu_b: float
+
+    def __post_init__(self) -> None:
+        _validate_optional_finite(self.projected_moment_mu_b, "projected_moment_mu_b")
+
+
+@dataclass(frozen=True, slots=True)
+class VaspSiteVectorMagnetization:
+    """One site-projected noncollinear spin-moment vector in the VASP spinor basis."""
+
+    atom_uid: AtomUid
+    projected_moment_mu_b: Vector3
+
+    def __post_init__(self) -> None:
+        _validate_vector(self.projected_moment_mu_b, "projected_moment_mu_b")
+
+
+_UidBoundResult = VaspSiteForce | VaspSiteScalarMagnetization | VaspSiteVectorMagnetization
+
+
+def _validate_unique_atom_uids(
+    values: tuple[_UidBoundResult, ...],
+    field_name: str,
+) -> None:
+    atom_uids = tuple(value.atom_uid for value in values)
+    if len(atom_uids) != len(set(atom_uids)):
+        raise VaspResultContractError(f"{field_name} must reference unique atom_uids")
+
+
+@dataclass(frozen=True, slots=True)
+class VaspCollinearMagnetization:
+    """Collinear cell-integrated and site-projected spin magnetization."""
+
+    site_moments: tuple[VaspSiteScalarMagnetization, ...] = ()
+    projected_total_mu_b: float | None = None
+    cell_total_mu_b: float | None = None
+
+    def __post_init__(self) -> None:
+        _validate_unique_atom_uids(self.site_moments, "site_moments")
+        _validate_optional_finite(self.projected_total_mu_b, "projected_total_mu_b")
+        _validate_optional_finite(self.cell_total_mu_b, "cell_total_mu_b")
+        if self.site_moments and self.projected_total_mu_b is None:
+            raise VaspResultContractError(
+                "site-projected collinear moments require projected_total_mu_b"
+            )
+        if not self.site_moments and self.projected_total_mu_b is not None:
+            raise VaspResultContractError(
+                "projected_total_mu_b requires site-projected collinear moments"
+            )
+        if not self.site_moments and self.cell_total_mu_b is None:
+            raise VaspResultContractError(
+                "collinear magnetization requires cell or site-projected evidence"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class VaspNoncollinearMagnetization:
+    """Noncollinear spin-moment vectors in the VASP spinor basis."""
+
+    site_moments: tuple[VaspSiteVectorMagnetization, ...] = ()
+    projected_total_mu_b: Vector3 | None = None
+    cell_total_mu_b: Vector3 | None = None
+
+    def __post_init__(self) -> None:
+        _validate_unique_atom_uids(self.site_moments, "site_moments")
+        if self.projected_total_mu_b is not None:
+            _validate_vector(self.projected_total_mu_b, "projected_total_mu_b")
+        if self.cell_total_mu_b is not None:
+            _validate_vector(self.cell_total_mu_b, "cell_total_mu_b")
+        if self.site_moments and self.projected_total_mu_b is None:
+            raise VaspResultContractError(
+                "site-projected noncollinear moments require projected_total_mu_b"
+            )
+        if not self.site_moments and self.projected_total_mu_b is not None:
+            raise VaspResultContractError(
+                "projected_total_mu_b requires site-projected noncollinear moments"
+            )
+        if not self.site_moments and self.cell_total_mu_b is None:
+            raise VaspResultContractError(
+                "noncollinear magnetization requires cell or site-projected evidence"
+            )
+
+
+VaspMagnetization = VaspCollinearMagnetization | VaspNoncollinearMagnetization
+
+
+@dataclass(frozen=True, slots=True)
 class VaspResultDocument:
     """Normalized parser output containing facts but no convergence verdict."""
 
     calculation_type: CalculationType
     sources: tuple[VaspResultSource, ...]
     energies: VaspEnergySummary = field(default_factory=VaspEnergySummary)
+    forces: VaspForceDataset | None = None
+    magnetization: VaspMagnetization | None = None
     vasp_version: str | None = None
     ionic_steps: int | None = None
     electronic_steps: int | None = None
