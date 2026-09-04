@@ -15,18 +15,13 @@ from ecatvasp.domain import (
     WorkflowStepBinding,
     canonical_sha256,
 )
-from ecatvasp.domain.ids import (
-    CalculationId,
-    ExecutionAttemptId,
-    WorkflowPlanId,
-    WorkflowStepBindingId,
-)
+from ecatvasp.domain.ids import CalculationId, ExecutionAttemptId, WorkflowPlanId
 from ecatvasp.execution.batch import (
     BatchConcurrencyPolicy,
     BatchDispatchWave,
-    SchedulerDagNode,
     prepare_batch_dispatch_wave,
 )
+from ecatvasp.execution.recovery import RecoveryDecision
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp.contracts import ProjectNumericalLock, VaspSystemContext
 from ecatvasp.workflow.materialization import (
@@ -68,13 +63,20 @@ class WorkflowResumeState:
 
     def __post_init__(self) -> None:
         bindings = tuple(
-            sorted(self.bindings, key=lambda item: (item.step_key, item.generation, str(item.id)))
+            sorted(
+                self.bindings,
+                key=lambda item: (item.step_key, item.generation, str(item.id)),
+            )
         )
         calculations = tuple(sorted(self.calculations, key=lambda item: str(item.id)))
         attempts = tuple(
             sorted(
                 self.execution_attempts,
-                key=lambda item: (str(item.calculation_id), item.attempt_number, str(item.id)),
+                key=lambda item: (
+                    str(item.calculation_id),
+                    item.attempt_number,
+                    str(item.id),
+                ),
             )
         )
         jobs = tuple(
@@ -170,7 +172,9 @@ class WorkflowRecoveryAttemptSource:
 
     def __post_init__(self) -> None:
         if not self.step_key.strip():
-            raise WorkflowDurabilityError("recovery attempt source requires a non-blank step_key")
+            raise WorkflowDurabilityError(
+                "recovery attempt source requires a non-blank step_key"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,12 +196,18 @@ def reopen_workflow_resume_state(
     bundle = store.open()
     plan = _require_plan(bundle=bundle, workflow_plan_id=workflow_plan_id)
     bindings = tuple(
-        item for item in bundle.workflow_step_bindings if item.workflow_plan_id == plan.id
+        item
+        for item in bundle.workflow_step_bindings
+        if item.workflow_plan_id == plan.id
     )
     calculation_ids = {item.calculation_id for item in bindings}
-    calculations = tuple(item for item in bundle.calculations if item.id in calculation_ids)
+    calculations = tuple(
+        item for item in bundle.calculations if item.id in calculation_ids
+    )
     attempt_values = tuple(
-        item for item in bundle.execution_attempts if item.calculation_id in calculation_ids
+        item
+        for item in bundle.execution_attempts
+        if item.calculation_id in calculation_ids
     )
     attempt_ids = {item.id for item in attempt_values}
     job_values = tuple(
@@ -223,18 +233,27 @@ def persist_or_reuse_workflow_plan(
     candidate = planning.plan
     if candidate.project_id != bundle.project.id:
         raise WorkflowDurabilityError("workflow plan candidate belongs to another Project")
-    if not any(item.id == candidate.root_structure_snapshot_id for item in bundle.structure_snapshots):
+    root_is_persisted = any(
+        item.id == candidate.root_structure_snapshot_id
+        for item in bundle.structure_snapshots
+    )
+    if not root_is_persisted:
         raise WorkflowDurabilityError(
             "workflow plan root StructureSnapshot is not durably persisted"
         )
-    matches = tuple(item for item in bundle.workflow_plans if item.plan_hash == candidate.plan_hash)
+    matches = tuple(
+        item for item in bundle.workflow_plans if item.plan_hash == candidate.plan_hash
+    )
     if len(matches) > 1:
         raise WorkflowDurabilityError(
             "multiple persisted workflow plans share one scientific plan_hash"
         )
     if matches:
         persisted = matches[0]
-        resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted.id)
+        resume = reopen_workflow_resume_state(
+            store=store,
+            workflow_plan_id=persisted.id,
+        )
         return WorkflowPlanPersistenceResult(
             plan=persisted,
             planning_hash=planning.planning_hash,
@@ -244,9 +263,14 @@ def persist_or_reuse_workflow_plan(
 
     updated = replace(bundle, workflow_plans=(*bundle.workflow_plans, candidate))
     store.save(updated)
-    resume = reopen_workflow_resume_state(store=store, workflow_plan_id=candidate.id)
+    resume = reopen_workflow_resume_state(
+        store=store,
+        workflow_plan_id=candidate.id,
+    )
     if resume.plan.plan_hash != candidate.plan_hash:
-        raise WorkflowDurabilityError("persisted workflow plan failed post-save identity verification")
+        raise WorkflowDurabilityError(
+            "persisted workflow plan failed post-save identity verification"
+        )
     return WorkflowPlanPersistenceResult(
         plan=resume.plan,
         planning_hash=planning.planning_hash,
@@ -283,7 +307,11 @@ def persist_or_reuse_workflow_materialization(
         root_snapshot=root_snapshot,
         accepted_structure_source=accepted_structure_source,
     )
-    previous = _previous_binding_for_handoff(bundle=bundle, plan=persisted_plan, handoff=handoff)
+    previous = _previous_binding_for_handoff(
+        bundle=bundle,
+        plan=persisted_plan,
+        handoff=handoff,
+    )
     candidate = materialize_workflow_step(
         plan=persisted_plan,
         step_key=step_key,
@@ -312,7 +340,10 @@ def persist_or_reuse_workflow_materialization(
             candidate=candidate,
             existing_binding=existing[0],
         )
-        resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted_plan.id)
+        resume = reopen_workflow_resume_state(
+            store=store,
+            workflow_plan_id=persisted_plan.id,
+        )
         return WorkflowMaterializationPersistenceResult(
             materialization=receipt,
             reused=True,
@@ -331,7 +362,10 @@ def persist_or_reuse_workflow_materialization(
         workflow_step_bindings=(*bundle.workflow_step_bindings, candidate.binding),
     )
     store.save(updated)
-    resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted_plan.id)
+    resume = reopen_workflow_resume_state(
+        store=store,
+        workflow_plan_id=persisted_plan.id,
+    )
     persisted_binding = next(
         (item for item in resume.bindings if item.id == candidate.binding.id),
         None,
@@ -365,19 +399,26 @@ def persist_workflow_dispatch_wave(
     bundle = store.open()
     persisted_plan = _validate_persisted_plan(bundle=bundle, plan=plan)
     if orchestration.workflow_plan_id != persisted_plan.id:
-        raise WorkflowDurabilityError("workflow orchestration belongs to another persisted plan")
+        raise WorkflowDurabilityError(
+            "workflow orchestration belongs to another persisted plan"
+        )
     if orchestration.scheduler_dag is None:
         if recovery_attempt_sources:
             raise WorkflowDurabilityError(
                 "recovery attempt sources require a scheduler-dispatch orchestration"
             )
-        resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted_plan.id)
         raise WorkflowDurabilityError(
             "workflow orchestration has no scheduler-dispatch work to persist"
         )
 
-    resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted_plan.id)
-    _validate_scheduler_generation_currentness(orchestration=orchestration, resume=resume)
+    resume = reopen_workflow_resume_state(
+        store=store,
+        workflow_plan_id=persisted_plan.id,
+    )
+    _validate_scheduler_generation_currentness(
+        orchestration=orchestration,
+        resume=resume,
+    )
     source_by_step = _recovery_source_index(
         orchestration=orchestration,
         sources=recovery_attempt_sources,
@@ -397,6 +438,14 @@ def persist_workflow_dispatch_wave(
     new_attempts = first_wave.new_attempts
     new_ids = tuple(item.id for item in new_attempts)
     if new_attempts:
+        latest_resume = reopen_workflow_resume_state(
+            store=store,
+            workflow_plan_id=persisted_plan.id,
+        )
+        if latest_resume.resume_hash != resume.resume_hash:
+            raise WorkflowDurabilityError(
+                "durable workflow state changed while dispatch attempts were being prepared"
+            )
         current_bundle = store.open()
         _validate_persisted_plan(bundle=current_bundle, plan=persisted_plan)
         known_ids = {item.id for item in current_bundle.execution_attempts}
@@ -410,8 +459,14 @@ def persist_workflow_dispatch_wave(
         )
         store.save(updated)
 
-    post_resume = reopen_workflow_resume_state(store=store, workflow_plan_id=persisted_plan.id)
-    _validate_scheduler_generation_currentness(orchestration=orchestration, resume=post_resume)
+    post_resume = reopen_workflow_resume_state(
+        store=store,
+        workflow_plan_id=persisted_plan.id,
+    )
+    _validate_scheduler_generation_currentness(
+        orchestration=orchestration,
+        resume=post_resume,
+    )
     post_pending_recovery = _pending_recovery_decisions(
         orchestration=orchestration,
         resume=post_resume,
@@ -435,10 +490,18 @@ def persist_workflow_dispatch_wave(
     )
 
 
-def _require_plan(*, bundle: ProjectBundle, workflow_plan_id: WorkflowPlanId) -> ScientificWorkflowPlan:
-    matches = tuple(item for item in bundle.workflow_plans if item.id == workflow_plan_id)
+def _require_plan(
+    *,
+    bundle: ProjectBundle,
+    workflow_plan_id: WorkflowPlanId,
+) -> ScientificWorkflowPlan:
+    matches = tuple(
+        item for item in bundle.workflow_plans if item.id == workflow_plan_id
+    )
     if len(matches) != 1:
-        raise WorkflowDurabilityError("workflow plan is absent or duplicated in ProjectStore")
+        raise WorkflowDurabilityError(
+            "workflow plan is absent or duplicated in ProjectStore"
+        )
     return matches[0]
 
 
@@ -449,7 +512,9 @@ def _validate_persisted_plan(
 ) -> ScientificWorkflowPlan:
     persisted = _require_plan(bundle=bundle, workflow_plan_id=plan.id)
     if persisted != plan or persisted.plan_hash != plan.plan_hash:
-        raise WorkflowDurabilityError("supplied workflow plan does not match durable ProjectStore")
+        raise WorkflowDurabilityError(
+            "supplied workflow plan does not match durable ProjectStore"
+        )
     return persisted
 
 
@@ -464,16 +529,28 @@ def _require_materialization_handoff(
     try:
         handoff = orchestration.step(step_key)
     except KeyError as error:
-        raise WorkflowDurabilityError(f"workflow orchestration lacks step {step_key!r}") from error
+        raise WorkflowDurabilityError(
+            f"workflow orchestration lacks step {step_key!r}"
+        ) from error
     if handoff.action is not WorkflowOrchestrationAction.MATERIALIZE_STEP:
-        raise WorkflowDurabilityError("workflow step is not authorized for materialization")
+        raise WorkflowDurabilityError(
+            "workflow step is not authorized for materialization"
+        )
     return handoff
 
 
-def _require_persisted_fingerprint(*, bundle: ProjectBundle, fingerprint: MethodFingerprint) -> None:
-    matches = tuple(item for item in bundle.method_fingerprints if item.id == fingerprint.id)
+def _require_persisted_fingerprint(
+    *,
+    bundle: ProjectBundle,
+    fingerprint: MethodFingerprint,
+) -> None:
+    matches = tuple(
+        item for item in bundle.method_fingerprints if item.id == fingerprint.id
+    )
     if len(matches) != 1 or matches[0] != fingerprint:
-        raise WorkflowDurabilityError("MethodFingerprint is not durably persisted exactly")
+        raise WorkflowDurabilityError(
+            "MethodFingerprint is not durably persisted exactly"
+        )
 
 
 def _validate_materialization_sources(
@@ -484,32 +561,60 @@ def _validate_materialization_sources(
     accepted_structure_source: AcceptedStructureSource | None,
 ) -> None:
     if root_snapshot is not None:
-        persisted = tuple(item for item in bundle.structure_snapshots if item.id == root_snapshot.id)
+        persisted = tuple(
+            item
+            for item in bundle.structure_snapshots
+            if item.id == root_snapshot.id
+        )
         if len(persisted) != 1 or persisted[0] != root_snapshot:
-            raise WorkflowDurabilityError("root StructureSnapshot is not durably persisted exactly")
+            raise WorkflowDurabilityError(
+                "root StructureSnapshot is not durably persisted exactly"
+            )
     if accepted_structure_source is None:
         return
     source = accepted_structure_source
     binding_matches = tuple(
-        item for item in bundle.workflow_step_bindings if item.id == source.upstream_binding.id
+        item
+        for item in bundle.workflow_step_bindings
+        if item.id == source.upstream_binding.id
     )
     calculation_matches = tuple(
-        item for item in bundle.calculations if item.id == source.upstream_calculation.id
+        item
+        for item in bundle.calculations
+        if item.id == source.upstream_calculation.id
     )
     snapshot_matches = tuple(
-        item for item in bundle.structure_snapshots if item.id == source.promotion.snapshot.id
+        item
+        for item in bundle.structure_snapshots
+        if item.id == source.promotion.snapshot.id
     )
     variant_matches = tuple(
-        item for item in bundle.structure_variants if item.id == source.promotion.updated_variant.id
+        item
+        for item in bundle.structure_variants
+        if item.id == source.promotion.updated_variant.id
     )
     if len(binding_matches) != 1 or binding_matches[0] != source.upstream_binding:
-        raise WorkflowDurabilityError("accepted-structure source binding is not durably persisted")
-    if len(calculation_matches) != 1 or calculation_matches[0] != source.upstream_calculation:
-        raise WorkflowDurabilityError("accepted-structure source Calculation is not durably persisted")
+        raise WorkflowDurabilityError(
+            "accepted-structure source binding is not durably persisted"
+        )
+    if (
+        len(calculation_matches) != 1
+        or calculation_matches[0] != source.upstream_calculation
+    ):
+        raise WorkflowDurabilityError(
+            "accepted-structure source Calculation is not durably persisted"
+        )
     if len(snapshot_matches) != 1 or snapshot_matches[0] != source.promotion.snapshot:
-        raise WorkflowDurabilityError("accepted promoted StructureSnapshot is not durably persisted")
-    if len(variant_matches) != 1 or variant_matches[0] != source.promotion.updated_variant:
-        raise WorkflowDurabilityError("accepted promoted StructureVariant is not durably persisted")
+        raise WorkflowDurabilityError(
+            "accepted promoted StructureSnapshot is not durably persisted"
+        )
+    if (
+        len(variant_matches) != 1
+        or variant_matches[0] != source.promotion.updated_variant
+    ):
+        raise WorkflowDurabilityError(
+            "accepted promoted StructureVariant is not durably persisted"
+        )
     if handoff.source_binding_id != source.upstream_binding.id:
         raise WorkflowDurabilityError(
             "accepted-structure source does not match orchestration source binding"
@@ -531,7 +636,9 @@ def _previous_binding_for_handoff(
         if item.id == previous_id and item.workflow_plan_id == plan.id
     )
     if len(matches) != 1:
-        raise WorkflowDurabilityError("previous workflow binding is not durably persisted exactly")
+        raise WorkflowDurabilityError(
+            "previous workflow binding is not durably persisted exactly"
+        )
     return matches[0]
 
 
@@ -573,10 +680,14 @@ def _reuse_existing_materialization(
             "persisted workflow generation conflicts with replayed materialization identity"
         )
     calculation_matches = tuple(
-        item for item in bundle.calculations if item.id == existing_binding.calculation_id
+        item
+        for item in bundle.calculations
+        if item.id == existing_binding.calculation_id
     )
     if len(calculation_matches) != 1:
-        raise WorkflowDurabilityError("persisted workflow binding Calculation is missing")
+        raise WorkflowDurabilityError(
+            "persisted workflow binding Calculation is missing"
+        )
     existing_calculation = calculation_matches[0]
     candidate_calculation = candidate.calculation
     if (
@@ -631,7 +742,9 @@ def _validate_scheduler_generation_currentness(
     resume: WorkflowResumeState,
 ) -> None:
     if orchestration.scheduler_dag is None:
-        raise WorkflowDurabilityError("scheduler currentness validation requires SchedulerDag")
+        raise WorkflowDurabilityError(
+            "scheduler currentness validation requires SchedulerDag"
+        )
     handoff_by_node = {
         item.scheduler_node_id: item
         for item in orchestration.step_handoffs
@@ -674,7 +787,9 @@ def _recovery_source_index(
     }
     for source in sources:
         if source.step_key in result:
-            raise WorkflowDurabilityError("recovery attempt sources must be unique by step_key")
+            raise WorkflowDurabilityError(
+                "recovery attempt sources must be unique by step_key"
+            )
         if source.step_key not in recovery_steps:
             raise WorkflowDurabilityError(
                 "recovery attempt source does not correspond to execution-recovery-ready work"
@@ -692,11 +807,11 @@ def _pending_recovery_decisions(
     orchestration: WorkflowOrchestrationEvaluation,
     resume: WorkflowResumeState,
     source_by_step: dict[str, WorkflowRecoveryAttemptSource],
-) -> dict[str, object]:
+) -> dict[str, RecoveryDecision]:
     if orchestration.scheduler_dag is None:
         return {}
     recovery_by_node = orchestration.scheduler_recovery_decisions
-    result: dict[str, object] = {}
+    result: dict[str, RecoveryDecision] = {}
     node_by_id = {item.node_id: item for item in orchestration.scheduler_dag.nodes}
     handoff_by_node = {
         item.scheduler_node_id: item
@@ -717,12 +832,18 @@ def _pending_recovery_decisions(
             raise WorkflowDurabilityError(
                 "recovery source attempt belongs to another workflow Calculation"
             )
+        if source.execution_plan_hash != decision.source_plan_hash:
+            raise WorkflowDurabilityError(
+                "recovery decision source plan does not match the explicit source attempt"
+            )
         history = tuple(
             item
             for item in resume.execution_attempts
             if item.calculation_id == node.calculation.id
         )
-        children = tuple(item for item in history if item.previous_attempt_id == source.id)
+        children = tuple(
+            item for item in history if item.previous_attempt_id == source.id
+        )
         if len(children) > 1:
             raise WorkflowDurabilityError(
                 "recovery source attempt has multiple direct successors; replay is ambiguous"
