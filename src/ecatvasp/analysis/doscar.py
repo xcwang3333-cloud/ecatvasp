@@ -388,7 +388,10 @@ def _parse_atom_index_map(
     for expected_index, raw in enumerate(raw_entries):
         if not isinstance(raw, dict):
             raise DoscarParseError("atom index map entry must be an object")
-        if raw.get("poscar_index") != expected_index or raw.get("vasp_ordinal") != expected_index + 1:
+        if (
+            raw.get("poscar_index") != expected_index
+            or raw.get("vasp_ordinal") != expected_index + 1
+        ):
             raise DoscarParseError("atom index map indices/ordinals are not contiguous")
         raw_uid = raw.get("atom_uid")
         element = raw.get("element")
