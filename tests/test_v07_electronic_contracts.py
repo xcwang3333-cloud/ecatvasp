@@ -14,7 +14,6 @@ from ecatvasp.analysis import (
 )
 from ecatvasp.domain.ids import new_atom_uid, new_structure_snapshot_id
 
-
 _HASH_A = "a" * 64
 _HASH_B = "b" * 64
 
