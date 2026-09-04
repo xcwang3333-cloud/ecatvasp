@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -23,12 +24,13 @@ from ecatvasp.domain import (
     SpinTreatment,
     StructureVariant,
     VariantType,
+    new_structure_snapshot_id,
 )
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp import (
-    ConvergenceVerdict,
     VASP_CONVERGENCE_ARTIFACT_FORMAT,
     VASP_RESULT_DOCUMENT_FORMAT,
+    ConvergenceVerdict,
     VaspImportError,
     import_existing_vasp_folder,
     inspect_vasp_folder,
@@ -140,6 +142,33 @@ def test_converged_fixture_imports_through_normalized_v05_pipeline(tmp_path: Pat
         item for item in imported.analyses if item.analysis_type is AnalysisType.RESULT_PARSE
     )
     assert parsed_artifact.producer.id == parse_analysis.id
+
+
+def test_converged_import_does_not_replace_existing_variant_current_snapshot(
+    tmp_path: Path,
+) -> None:
+    project, _, variant = _context()
+    existing_snapshot_id = new_structure_snapshot_id()
+    pinned_variant = replace(
+        variant,
+        current_structure_snapshot_id=existing_snapshot_id,
+    )
+
+    imported = import_existing_vasp_folder(
+        folder=FIXTURES / "relax_converged",
+        project_root=tmp_path,
+        project=project,
+        variant=pinned_variant,
+        method_fingerprint=_fingerprint(),
+    )
+
+    assert imported.convergence_assessment.overall is ConvergenceVerdict.CONVERGED
+    assert imported.updated_variant.current_structure_snapshot_id == existing_snapshot_id
+    assert imported.final_snapshot.id != existing_snapshot_id
+    assert any(
+        "already points to another current snapshot" in warning
+        for warning in imported.inspection.warnings
+    )
 
 
 def test_unconverged_fixture_keeps_contcar_as_unpromoted_candidate(tmp_path: Path) -> None:
