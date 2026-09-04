@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from ecatvasp.domain import (
+    AnalysisProducerRef,
+    AnalysisType,
     ArtifactType,
     CalculationScientificStatus,
     Catalyst,
@@ -23,7 +25,14 @@ from ecatvasp.domain import (
     VariantType,
 )
 from ecatvasp.storage import ProjectBundle, ProjectStore
-from ecatvasp.vasp import VaspImportError, import_existing_vasp_folder, inspect_vasp_folder
+from ecatvasp.vasp import (
+    ConvergenceVerdict,
+    VASP_CONVERGENCE_ARTIFACT_FORMAT,
+    VASP_RESULT_DOCUMENT_FORMAT,
+    VaspImportError,
+    import_existing_vasp_folder,
+    inspect_vasp_folder,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "vasp"
 
@@ -86,7 +95,7 @@ def test_inspection_requires_minimum_vasp_files(tmp_path: Path) -> None:
         inspect_vasp_folder(tmp_path)
 
 
-def test_converged_fixture_imports_with_stable_atom_identity(tmp_path: Path) -> None:
+def test_converged_fixture_imports_through_normalized_v05_pipeline(tmp_path: Path) -> None:
     project, _, variant = _context()
     imported = import_existing_vasp_folder(
         folder=FIXTURES / "relax_converged",
@@ -103,6 +112,10 @@ def test_converged_fixture_imports_with_stable_atom_identity(tmp_path: Path) -> 
     assert imported.parsed_result.ionic_steps == 2
     assert imported.parsed_result.electronic_steps == 3
     assert imported.parsed_result.vasp_version == "6.4.3"
+    assert imported.normalized_result.energies.free_energy_toten_ev == pytest.approx(
+        -123.456789
+    )
+    assert imported.convergence_assessment.overall is ConvergenceVerdict.CONVERGED
 
     input_uids = tuple(site.atom_uid for site in imported.input_snapshot.sites)
     final_uids = tuple(site.atom_uid for site in imported.final_snapshot.sites)
@@ -115,10 +128,21 @@ def test_converged_fixture_imports_with_stable_atom_identity(tmp_path: Path) -> 
     assert ArtifactType.CONTCAR in artifact_types
     assert ArtifactType.OUTCAR in artifact_types
     assert ArtifactType.PARSED_RESULT in artifact_types
-    assert len(imported.dependency_records) == 3
+    assert {analysis.analysis_type for analysis in imported.analyses} == {
+        AnalysisType.RESULT_PARSE,
+        AnalysisType.CONVERGENCE,
+    }
+    parsed_artifact = next(
+        item for item in imported.artifacts if item.artifact_type is ArtifactType.PARSED_RESULT
+    )
+    assert isinstance(parsed_artifact.producer, AnalysisProducerRef)
+    parse_analysis = next(
+        item for item in imported.analyses if item.analysis_type is AnalysisType.RESULT_PARSE
+    )
+    assert parsed_artifact.producer.id == parse_analysis.id
 
 
-def test_unconverged_fixture_is_parsed_not_mislabeled_converged(tmp_path: Path) -> None:
+def test_unconverged_fixture_keeps_contcar_as_unpromoted_candidate(tmp_path: Path) -> None:
     project, _, variant = _context()
     imported = import_existing_vasp_folder(
         folder=FIXTURES / "relax_unconverged",
@@ -129,10 +153,13 @@ def test_unconverged_fixture_is_parsed_not_mislabeled_converged(tmp_path: Path) 
     )
 
     assert imported.calculation.status is CalculationScientificStatus.COMPLETED_UNCONVERGED
+    assert imported.convergence_assessment.overall is ConvergenceVerdict.UNCONVERGED
     assert imported.parsed_result.electronic_converged is False
-    assert imported.parsed_result.ionic_converged is False
+    assert imported.parsed_result.ionic_converged is None
     assert imported.parsed_result.total_energy_ev == pytest.approx(-120.25)
     assert imported.parsed_result.electronic_steps == 60
+    assert imported.final_snapshot.id != imported.input_snapshot.id
+    assert imported.updated_variant.current_structure_snapshot_id == imported.input_snapshot.id
 
 
 def test_import_rejects_method_fingerprint_incar_contradiction(tmp_path: Path) -> None:
@@ -147,7 +174,7 @@ def test_import_rejects_method_fingerprint_incar_contradiction(tmp_path: Path) -
         )
 
 
-def test_existing_vasp_vertical_slice_survives_project_reopen(tmp_path: Path) -> None:
+def test_existing_vasp_v05_chain_survives_project_reopen(tmp_path: Path) -> None:
     project, catalyst, variant = _context()
     fingerprint = _fingerprint()
     project_root = tmp_path / "project"
@@ -168,6 +195,7 @@ def test_existing_vasp_vertical_slice_survives_project_reopen(tmp_path: Path) ->
         calculations=(imported.calculation,),
         execution_attempts=(imported.execution_attempt,),
         artifacts=imported.artifacts,
+        analyses=imported.analyses,
         provenance_records=imported.provenance_records,
         dependency_records=imported.dependency_records,
     )
@@ -185,6 +213,10 @@ def test_existing_vasp_vertical_slice_survives_project_reopen(tmp_path: Path) ->
         site.atom_uid for site in reopened.structure_snapshots[1].sites
     )
     assert reopened.dependency_records == imported.dependency_records
+    assert {item.analysis_type for item in reopened.analyses} == {
+        AnalysisType.RESULT_PARSE,
+        AnalysisType.CONVERGENCE,
+    }
 
     parsed_artifact = next(
         artifact
@@ -192,7 +224,24 @@ def test_existing_vasp_vertical_slice_survives_project_reopen(tmp_path: Path) ->
         if artifact.artifact_type is ArtifactType.PARSED_RESULT
     )
     assert parsed_artifact.local_path is not None
-    summary_path = project_root / parsed_artifact.local_path
-    payload = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert payload["scientific_status"] == "converged"
-    assert payload["total_energy_ev"] == pytest.approx(-123.456789)
+    parsed_payload = json.loads(
+        (project_root / parsed_artifact.local_path).read_text(encoding="utf-8")
+    )
+    assert parsed_payload["format"] == VASP_RESULT_DOCUMENT_FORMAT
+    assert parsed_payload["result"]["energies"]["free_energy_toten_ev"] == pytest.approx(
+        -123.456789
+    )
+    convergence_artifact = next(
+        artifact
+        for artifact in reopened.artifacts
+        if artifact.artifact_type is ArtifactType.DERIVED_DATASET
+        and artifact.local_path is not None
+        and artifact.local_path.endswith("convergence.json")
+    )
+    convergence_payload = json.loads(
+        (project_root / (convergence_artifact.local_path or "")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert convergence_payload["format"] == VASP_CONVERGENCE_ARTIFACT_FORMAT
+    assert convergence_payload["assessment"]["overall"] == "converged"
