@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -40,9 +41,10 @@ from ecatvasp.domain import (
     new_artifact_id,
     new_atom_uid,
 )
+from ecatvasp.domain.ids import ArtifactId, AtomUid
 from ecatvasp.provenance import (
-    DependencyKind,
     FreshnessEngine,
+    FreshnessResult,
     FreshnessState,
     scientific_hash,
 )
@@ -75,10 +77,15 @@ from ecatvasp.vasp import (
     promote_vasp_contcar_snapshot,
     reconstruct_vasp_contcar_snapshot,
 )
+from ecatvasp.vasp.convergence import VaspConvergenceEvidence
+from ecatvasp.vasp.result_provenance import VaspScientificResultMaterialization
 from ecatvasp.vasp.result_supporting_provenance import (
     bind_vasp_atom_identity_result_provenance,
 )
+from ecatvasp.vasp.results import VaspConvergenceAssessment, VaspResultDocument
+from ecatvasp.vasp.structure_promotion import VaspContcarReconstruction
 from ecatvasp.vasp.structure_provenance import (
+    VaspContcarReconstructionProvenance,
     build_vasp_contcar_reconstruction_provenance,
 )
 
@@ -98,19 +105,19 @@ class _RelaxCase:
     raw_artifacts: tuple[Artifact, ...]
     atom_map_artifact: Artifact
     contcar_artifact: Artifact
-    o_uid: object
-    h_uid: object
+    o_uid: AtomUid
+    h_uid: AtomUid
 
 
 @dataclass(frozen=True, slots=True)
 class _RelaxResult:
     case: _RelaxCase
-    result: object
-    evidence: object
-    assessment: object
-    reconstruction: object
-    materialization: object
-    structure_provenance: object
+    result: VaspResultDocument
+    evidence: VaspConvergenceEvidence
+    assessment: VaspConvergenceAssessment
+    reconstruction: VaspContcarReconstruction
+    materialization: VaspScientificResultMaterialization
+    structure_provenance: VaspContcarReconstructionProvenance
 
 
 def _write(root: Path, relative: str, body: bytes) -> tuple[str, int]:
@@ -122,32 +129,32 @@ def _write(root: Path, relative: str, body: bytes) -> tuple[str, int]:
 
 def _poscar() -> bytes:
     return (
-        "v0.5 managed acceptance\n"
-        "1.0\n"
-        "10.0 0.0 0.0\n"
-        "0.0 10.0 0.0\n"
-        "0.0 0.0 16.0\n"
-        "O H\n"
-        "1 1\n"
-        "Direct\n"
-        "0.500000 0.500000 0.500000\n"
-        "0.100000 0.100000 0.100000\n"
-    ).encode()
+        b"v0.5 managed acceptance\n"
+        b"1.0\n"
+        b"10.0 0.0 0.0\n"
+        b"0.0 10.0 0.0\n"
+        b"0.0 0.0 16.0\n"
+        b"O H\n"
+        b"1 1\n"
+        b"Direct\n"
+        b"0.500000 0.500000 0.500000\n"
+        b"0.100000 0.100000 0.100000\n"
+    )
 
 
 def _contcar() -> bytes:
     return (
-        "v0.5 relaxed candidate\n"
-        "1.0\n"
-        "10.5 0.0 0.0\n"
-        "0.0 10.5 0.0\n"
-        "0.0 0.0 16.5\n"
-        "O H\n"
-        "1 1\n"
-        "Direct\n"
-        "0.510000 0.500000 0.500000\n"
-        "0.110000 0.100000 0.100000\n"
-    ).encode()
+        b"v0.5 relaxed candidate\n"
+        b"1.0\n"
+        b"10.5 0.0 0.0\n"
+        b"0.0 10.5 0.0\n"
+        b"0.0 0.0 16.5\n"
+        b"O H\n"
+        b"1 1\n"
+        b"Direct\n"
+        b"0.510000 0.500000 0.500000\n"
+        b"0.110000 0.100000 0.100000\n"
+    )
 
 
 def _magnetization_table() -> str:
@@ -168,7 +175,7 @@ def _relax_outcar(*, converged: bool) -> bytes:
         if converged
         else ""
     )
-    return (
+    text = (
         "vasp.6.4.3\n"
         " NELM = 60\n"
         " NSW = 2\n"
@@ -185,24 +192,25 @@ def _relax_outcar(*, converged: bool) -> bytes:
         + " aborting loop because EDIFF is reached\n"
         + ionic_marker
         + " General timing and accounting informations for this job:\n"
-    ).encode()
+    )
+    return text.encode()
 
 
 def _oszicar() -> bytes:
     return (
-        " DAV:   1    -0.204000000000E+02\n"
-        " DAV:   3    -0.204500000000E+02\n"
-        "   1 F= -.20450000E+02 E0= -.20440000E+02 d E =-.100000E-01\n"
-        " DAV:   1    -0.205000000000E+02\n"
-        " DAV:   2    -0.205000000000E+02\n"
-        "   2 F= -.20500000E+02 E0= -.20490000E+02 d E =-.500000E-01\n"
-    ).encode()
+        b" DAV:   1    -0.204000000000E+02\n"
+        b" DAV:   3    -0.204500000000E+02\n"
+        b"   1 F= -.20450000E+02 E0= -.20440000E+02 d E =-.100000E-01\n"
+        b" DAV:   1    -0.205000000000E+02\n"
+        b" DAV:   2    -0.205000000000E+02\n"
+        b"   2 F= -.20500000E+02 E0= -.20490000E+02 d E =-.500000E-01\n"
+    )
 
 
 def _local_input_artifact(
     *,
     calculation: Calculation,
-    artifact_id,
+    artifact_id: ArtifactId,
     artifact_type: ArtifactType,
     local_path: str,
     body: bytes,
@@ -389,33 +397,28 @@ def _relax_case(tmp_path: Path, *, converged: bool) -> _RelaxCase:
                 PotcarResolutionEntry("O", "O", "2" * 64),
             ),
         ),
-        expected_outputs=tuple(
-            sorted(
-                (
-                    ExpectedOutput(
-                        "contcar",
-                        ArtifactType.CONTCAR,
-                        "CONTCAR",
-                        RetrievalPolicy.ALWAYS,
-                        True,
-                    ),
-                    ExpectedOutput(
-                        "oszicar",
-                        ArtifactType.OSZICAR,
-                        "OSZICAR",
-                        RetrievalPolicy.ALWAYS,
-                        False,
-                    ),
-                    ExpectedOutput(
-                        "outcar",
-                        ArtifactType.OUTCAR,
-                        "OUTCAR",
-                        RetrievalPolicy.ALWAYS,
-                        True,
-                    ),
-                ),
-                key=lambda item: item.role,
-            )
+        expected_outputs=(
+            ExpectedOutput(
+                role="contcar",
+                artifact_type=ArtifactType.CONTCAR,
+                relative_path="CONTCAR",
+                retrieval_policy=RetrievalPolicy.ALWAYS,
+                required=True,
+            ),
+            ExpectedOutput(
+                role="oszicar",
+                artifact_type=ArtifactType.OSZICAR,
+                relative_path="OSZICAR",
+                retrieval_policy=RetrievalPolicy.ALWAYS,
+                required=False,
+            ),
+            ExpectedOutput(
+                role="outcar",
+                artifact_type=ArtifactType.OUTCAR,
+                relative_path="OUTCAR",
+                retrieval_policy=RetrievalPolicy.ALWAYS,
+                required=True,
+            ),
         ),
         runtime_constraints=VaspRuntimeConstraints(),
         execution_settings=ExecutionSettings(),
@@ -454,9 +457,7 @@ def _relax_case(tmp_path: Path, *, converged: bool) -> _RelaxCase:
             body=contcar_body,
         ),
     )
-    atom_map_artifact = next(
-        item for item in input_artifacts if item.id == atom_map_id
-    )
+    atom_map_artifact = next(item for item in input_artifacts if item.id == atom_map_id)
     contcar_artifact = next(
         item for item in raw_artifacts if item.artifact_type is ArtifactType.CONTCAR
     )
@@ -581,7 +582,7 @@ def _freshness_with_drift(
     bundle: ProjectBundle,
     *,
     drift_artifact: Artifact,
-):
+) -> dict[UUID, FreshnessResult]:
     dependencies = bundle.dependency_records
     node_ids = {
         node_id
@@ -637,9 +638,7 @@ def test_managed_converged_relax_accepts_full_v05_scientific_handoff(
         is CalculationScientificStatus.CONVERGED
     )
 
-    parse_inputs = set(
-        analyzed.materialization.result_parse_analysis.input_artifact_ids
-    )
+    parse_inputs = set(analyzed.materialization.result_parse_analysis.input_artifact_ids)
     assert case.atom_map_artifact.id in parse_inputs
     assert {item.id for item in case.raw_artifacts}.issubset(parse_inputs)
 
@@ -710,7 +709,10 @@ def test_managed_unconverged_relax_keeps_candidate_without_promotion(
     bundle.validate()
     ProjectStore(tmp_path).save(bundle)
     reopened = ProjectStore(tmp_path).open()
-    assert reopened.calculations[0].status is CalculationScientificStatus.COMPLETED_UNCONVERGED
+    assert (
+        reopened.calculations[0].status
+        is CalculationScientificStatus.COMPLETED_UNCONVERGED
+    )
     assert reopened.structure_variants[0].current_structure_snapshot_id == case.input_snapshot.id
     assert analyzed.reconstruction.snapshot.id in {
         item.id for item in reopened.structure_snapshots
@@ -777,8 +779,9 @@ def test_managed_frequency_acceptance_stops_before_thermochemistry(tmp_path: Pat
         slug="managed-frequency",
     )
     poscar_body = (
-        "H frequency\n1.0\n12 0 0\n0 12 0\n0 0 12\nH\n1\nDirect\n0.5 0.5 0.5\n"
-    ).encode()
+        b"H frequency\n1.0\n12 0 0\n0 12 0\n0 0 12\n"
+        b"H\n1\nDirect\n0.5 0.5 0.5\n"
+    )
     poscar_sha, poscar_size = _write(tmp_path, "freq/POSCAR", poscar_body)
     poscar_id = new_artifact_id()
     atom_map_body = json.dumps(
@@ -863,11 +866,11 @@ def test_managed_frequency_acceptance_stops_before_thermochemistry(tmp_path: Pat
         ),
         expected_outputs=(
             ExpectedOutput(
-                "outcar",
-                ArtifactType.OUTCAR,
-                "OUTCAR",
-                RetrievalPolicy.ALWAYS,
-                True,
+                role="outcar",
+                artifact_type=ArtifactType.OUTCAR,
+                relative_path="OUTCAR",
+                retrieval_policy=RetrievalPolicy.ALWAYS,
+                required=True,
             ),
         ),
         runtime_constraints=VaspRuntimeConstraints(),
@@ -880,7 +883,7 @@ def test_managed_frequency_acceptance_stops_before_thermochemistry(tmp_path: Pat
         input_manifest_hash=plan.input_manifest_sha256,
         execution_plan_hash=plan.plan_hash,
     )
-    outcar_body = (
+    outcar_text = (
         "vasp.6.4.3\n"
         " NELM = 60\n"
         " NSW = 1\n"
@@ -888,7 +891,8 @@ def test_managed_frequency_acceptance_stops_before_thermochemistry(tmp_path: Pat
         " aborting loop because EDIFF is reached\n"
         + _frequency_mode_block()
         + " General timing and accounting informations for this job:\n"
-    ).encode()
+    )
+    outcar_body = outcar_text.encode()
     _write(tmp_path, "freq/OUTCAR", outcar_body)
     outcar = _local_result_artifact(
         attempt=attempt,
