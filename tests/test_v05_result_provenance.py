@@ -19,6 +19,7 @@ from ecatvasp.domain import (
     ExecutionAttemptStatus,
     KPointPolicy,
     KPointPolicyKind,
+    Lattice,
     MethodDefinition,
     MethodFingerprint,
     PotcarIdentity,
@@ -27,13 +28,12 @@ from ecatvasp.domain import (
     RecipeIdentity,
     RetrievalPolicy,
     SpinTreatment,
-    StructureSnapshot,
     StructureSite,
-    Lattice,
+    StructureSnapshot,
     canonical_sha256,
-    new_artifact_id,
     new_atom_uid,
 )
+from ecatvasp.domain.ids import ArtifactId, CalculationId
 from ecatvasp.provenance import FreshnessEngine, FreshnessState, scientific_hash
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
@@ -56,7 +56,7 @@ from ecatvasp.vasp.results import (
 
 @dataclass(frozen=True, slots=True)
 class _Intake:
-    calculation_id: object
+    calculation_id: CalculationId
     calculation_type: CalculationType
     recipe_id: str
     files: tuple[VaspResultInputFile, ...]
@@ -67,14 +67,29 @@ class _Intake:
         return tuple(item.source for item in self.files)
 
     @property
-    def input_artifact_ids(self) -> tuple[object, ...]:
+    def input_artifact_ids(self) -> tuple[ArtifactId, ...]:
         return tuple(item.source.artifact_id for item in self.files)
 
 
-def _case(tmp_path: Path):
+@dataclass(frozen=True, slots=True)
+class _Case:
+    project: Project
+    snapshot: StructureSnapshot
+    fingerprint: MethodFingerprint
+    calculation: Calculation
+    attempt: ExecutionAttempt
+    raw_artifacts: tuple[Artifact, ...]
+    intake: _Intake
+    result: VaspResultDocument
+    assessment: VaspConvergenceAssessment
+
+
+def _case() -> _Case:
     project = Project(name="Result provenance", slug="result-provenance")
     snapshot = StructureSnapshot(
-        lattice=Lattice(vectors=((8.0, 0.0, 0.0), (0.0, 8.0, 0.0), (0.0, 0.0, 16.0))),
+        lattice=Lattice(
+            vectors=((8.0, 0.0, 0.0), (0.0, 8.0, 0.0), (0.0, 0.0, 16.0))
+        ),
         sites=(StructureSite(new_atom_uid(), "C", (0.5, 0.5, 0.5)),),
     )
     fingerprint = MethodFingerprint(
@@ -169,27 +184,29 @@ def _case(tmp_path: Path):
         overall=ConvergenceVerdict.CONVERGED,
         evidence_codes=("test.converged",),
     )
-    return project, snapshot, fingerprint, calculation, attempt, raw_artifacts, intake, result, assessment
-
-
-def test_result_materialization_builds_durable_analysis_artifact_chain(tmp_path: Path) -> None:
-    (
-        project,
-        snapshot,
-        fingerprint,
-        calculation,
-        attempt,
-        raw_artifacts,
-        intake,
-        result,
-        assessment,
-    ) = _case(tmp_path)
-    materialized = materialize_vasp_scientific_result(
-        project_root=tmp_path,
+    return _Case(
+        project=project,
+        snapshot=snapshot,
+        fingerprint=fingerprint,
         calculation=calculation,
+        attempt=attempt,
+        raw_artifacts=raw_artifacts,
         intake=intake,
         result=result,
         assessment=assessment,
+    )
+
+
+def test_result_materialization_builds_durable_analysis_artifact_chain(
+    tmp_path: Path,
+) -> None:
+    case = _case()
+    materialized = materialize_vasp_scientific_result(
+        project_root=tmp_path,
+        calculation=case.calculation,
+        intake=case.intake,
+        result=case.result,
+        assessment=case.assessment,
     )
 
     assert materialized.updated_calculation.status is CalculationScientificStatus.CONVERGED
@@ -208,12 +225,12 @@ def test_result_materialization_builds_durable_analysis_artifact_chain(tmp_path:
     assert VASP_CONVERGENCE_ARTIFACT_FORMAT in convergence_text
 
     bundle = ProjectBundle(
-        project=project,
-        structure_snapshots=(snapshot,),
-        method_fingerprints=(fingerprint,),
+        project=case.project,
+        structure_snapshots=(case.snapshot,),
+        method_fingerprints=(case.fingerprint,),
         calculations=(materialized.updated_calculation,),
-        execution_attempts=(attempt,),
-        artifacts=(*raw_artifacts, *materialized.artifacts),
+        execution_attempts=(case.attempt,),
+        artifacts=(*case.raw_artifacts, *materialized.artifacts),
         analyses=materialized.analyses,
         provenance_records=materialized.provenance_records,
         dependency_records=materialized.dependency_records,
@@ -225,17 +242,17 @@ def test_result_materialization_builds_durable_analysis_artifact_chain(tmp_path:
 
 
 def test_raw_hash_drift_stales_entire_scientific_result_chain(tmp_path: Path) -> None:
-    *_, calculation, _attempt, raw_artifacts, intake, result, assessment = _case(tmp_path)
+    case = _case()
     materialized = materialize_vasp_scientific_result(
         project_root=tmp_path,
-        calculation=calculation,
-        intake=intake,
-        result=result,
-        assessment=assessment,
+        calculation=case.calculation,
+        intake=case.intake,
+        result=case.result,
+        assessment=case.assessment,
     )
-    outcar, oszicar = raw_artifacts
+    outcar, oszicar = case.raw_artifacts
     node_ids = {
-        calculation.id,
+        case.calculation.id,
         outcar.id,
         oszicar.id,
         materialized.result_parse_analysis.id,
@@ -244,7 +261,7 @@ def test_raw_hash_drift_stales_entire_scientific_result_chain(tmp_path: Path) ->
         materialized.convergence_artifact.id,
     }
     current_hashes = {
-        calculation.id: scientific_hash(calculation),
+        case.calculation.id: scientific_hash(case.calculation),
         outcar.id: "f" * 64,
         oszicar.id: scientific_hash(oszicar),
         materialized.result_parse_analysis.id: scientific_hash(
@@ -280,11 +297,10 @@ def test_raw_hash_drift_stales_entire_scientific_result_chain(tmp_path: Path) ->
     ),
 )
 def test_status_reconciliation_is_explicit(
-    tmp_path: Path,
     verdict: ConvergenceVerdict,
     expected: CalculationScientificStatus,
 ) -> None:
-    *_, calculation, _attempt, _artifacts, _intake, _result, _assessment = _case(tmp_path)
+    calculation = _case().calculation
     assessment = VaspConvergenceAssessment(
         calculation_type=calculation.calculation_type,
         electronic=verdict,
@@ -294,8 +310,8 @@ def test_status_reconciliation_is_explicit(
     assert reconcile_vasp_calculation_status(calculation, assessment).status is expected
 
 
-def test_status_reconciliation_rejects_not_applicable_overall(tmp_path: Path) -> None:
-    *_, calculation, _attempt, _artifacts, _intake, _result, _assessment = _case(tmp_path)
+def test_status_reconciliation_rejects_not_applicable_overall() -> None:
+    calculation = _case().calculation
     assessment = VaspConvergenceAssessment(
         calculation_type=calculation.calculation_type,
         electronic=ConvergenceVerdict.NOT_APPLICABLE,
