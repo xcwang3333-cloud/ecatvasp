@@ -252,7 +252,10 @@ def _validate_recovery_sources(
             raise WorkflowRecoveryPolicyError(
                 "workflow recovery source Calculation is not the current generation"
             )
-        if gate.current_binding_id != source.binding.id or gate.calculation_id != source.calculation.id:
+        if (
+            gate.current_binding_id != source.binding.id
+            or gate.calculation_id != source.calculation.id
+        ):
             raise WorkflowRecoveryPolicyError(
                 "workflow recovery source does not match the exact Block 5 step gate"
             )
