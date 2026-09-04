@@ -46,3 +46,4 @@ Frozen ADR set and accepted extensions:
 40. v0.6 Canonical Workflow Recipe Registry Boundary
 41. v0.6 Deterministic Workflow Planning Boundary
 42. v0.6 Step Materialization and Structure Binding Boundary
+43. v0.6 Scientific Gates, Freshness, and Supersession Boundary
