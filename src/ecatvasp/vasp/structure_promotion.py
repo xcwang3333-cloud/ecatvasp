@@ -33,6 +33,7 @@ from ecatvasp.domain.ids import (
     ExecutionAttemptId,
     StructureSnapshotId,
 )
+from ecatvasp.provenance import scientific_hash
 from ecatvasp.structures.identity import validate_identity_preserving_revision
 from ecatvasp.vasp.convergence import VaspConvergenceEvidence, assess_vasp_convergence
 from ecatvasp.vasp.execution_plan import ExecutionPlan, StagingInput, StagingInputKind
@@ -289,6 +290,10 @@ def _parse_atom_map(
         raise VaspStructurePromotionError("unsupported atom-index-map.json format/version")
     if payload.get("structure_snapshot_id") != str(input_snapshot.id):
         raise VaspStructurePromotionError("atom index map belongs to another input snapshot")
+    if payload.get("structure_sha256") != scientific_hash(input_snapshot):
+        raise VaspStructurePromotionError(
+            "atom index map does not bind the exact input snapshot content"
+        )
     if payload.get("poscar_sha256") != poscar_sha256:
         raise VaspStructurePromotionError("atom index map does not bind the exact staged POSCAR")
 
