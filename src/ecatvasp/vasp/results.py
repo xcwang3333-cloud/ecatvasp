@@ -21,7 +21,7 @@ from ecatvasp.domain import (
 from ecatvasp.domain.ids import AtomUid
 
 VASP_RESULT_DOCUMENT_FORMAT = "ecatvasp-vasp-scientific-result"
-VASP_RESULT_DOCUMENT_VERSION = 2
+VASP_RESULT_DOCUMENT_VERSION = 3
 
 Vector3 = tuple[float, float, float]
 
@@ -46,6 +46,13 @@ class ConvergenceVerdict(StrEnum):
     UNCONVERGED = "unconverged"
     INDETERMINATE = "indeterminate"
     NOT_APPLICABLE = "not_applicable"
+
+
+class VaspFrequencyModeKind(StrEnum):
+    """Whether a VASP normal mode is real or explicitly labelled imaginary."""
+
+    REAL = "real"
+    IMAGINARY = "imaginary"
 
 
 _SOURCE_ARTIFACT_TYPES: dict[VaspResultSourceRole, ArtifactType] = {
@@ -94,6 +101,11 @@ def _validate_vector(value: Vector3, field_name: str) -> None:
         raise VaspResultContractError(
             f"{field_name} must contain exactly three finite components"
         )
+
+
+def _validate_nonnegative_finite(value: float, field_name: str) -> None:
+    if not isfinite(value) or value < 0:
+        raise VaspResultContractError(f"{field_name} must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +273,93 @@ VaspMagnetization = VaspCollinearMagnetization | VaspNoncollinearMagnetization
 
 
 @dataclass(frozen=True, slots=True)
+class VaspFrequencyEigenvector:
+    """One standard dynamical-matrix eigenvector component set bound to atom_uid."""
+
+    atom_uid: AtomUid
+    components: Vector3
+
+    def __post_init__(self) -> None:
+        _validate_vector(self.components, "components")
+
+
+@dataclass(frozen=True, slots=True)
+class VaspFrequencyMode:
+    """One VASP normal mode with explicit real/imaginary frequency semantics."""
+
+    mode_index: int
+    kind: VaspFrequencyModeKind
+    frequency_thz: float
+    angular_frequency_2pi_thz: float
+    wavenumber_cm_inverse: float
+    energy_mev: float
+    eigenvectors: tuple[VaspFrequencyEigenvector, ...]
+
+    def __post_init__(self) -> None:
+        if self.mode_index < 1:
+            raise VaspResultContractError("frequency mode_index must be positive")
+        _validate_nonnegative_finite(self.frequency_thz, "frequency_thz")
+        _validate_nonnegative_finite(
+            self.angular_frequency_2pi_thz,
+            "angular_frequency_2pi_thz",
+        )
+        _validate_nonnegative_finite(self.wavenumber_cm_inverse, "wavenumber_cm_inverse")
+        _validate_nonnegative_finite(self.energy_mev, "energy_mev")
+        if not self.eigenvectors:
+            raise VaspResultContractError("frequency mode requires eigenvectors")
+        atom_uids = tuple(item.atom_uid for item in self.eigenvectors)
+        if len(atom_uids) != len(set(atom_uids)):
+            raise VaspResultContractError("frequency mode eigenvectors require unique atom_uids")
+
+
+@dataclass(frozen=True, slots=True)
+class VaspFrequencyDataset:
+    """Complete Γ-point finite-difference mode set for one exact frequency recipe."""
+
+    atom_uids: tuple[AtomUid, ...]
+    displaced_atom_uids: tuple[AtomUid, ...]
+    modes: tuple[VaspFrequencyMode, ...]
+    imaginary_mode_count: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.atom_uids:
+            raise VaspResultContractError("frequency dataset requires at least one atom_uid")
+        if len(self.atom_uids) != len(set(self.atom_uids)):
+            raise VaspResultContractError("frequency dataset atom_uids must be unique")
+        if not self.displaced_atom_uids:
+            raise VaspResultContractError("frequency dataset requires displaced_atom_uids")
+        if len(self.displaced_atom_uids) != len(set(self.displaced_atom_uids)):
+            raise VaspResultContractError("displaced_atom_uids must be unique")
+        if any(atom_uid not in self.atom_uids for atom_uid in self.displaced_atom_uids):
+            raise VaspResultContractError("displaced_atom_uids must be a subset of atom_uids")
+        expected_modes = 3 * len(self.displaced_atom_uids)
+        if len(self.modes) != expected_modes:
+            raise VaspResultContractError(
+                "frequency mode count must equal three times the displaced atom count"
+            )
+        indices = tuple(mode.mode_index for mode in self.modes)
+        if indices != tuple(range(1, expected_modes + 1)):
+            raise VaspResultContractError("frequency mode indices must be contiguous from 1")
+        for mode in self.modes:
+            mode_uids = tuple(item.atom_uid for item in mode.eigenvectors)
+            if mode_uids != self.atom_uids:
+                raise VaspResultContractError(
+                    "frequency mode eigenvectors must follow exact VASP atom_uid order"
+                )
+        object.__setattr__(
+            self,
+            "imaginary_mode_count",
+            sum(mode.kind is VaspFrequencyModeKind.IMAGINARY for mode in self.modes),
+        )
+
+    @property
+    def degrees_of_freedom(self) -> int:
+        """Return the exact finite-difference degrees of freedom represented by the modes."""
+
+        return 3 * len(self.displaced_atom_uids)
+
+
+@dataclass(frozen=True, slots=True)
 class VaspResultDocument:
     """Normalized parser output containing facts but no convergence verdict."""
 
@@ -269,6 +368,7 @@ class VaspResultDocument:
     energies: VaspEnergySummary = field(default_factory=VaspEnergySummary)
     forces: VaspForceDataset | None = None
     magnetization: VaspMagnetization | None = None
+    frequencies: VaspFrequencyDataset | None = None
     vasp_version: str | None = None
     ionic_steps: int | None = None
     electronic_steps: int | None = None
@@ -290,6 +390,13 @@ class VaspResultDocument:
             raise VaspResultContractError("vasp_version must not be blank when present")
         _validate_optional_nonnegative(self.ionic_steps, "ionic_steps")
         _validate_optional_nonnegative(self.electronic_steps, "electronic_steps")
+        if self.frequencies is not None and self.calculation_type not in {
+            CalculationType.FREQUENCY,
+            CalculationType.GAS_FREQUENCY,
+        }:
+            raise VaspResultContractError(
+                "frequency data requires a frequency CalculationType"
+            )
         _validate_codes(self.evidence_codes, "evidence_codes")
 
 
