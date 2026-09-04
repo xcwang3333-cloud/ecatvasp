@@ -17,7 +17,8 @@ def _require_text(value: str, field_name: str) -> None:
 
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
         raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
     return normalized
 
@@ -74,7 +75,8 @@ class ElectronicEnergyAxis:
             raise ValueError("fermi_energy_ev must be finite")
         if not all(isfinite(value) for value in self.energies_ev):
             raise ValueError("energies_ev must contain only finite values")
-        if any(right <= left for left, right in zip(self.energies_ev, self.energies_ev[1:])):
+        pairs = zip(self.energies_ev, self.energies_ev[1:], strict=False)
+        if any(right <= left for left, right in pairs):
             raise ValueError("energies_ev must be strictly increasing")
 
     def relative_to_fermi(self) -> tuple[float, ...]:
@@ -173,7 +175,9 @@ class CanonicalDosResult:
             projection_key = (item.atom_uid, item.element, item.orbital)
             grouped_spins.setdefault(projection_key, set()).add(item.spin)
         if any(frozenset(spins) != system_spins for spins in grouped_spins.values()):
-            raise ValueError("each atom/orbital projection must use the same spin schema as system DOS")
+            raise ValueError(
+                "each atom/orbital projection must use the same spin schema as system DOS"
+            )
 
     @property
     def content_hash(self) -> str:
