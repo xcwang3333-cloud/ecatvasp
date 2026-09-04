@@ -23,7 +23,7 @@ from ecatvasp.provenance import (
     scientific_hash,
 )
 from ecatvasp.vasp.execution_plan import ExecutionPlan, StagingInput, StagingInputKind
-from ecatvasp.vasp.result_intake import VaspResultArtifactIntake
+from ecatvasp.vasp.result_intake import VaspResultArtifactIntake, VaspResultInputFile
 from ecatvasp.vasp.results import VaspResultSourceRole
 from ecatvasp.vasp.structure_promotion import (
     VASP_CONTCAR_RECONSTRUCTOR_NAME,
@@ -172,7 +172,9 @@ def _validate_identity(
     if reconstruction.intake_hash.lower() != intake.intake_hash.lower():
         raise VaspStructureProvenanceError("reconstruction uses a different result intake")
     if intake.plan_hash != plan.plan_hash:
-        raise VaspStructureProvenanceError("result intake does not reference the exact ExecutionPlan")
+        raise VaspStructureProvenanceError(
+            "result intake does not reference the exact ExecutionPlan"
+        )
     if intake.input_manifest_hash != plan.input_manifest_sha256:
         raise VaspStructureProvenanceError(
             "result intake input manifest does not match ExecutionPlan"
@@ -183,7 +185,7 @@ def _validate_identity(
         )
 
 
-def _require_contcar(intake: VaspResultArtifactIntake):
+def _require_contcar(intake: VaspResultArtifactIntake) -> VaspResultInputFile:
     matches = tuple(
         item for item in intake.files if item.source.role is VaspResultSourceRole.CONTCAR
     )
