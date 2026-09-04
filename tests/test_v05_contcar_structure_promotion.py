@@ -36,6 +36,7 @@ from ecatvasp.domain.ids import (
     new_project_id,
     new_structure_snapshot_id,
 )
+from ecatvasp.provenance import scientific_hash
 from ecatvasp.vasp import (
     RECIPE_SLAB_RELAX,
     ExecutionPlan,
@@ -171,7 +172,7 @@ def _case(tmp_path: Path, *, contcar: bytes | None = None) -> _Case:
             "format": "ecatvasp-v03-atom-index-map",
             "version": 1,
             "structure_snapshot_id": str(input_snapshot.id),
-            "structure_sha256": "e" * 64,
+            "structure_sha256": scientific_hash(input_snapshot),
             "poscar_sha256": poscar_sha,
             "species_order": ["O", "H"],
             "species_counts": [1, 1],
