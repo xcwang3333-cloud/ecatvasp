@@ -32,7 +32,11 @@ from ecatvasp.workflow import (
 )
 
 
-def _plan_for(spec: WorkflowRecipeSpec, *, parameters_hash: str | None = None) -> ScientificWorkflowPlan:
+def _plan_for(
+    spec: WorkflowRecipeSpec,
+    *,
+    parameters_hash: str | None = None,
+) -> ScientificWorkflowPlan:
     return ScientificWorkflowPlan(
         project_id=new_project_id(),
         workflow_recipe=spec.identity,
