@@ -44,6 +44,65 @@ class WorkflowRecipeContractError(ValueError):
     """Raised when a workflow recipe or plan violates the canonical registry contract."""
 
 
+def _validate_vasp_recipe_contracts(steps: tuple[WorkflowStepSpec, ...]) -> None:
+    for step in steps:
+        try:
+            vasp_spec = get_vasp_recipe_spec(step.recipe_id)
+        except VaspRecipeContractError as error:
+            raise WorkflowRecipeContractError(
+                f"workflow step {step.key} references an unknown VASP recipe"
+            ) from error
+        if step.calculation_type is not vasp_spec.calculation_type:
+            raise WorkflowRecipeContractError(
+                f"workflow step {step.key} CalculationType does not match its VASP recipe"
+            )
+
+
+def _validate_graph(
+    *,
+    steps: tuple[WorkflowStepSpec, ...],
+    edges: tuple[WorkflowEdgeSpec, ...],
+) -> None:
+    step_keys = tuple(step.key for step in steps)
+    if len(step_keys) != len(set(step_keys)):
+        raise WorkflowRecipeContractError("workflow recipe step keys must be unique")
+
+    edge_keys = tuple(
+        (edge.upstream_step_key, edge.downstream_step_key, edge.role)
+        for edge in edges
+    )
+    if len(edge_keys) != len(set(edge_keys)):
+        raise WorkflowRecipeContractError(
+            "duplicate workflow recipe edge semantics are not allowed"
+        )
+
+    known = set(step_keys)
+    for edge in edges:
+        if edge.upstream_step_key not in known or edge.downstream_step_key not in known:
+            raise WorkflowRecipeContractError(
+                "workflow recipe edges must reference steps in the same recipe"
+            )
+
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    indegree = {key: 0 for key in step_keys}
+    for edge in edges:
+        if edge.downstream_step_key not in adjacency[edge.upstream_step_key]:
+            adjacency[edge.upstream_step_key].add(edge.downstream_step_key)
+            indegree[edge.downstream_step_key] += 1
+
+    queue = deque(sorted(key for key, degree in indegree.items() if degree == 0))
+    visited = 0
+    while queue:
+        key = queue.popleft()
+        visited += 1
+        for downstream in sorted(adjacency[key]):
+            indegree[downstream] -= 1
+            if indegree[downstream] == 0:
+                queue.append(downstream)
+    if visited != len(step_keys):
+        raise WorkflowRecipeContractError("workflow recipe steps and edges must form a DAG")
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowRecipeSpec:
     """Source-defined canonical composition of existing VASP calculation recipes."""
@@ -243,62 +302,3 @@ def validate_workflow_plan_recipe_contract(
             "ScientificWorkflowPlan edges do not match the canonical workflow recipe"
         )
     return spec
-
-
-def _validate_vasp_recipe_contracts(steps: tuple[WorkflowStepSpec, ...]) -> None:
-    for step in steps:
-        try:
-            vasp_spec = get_vasp_recipe_spec(step.recipe_id)
-        except VaspRecipeContractError as error:
-            raise WorkflowRecipeContractError(
-                f"workflow step {step.key} references an unknown VASP recipe"
-            ) from error
-        if step.calculation_type is not vasp_spec.calculation_type:
-            raise WorkflowRecipeContractError(
-                f"workflow step {step.key} CalculationType does not match its VASP recipe"
-            )
-
-
-def _validate_graph(
-    *,
-    steps: tuple[WorkflowStepSpec, ...],
-    edges: tuple[WorkflowEdgeSpec, ...],
-) -> None:
-    step_keys = tuple(step.key for step in steps)
-    if len(step_keys) != len(set(step_keys)):
-        raise WorkflowRecipeContractError("workflow recipe step keys must be unique")
-
-    edge_keys = tuple(
-        (edge.upstream_step_key, edge.downstream_step_key, edge.role)
-        for edge in edges
-    )
-    if len(edge_keys) != len(set(edge_keys)):
-        raise WorkflowRecipeContractError(
-            "duplicate workflow recipe edge semantics are not allowed"
-        )
-
-    known = set(step_keys)
-    for edge in edges:
-        if edge.upstream_step_key not in known or edge.downstream_step_key not in known:
-            raise WorkflowRecipeContractError(
-                "workflow recipe edges must reference steps in the same recipe"
-            )
-
-    adjacency: dict[str, set[str]] = defaultdict(set)
-    indegree = {key: 0 for key in step_keys}
-    for edge in edges:
-        if edge.downstream_step_key not in adjacency[edge.upstream_step_key]:
-            adjacency[edge.upstream_step_key].add(edge.downstream_step_key)
-            indegree[edge.downstream_step_key] += 1
-
-    queue = deque(sorted(key for key, degree in indegree.items() if degree == 0))
-    visited = 0
-    while queue:
-        key = queue.popleft()
-        visited += 1
-        for downstream in sorted(adjacency[key]):
-            indegree[downstream] -= 1
-            if indegree[downstream] == 0:
-                queue.append(downstream)
-    if visited != len(step_keys):
-        raise WorkflowRecipeContractError("workflow recipe steps and edges must form a DAG")
