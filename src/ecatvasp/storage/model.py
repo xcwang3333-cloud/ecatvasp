@@ -16,9 +16,11 @@ from ecatvasp.domain import (
     MethodFingerprint,
     Project,
     RemoteJob,
+    ScientificWorkflowPlan,
     StateConformer,
     StructureSnapshot,
     StructureVariant,
+    WorkflowStepBinding,
     validate_conformer_context,
 )
 from ecatvasp.domain.calculation import (
@@ -51,7 +53,9 @@ class ProjectBundle:
     adsorption_states: tuple[AdsorptionState, ...] = ()
     state_conformers: tuple[StateConformer, ...] = ()
     method_fingerprints: tuple[MethodFingerprint, ...] = ()
+    workflow_plans: tuple[ScientificWorkflowPlan, ...] = ()
     calculations: tuple[Calculation, ...] = ()
+    workflow_step_bindings: tuple[WorkflowStepBinding, ...] = ()
     execution_attempts: tuple[ExecutionAttempt, ...] = ()
     remote_jobs: tuple[RemoteJob, ...] = ()
     artifacts: tuple[Artifact, ...] = ()
@@ -71,7 +75,9 @@ class ProjectBundle:
             *self.adsorption_states,
             *self.state_conformers,
             *self.method_fingerprints,
+            *self.workflow_plans,
             *self.calculations,
+            *self.workflow_step_bindings,
             *self.execution_attempts,
             *self.remote_jobs,
             *self.artifacts,
@@ -81,7 +87,11 @@ class ProjectBundle:
         )
 
     def provenance_entities(self) -> tuple[object, ...]:
-        """Return base project entities that may participate in provenance relationships."""
+        """Return scientific entities that may participate in provenance relationships.
+
+        Workflow plans and bindings are intentionally excluded: they describe orchestration identity
+        and may reference scientific entities, but they do not themselves produce scientific facts.
+        """
 
         return (
             self.project,
@@ -114,7 +124,9 @@ class ProjectBundle:
         states = {item.id: item for item in self.adsorption_states}
         conformers = {item.id: item for item in self.state_conformers}
         methods = {item.id: item for item in self.method_fingerprints}
+        workflow_plans = {item.id: item for item in self.workflow_plans}
         calculations = {item.id: item for item in self.calculations}
+        workflow_bindings = {item.id: item for item in self.workflow_step_bindings}
         attempts = {item.id: item for item in self.execution_attempts}
         artifacts = {item.id: item for item in self.artifacts}
         analyses = {item.id: item for item in self.analyses}
@@ -173,6 +185,14 @@ class ProjectBundle:
                 except ValueError as error:
                     raise ProjectIntegrityError(str(error)) from error
 
+        for workflow_plan in self.workflow_plans:
+            if workflow_plan.project_id != self.project.id:
+                raise ProjectIntegrityError("ScientificWorkflowPlan belongs to a different Project")
+            if workflow_plan.root_structure_snapshot_id not in snapshots:
+                raise ProjectIntegrityError(
+                    "ScientificWorkflowPlan root StructureSnapshot is missing"
+                )
+
         for calculation in self.calculations:
             if calculation.project_id != self.project.id:
                 raise ProjectIntegrityError("Calculation belongs to a different Project")
@@ -180,6 +200,74 @@ class ProjectBundle:
                 raise ProjectIntegrityError("Calculation input StructureSnapshot is missing")
             if calculation.method_fingerprint_id not in methods:
                 raise ProjectIntegrityError("Calculation MethodFingerprint is missing")
+
+        binding_keys = tuple(
+            (item.workflow_plan_id, item.step_key, item.generation)
+            for item in self.workflow_step_bindings
+        )
+        if len(binding_keys) != len(set(binding_keys)):
+            raise ProjectIntegrityError(
+                "workflow plan/step/generation bindings must be unique"
+            )
+        superseded_binding_ids = tuple(
+            item.supersedes_binding_id
+            for item in self.workflow_step_bindings
+            if item.supersedes_binding_id is not None
+        )
+        if len(superseded_binding_ids) != len(set(superseded_binding_ids)):
+            raise ProjectIntegrityError("a WorkflowStepBinding may be superseded only once")
+
+        for binding in self.workflow_step_bindings:
+            plan = workflow_plans.get(binding.workflow_plan_id)
+            if plan is None:
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding references a missing workflow plan"
+                )
+            try:
+                step = plan.step(binding.step_key)
+            except KeyError as error:
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding references a missing workflow step"
+                ) from error
+            bound_calculation = calculations.get(binding.calculation_id)
+            if bound_calculation is None:
+                raise ProjectIntegrityError("WorkflowStepBinding references a missing Calculation")
+            if binding.resolved_input_structure_snapshot_id not in snapshots:
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding resolved StructureSnapshot is missing"
+                )
+            if (
+                bound_calculation.input_structure_snapshot_id
+                != binding.resolved_input_structure_snapshot_id
+            ):
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding resolved snapshot does not match Calculation input"
+                )
+            if bound_calculation.calculation_type is not step.calculation_type:
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding CalculationType does not match workflow step"
+                )
+            if bound_calculation.recipe_id != step.recipe_id:
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding Calculation recipe does not match workflow step"
+                )
+            if binding.supersedes_binding_id is not None:
+                previous = workflow_bindings.get(binding.supersedes_binding_id)
+                if previous is None:
+                    raise ProjectIntegrityError(
+                        "WorkflowStepBinding supersedes a missing binding"
+                    )
+                if (
+                    previous.workflow_plan_id != binding.workflow_plan_id
+                    or previous.step_key != binding.step_key
+                ):
+                    raise ProjectIntegrityError(
+                        "WorkflowStepBinding may supersede only the same workflow step"
+                    )
+                if previous.generation + 1 != binding.generation:
+                    raise ProjectIntegrityError(
+                        "WorkflowStepBinding generations must form a contiguous chain"
+                    )
 
         for attempt in self.execution_attempts:
             if attempt.calculation_id not in calculations:
@@ -268,7 +356,13 @@ class ProjectBundle:
             method_fingerprints=tuple(
                 item for item in entities if isinstance(item, MethodFingerprint)
             ),
+            workflow_plans=tuple(
+                item for item in entities if isinstance(item, ScientificWorkflowPlan)
+            ),
             calculations=tuple(item for item in entities if isinstance(item, Calculation)),
+            workflow_step_bindings=tuple(
+                item for item in entities if isinstance(item, WorkflowStepBinding)
+            ),
             execution_attempts=tuple(
                 item for item in entities if isinstance(item, ExecutionAttempt)
             ),

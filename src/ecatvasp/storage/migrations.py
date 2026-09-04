@@ -33,38 +33,48 @@ def _canonical_json(value: object) -> str:
     )
 
 
-def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
-    """Advance persisted Project metadata while preserving legacy execution payloads.
-
-    Schema v2 adds optional execution-provenance fields. Legacy ExecutionAttempt rows can decode
-    without rewriting because the new fields have conservative defaults, but the persisted Project
-    entity itself must advertise schema version 2 before ProjectStore re-materializes the bundle.
-    """
-
+def _rewrite_project_schema_version(
+    connection: sqlite3.Connection,
+    *,
+    from_version: int,
+    to_version: int,
+) -> None:
     rows = connection.execute(
         "SELECT entity_id, payload_json FROM entities WHERE entity_type = 'Project'"
     ).fetchall()
     if len(rows) != 1:
-        raise MigrationPathError("schema v1 project store must contain exactly one Project entity")
+        raise MigrationPathError(
+            f"schema v{from_version} project store must contain exactly one Project entity"
+        )
 
     entity_id, payload_json = rows[0]
     if not isinstance(entity_id, str) or not isinstance(payload_json, str):
-        raise MigrationPathError("schema v1 Project row is malformed")
+        raise MigrationPathError(f"schema v{from_version} Project row is malformed")
     try:
         raw = json.loads(payload_json)
     except json.JSONDecodeError as error:
-        raise MigrationPathError("schema v1 Project payload is not valid JSON") from error
+        raise MigrationPathError(
+            f"schema v{from_version} Project payload is not valid JSON"
+        ) from error
     if not isinstance(raw, dict):
-        raise MigrationPathError("schema v1 Project payload must be a mapping")
+        raise MigrationPathError(f"schema v{from_version} Project payload must be a mapping")
 
     payload = cast(dict[str, object], raw)
     if payload.get("$ecatvasp") != "dataclass" or payload.get("class") != "Project":
-        raise MigrationPathError("schema v1 Project payload has an unexpected storage tag")
+        raise MigrationPathError(
+            f"schema v{from_version} Project payload has an unexpected storage tag"
+        )
     raw_fields = payload.get("fields")
     if not isinstance(raw_fields, dict):
-        raise MigrationPathError("schema v1 Project payload is missing dataclass fields")
+        raise MigrationPathError(
+            f"schema v{from_version} Project payload is missing dataclass fields"
+        )
     fields = cast(dict[str, object], raw_fields)
-    fields["schema_version"] = 2
+    if fields.get("schema_version") != from_version:
+        raise MigrationPathError(
+            f"schema v{from_version} Project payload advertises an unexpected schema version"
+        )
+    fields["schema_version"] = to_version
 
     migrated_payload = _canonical_json(payload)
     migrated_hash = hashlib.sha256(migrated_payload.encode("utf-8")).hexdigest()
@@ -72,6 +82,24 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
         "UPDATE entities SET payload_json = ?, content_sha256 = ? WHERE entity_id = ?",
         (migrated_payload, migrated_hash, entity_id),
     )
+
+
+def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+    """Advance persisted Project metadata while preserving legacy execution payloads."""
+
+    _rewrite_project_schema_version(connection, from_version=1, to_version=2)
+
+
+def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+    """Add workflow-capable storage without rewriting existing scientific entities.
+
+    Schema v3 adds persisted ScientificWorkflowPlan and WorkflowStepBinding entity types.
+    Existing v2 projects contain neither type, so migration only advances the Project schema marker
+    and leaves all Calculation, Artifact, Analysis, structure, execution, and provenance rows
+    byte-for-byte unchanged.
+    """
+
+    _rewrite_project_schema_version(connection, from_version=2, to_version=3)
 
 
 @dataclass(slots=True)
@@ -83,6 +111,8 @@ class MigrationRegistry:
     def __post_init__(self) -> None:
         if CURRENT_SCHEMA_VERSION >= 2 and 1 not in self._steps:
             self._steps[1] = _migrate_v1_to_v2
+        if CURRENT_SCHEMA_VERSION >= 3 and 2 not in self._steps:
+            self._steps[2] = _migrate_v2_to_v3
 
     def register(self, from_version: int, step: MigrationStep) -> None:
         """Register the migration ``from_version -> from_version + 1``."""

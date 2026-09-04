@@ -22,9 +22,11 @@ from ecatvasp.domain import (
     MethodFingerprint,
     Project,
     RemoteJob,
+    ScientificWorkflowPlan,
     StateConformer,
     StructureSnapshot,
     StructureVariant,
+    WorkflowStepBinding,
 )
 from ecatvasp.domain.calculation import (
     AnalysisProducerRef,
@@ -387,6 +389,13 @@ def _entity_relations(entity: object) -> tuple[tuple[str, UUID], ...]:
         )
         if entity.parent_conformer_id is not None:
             relations.append(("parent_conformer", entity.parent_conformer_id))
+    elif isinstance(entity, ScientificWorkflowPlan):
+        relations.extend(
+            (
+                ("project", entity.project_id),
+                ("root_snapshot", entity.root_structure_snapshot_id),
+            )
+        )
     elif isinstance(entity, Calculation):
         relations.extend(
             (
@@ -395,6 +404,16 @@ def _entity_relations(entity: object) -> tuple[tuple[str, UUID], ...]:
                 ("method_fingerprint", entity.method_fingerprint_id),
             )
         )
+    elif isinstance(entity, WorkflowStepBinding):
+        relations.extend(
+            (
+                ("workflow_plan", entity.workflow_plan_id),
+                ("calculation", entity.calculation_id),
+                ("resolved_input_snapshot", entity.resolved_input_structure_snapshot_id),
+            )
+        )
+        if entity.supersedes_binding_id is not None:
+            relations.append(("supersedes_binding", entity.supersedes_binding_id))
     elif isinstance(entity, ExecutionAttempt):
         relations.append(("calculation", entity.calculation_id))
         if entity.previous_attempt_id is not None:

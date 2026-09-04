@@ -49,7 +49,7 @@ class Project:
     name: str
     slug: str
     id: ProjectId = field(default_factory=new_project_id)
-    schema_version: int = 2
+    schema_version: int = 3
     description: str | None = None
     created_at: datetime = field(default_factory=_utc_now)
 

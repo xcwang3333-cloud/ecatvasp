@@ -52,6 +52,8 @@ from ecatvasp.domain.ids import (
     StateConformerId,
     StructureSnapshotId,
     StructureVariantId,
+    WorkflowPlanId,
+    WorkflowStepBindingId,
     new_adsorption_state_id,
     new_analysis_id,
     new_artifact_id,
@@ -62,6 +64,8 @@ from ecatvasp.domain.ids import (
     new_remote_job_id,
     new_structure_snapshot_id,
     new_uuid7,
+    new_workflow_plan_id,
+    new_workflow_step_binding_id,
 )
 from ecatvasp.domain.method import (
     DftUSetting,
@@ -92,6 +96,13 @@ from ecatvasp.domain.value_objects import (
     StructureOrigin,
     StructureSite,
     VariantType,
+)
+from ecatvasp.domain.workflow import (
+    ScientificWorkflowPlan,
+    WorkflowEdgeSpec,
+    WorkflowRecipeIdentity,
+    WorkflowStepBinding,
+    WorkflowStepSpec,
 )
 
 __all__ = [
@@ -147,6 +158,7 @@ __all__ = [
     "SchedulerState",
     "SchedulerType",
     "ScientificInputDigest",
+    "ScientificWorkflowPlan",
     "SideLabel",
     "SiteSide",
     "SpinTreatment",
@@ -159,6 +171,12 @@ __all__ = [
     "StructureVariant",
     "StructureVariantId",
     "VariantType",
+    "WorkflowEdgeSpec",
+    "WorkflowPlanId",
+    "WorkflowRecipeIdentity",
+    "WorkflowStepBinding",
+    "WorkflowStepBindingId",
+    "WorkflowStepSpec",
     "canonical_json",
     "canonical_sha256",
     "compare_fingerprints",
@@ -172,6 +190,8 @@ __all__ = [
     "new_remote_job_id",
     "new_structure_snapshot_id",
     "new_uuid7",
+    "new_workflow_plan_id",
+    "new_workflow_step_binding_id",
     "validate_analysis_inputs",
     "validate_attempt_history",
     "validate_calculation_project",
