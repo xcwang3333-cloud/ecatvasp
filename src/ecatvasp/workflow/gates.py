@@ -12,6 +12,7 @@ from ecatvasp.domain import (
     Calculation,
     CalculationScientificStatus,
     ScientificWorkflowPlan,
+    WorkflowEdgeSpec,
     WorkflowStepBinding,
 )
 from ecatvasp.domain.ids import (
@@ -85,11 +86,14 @@ class WorkflowBindingSelection:
             raise WorkflowGateError(
                 "current workflow binding and Calculation must either both exist or both be absent"
             )
-        if self.current_binding is not None and self.current_calculation is not None:
-            if self.current_binding.calculation_id != self.current_calculation.id:
-                raise WorkflowGateError(
-                    "current workflow binding does not reference its selected Calculation"
-                )
+        if (
+            self.current_binding is not None
+            and self.current_calculation is not None
+            and self.current_binding.calculation_id != self.current_calculation.id
+        ):
+            raise WorkflowGateError(
+                "current workflow binding does not reference its selected Calculation"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,7 +179,7 @@ def resolve_workflow_binding_generations(
     bindings: tuple[WorkflowStepBinding, ...],
     calculations: tuple[Calculation, ...],
 ) -> tuple[WorkflowBindingSelection, ...]:
-    """Select exactly one current generation per step without mutating historical bindings."""
+    """Select exactly one current generation per step without mutating history."""
 
     _validate_plan(plan)
     calculation_by_id = _calculation_index(calculations)
@@ -212,16 +216,13 @@ def resolve_workflow_binding_generations(
         binding_ids = tuple(item.id for item in ordered)
         if len(binding_ids) != len(set(binding_ids)):
             raise WorkflowGateError("workflow binding ids must be unique")
+
         for index, binding in enumerate(ordered):
-            if index == 0:
-                if binding.supersedes_binding_id is not None:
-                    raise WorkflowGateError(
-                        "generation 1 workflow binding cannot supersede another binding"
-                    )
-            elif binding.supersedes_binding_id != ordered[index - 1].id:
-                raise WorkflowGateError(
-                    f"workflow step {step.key} binding supersession chain is not contiguous"
-                )
+            _validate_supersession_link(
+                step_key=step.key,
+                index=index,
+                ordered=ordered,
+            )
             calculation = calculation_by_id.get(binding.calculation_id)
             if calculation is None:
                 raise WorkflowGateError(
@@ -261,7 +262,7 @@ def evaluate_workflow_freshness(
     invalid_ids: set[UUID] | None = None,
     superseded_ids: set[UUID] | None = None,
 ) -> WorkflowFreshnessEvaluation:
-    """Reuse the frozen FreshnessEngine and mark historical workflow Calculations superseded."""
+    """Reuse FreshnessEngine and mark historical workflow Calculations superseded."""
 
     selections = resolve_workflow_binding_generations(
         plan=plan,
@@ -271,18 +272,11 @@ def evaluate_workflow_freshness(
     plan_binding_ids = {
         binding.id for binding in bindings if binding.workflow_plan_id == plan.id
     }
-    source_snapshot_ids: set[UUID] = set()
-    for source in accepted_structure_sources:
-        if source.upstream_binding.workflow_plan_id != plan.id:
-            raise WorkflowGateError(
-                "accepted-structure source belongs to another workflow plan"
-            )
-        if source.upstream_binding.id not in plan_binding_ids:
-            raise WorkflowGateError(
-                "accepted-structure source references a binding absent from this evaluation"
-            )
-        source_snapshot_ids.add(source.promotion.snapshot.id)
-
+    source_snapshot_ids = _validated_source_snapshot_ids(
+        plan=plan,
+        plan_binding_ids=plan_binding_ids,
+        sources=accepted_structure_sources,
+    )
     workflow_calculation_ids = {
         binding.calculation_id
         for binding in bindings
@@ -298,7 +292,11 @@ def evaluate_workflow_freshness(
         for record in dependencies
         for node_id in (record.upstream_id, record.downstream_id)
     }
-    node_ids = dependency_node_ids | workflow_calculation_ids | source_snapshot_ids
+    node_ids: set[UUID] = (
+        set(dependency_node_ids)
+        | set(workflow_calculation_ids)
+        | set(source_snapshot_ids)
+    )
 
     invalid = set() if invalid_ids is None else set(invalid_ids)
     explicit_superseded = set() if superseded_ids is None else set(superseded_ids)
@@ -308,12 +306,13 @@ def evaluate_workflow_freshness(
             "workflow freshness override references an entity outside the evaluation graph"
         )
 
+    superseded_for_engine: set[UUID] = explicit_superseded | set(workflow_superseded)
     try:
         results = FreshnessEngine(dependencies).evaluate(
             node_ids=node_ids,
             current_hashes=dict(current_hashes),
             invalid_ids=invalid,
-            superseded_ids=explicit_superseded | workflow_superseded,
+            superseded_ids=superseded_for_engine,
         )
     except ProvenanceIntegrityError as error:
         raise WorkflowGateError(str(error)) from error
@@ -333,26 +332,18 @@ def evaluate_workflow_scientific_gates(
     freshness: WorkflowFreshnessEvaluation,
     accepted_structure_sources: tuple[AcceptedStructureSource, ...] = (),
 ) -> WorkflowScientificGateEvaluation:
-    """Derive fail-closed step and edge gates without retrying, executing, or persisting anything."""
+    """Derive fail-closed step and edge gates without execution or persistence."""
 
     _validate_plan(plan)
     if freshness.workflow_plan_id != plan.id:
         raise WorkflowGateError("freshness evaluation belongs to another workflow plan")
+
     selections = resolve_workflow_binding_generations(
         plan=plan,
         bindings=bindings,
         calculations=calculations,
     )
-    superseded_calculation_ids = tuple(
-        sorted(
-            {
-                calculation_id
-                for selection in selections
-                for calculation_id in selection.superseded_calculation_ids
-            },
-            key=str,
-        )
-    )
+    superseded_calculation_ids = _superseded_calculation_ids(selections)
     if superseded_calculation_ids != freshness.superseded_calculation_ids:
         raise WorkflowGateError(
             "freshness evaluation does not match the current workflow binding generations"
@@ -400,35 +391,20 @@ def evaluate_workflow_scientific_gates(
     for edge_gate in edge_gates:
         incoming_edge_gates[edge_gate.downstream_step_key].append(edge_gate)
 
-    step_gates: list[WorkflowStepGate] = []
-    for selection in selections:
-        state = states[selection.step_key]
-        readiness, readiness_reason = _step_readiness(
+    step_gates = tuple(
+        _build_step_gate(
             selection=selection,
-            state=state,
+            state=states[selection.step_key],
+            state_reasons=state_reasons[selection.step_key],
+            freshness_state=state_freshness[selection.step_key],
             incoming_edges=tuple(incoming_edge_gates[selection.step_key]),
         )
-        binding = selection.current_binding
-        calculation = selection.current_calculation
-        step_gates.append(
-            WorkflowStepGate(
-                step_key=selection.step_key,
-                scientific_state=state,
-                readiness=readiness,
-                current_binding_id=None if binding is None else binding.id,
-                calculation_id=None if calculation is None else calculation.id,
-                freshness_state=state_freshness[selection.step_key],
-                reason_codes=_merge_reason_codes(
-                    state_reasons[selection.step_key],
-                    (readiness_reason,),
-                ),
-            )
-        )
-
+        for selection in selections
+    )
     return WorkflowScientificGateEvaluation(
         workflow_plan_id=plan.id,
         binding_selections=selections,
-        step_gates=tuple(step_gates),
+        step_gates=step_gates,
         edge_gates=edge_gates,
         superseded_calculation_ids=superseded_calculation_ids,
     )
@@ -441,13 +417,36 @@ def _validate_plan(plan: ScientificWorkflowPlan) -> None:
         raise WorkflowGateError(str(error)) from error
 
 
-def _calculation_index(calculations: tuple[Calculation, ...]) -> dict[CalculationId, Calculation]:
+def _calculation_index(
+    calculations: tuple[Calculation, ...],
+) -> dict[CalculationId, Calculation]:
     result: dict[CalculationId, Calculation] = {}
     for calculation in calculations:
         if calculation.id in result:
-            raise WorkflowGateError("Calculation ids must be unique in workflow gate evaluation")
+            raise WorkflowGateError(
+                "Calculation ids must be unique in workflow gate evaluation"
+            )
         result[calculation.id] = calculation
     return result
+
+
+def _validate_supersession_link(
+    *,
+    step_key: str,
+    index: int,
+    ordered: tuple[WorkflowStepBinding, ...],
+) -> None:
+    binding = ordered[index]
+    if index == 0:
+        if binding.supersedes_binding_id is not None:
+            raise WorkflowGateError(
+                "generation 1 workflow binding cannot supersede another binding"
+            )
+        return
+    if binding.supersedes_binding_id != ordered[index - 1].id:
+        raise WorkflowGateError(
+            f"workflow step {step_key} binding supersession chain is not contiguous"
+        )
 
 
 def _validate_binding_calculation(
@@ -472,6 +471,27 @@ def _validate_binding_calculation(
         raise WorkflowGateError(
             "workflow binding resolved snapshot does not match Calculation input"
         )
+
+
+def _validated_source_snapshot_ids(
+    *,
+    plan: ScientificWorkflowPlan,
+    plan_binding_ids: set[WorkflowStepBindingId],
+    sources: tuple[AcceptedStructureSource, ...],
+) -> set[StructureSnapshotId]:
+    snapshot_ids: set[StructureSnapshotId] = set()
+    for source in sources:
+        binding = source.upstream_binding
+        if binding.workflow_plan_id != plan.id:
+            raise WorkflowGateError(
+                "accepted-structure source belongs to another workflow plan"
+            )
+        if binding.id not in plan_binding_ids:
+            raise WorkflowGateError(
+                "accepted-structure source references a binding absent from this evaluation"
+            )
+        snapshot_ids.add(source.promotion.snapshot.id)
+    return snapshot_ids
 
 
 def _accepted_source_index(
@@ -502,6 +522,17 @@ def _accepted_source_index(
     return result
 
 
+def _superseded_calculation_ids(
+    selections: tuple[WorkflowBindingSelection, ...],
+) -> tuple[CalculationId, ...]:
+    values = {
+        calculation_id
+        for selection in selections
+        for calculation_id in selection.superseded_calculation_ids
+    }
+    return tuple(sorted(values, key=str))
+
+
 def _base_step_state(
     *,
     selection: WorkflowBindingSelection,
@@ -509,11 +540,7 @@ def _base_step_state(
 ) -> tuple[WorkflowStepScientificState, tuple[str, ...], FreshnessState | None]:
     calculation = selection.current_calculation
     if calculation is None:
-        return (
-            WorkflowStepScientificState.UNMATERIALIZED,
-            ("no_current_binding",),
-            None,
-        )
+        return WorkflowStepScientificState.UNMATERIALIZED, ("no_current_binding",), None
 
     freshness_result = freshness.result(calculation.id)
     if freshness_result.state is FreshnessState.INVALID:
@@ -535,12 +562,23 @@ def _base_step_state(
             freshness_result.state,
         )
 
+    return _state_from_calculation_status(
+        calculation=calculation,
+        freshness_state=freshness_result.state,
+    )
+
+
+def _state_from_calculation_status(
+    *,
+    calculation: Calculation,
+    freshness_state: FreshnessState,
+) -> tuple[WorkflowStepScientificState, tuple[str, ...], FreshnessState]:
     status = calculation.status
     if status is CalculationScientificStatus.CONVERGED:
         return (
             WorkflowStepScientificState.PASSED,
             ("calculation_converged_and_fresh",),
-            freshness_result.state,
+            freshness_state,
         )
     if status in {
         CalculationScientificStatus.DRAFT,
@@ -552,19 +590,19 @@ def _base_step_state(
         return (
             WorkflowStepScientificState.IN_PROGRESS,
             (f"calculation_{status.value}",),
-            freshness_result.state,
+            freshness_state,
         )
     if status is CalculationScientificStatus.STALE:
         return (
             WorkflowStepScientificState.STALE,
             ("calculation_status_stale",),
-            freshness_result.state,
+            freshness_state,
         )
     if status is CalculationScientificStatus.INVALID:
         return (
             WorkflowStepScientificState.INVALID,
             ("calculation_status_invalid",),
-            freshness_result.state,
+            freshness_state,
         )
     if status in {
         CalculationScientificStatus.BLOCKED,
@@ -575,7 +613,7 @@ def _base_step_state(
         return (
             WorkflowStepScientificState.BLOCKED,
             (f"calculation_{status.value}",),
-            freshness_result.state,
+            freshness_state,
         )
     raise WorkflowGateError(f"unsupported CalculationScientificStatus: {status.value}")
 
@@ -592,12 +630,10 @@ def _apply_accepted_structure_currentness(
     for edge in plan.edges:
         if edge.role != WORKFLOW_EDGE_ACCEPTED_STRUCTURE:
             continue
-        downstream = selections[edge.downstream_step_key]
-        downstream_binding = downstream.current_binding
+        downstream_binding = selections[edge.downstream_step_key].current_binding
         if downstream_binding is None:
             continue
-        upstream = selections[edge.upstream_step_key]
-        upstream_binding = upstream.current_binding
+        upstream_binding = selections[edge.upstream_step_key].current_binding
         if upstream_binding is None:
             _promote_step_state(
                 step_key=edge.downstream_step_key,
@@ -617,8 +653,8 @@ def _apply_accepted_structure_currentness(
                 reasons=reasons,
             )
             continue
-        snapshot_freshness = freshness.result(source.promotion.snapshot.id).state
-        if snapshot_freshness is FreshnessState.INVALID:
+        snapshot_state = freshness.result(source.promotion.snapshot.id).state
+        if snapshot_state is FreshnessState.INVALID:
             _promote_step_state(
                 step_key=edge.downstream_step_key,
                 candidate=WorkflowStepScientificState.INVALID,
@@ -627,11 +663,11 @@ def _apply_accepted_structure_currentness(
                 reasons=reasons,
             )
             continue
-        if snapshot_freshness in {FreshnessState.STALE, FreshnessState.SUPERSEDED}:
+        if snapshot_state in {FreshnessState.STALE, FreshnessState.SUPERSEDED}:
             _promote_step_state(
                 step_key=edge.downstream_step_key,
                 candidate=WorkflowStepScientificState.STALE,
-                reason=f"accepted_structure_{snapshot_freshness.value}",
+                reason=f"accepted_structure_{snapshot_state.value}",
                 states=states,
                 reasons=reasons,
             )
@@ -648,83 +684,112 @@ def _apply_accepted_structure_currentness(
 
 def _evaluate_edge_gate(
     *,
-    edge: object,
+    edge: WorkflowEdgeSpec,
     upstream_selection: WorkflowBindingSelection,
     upstream_state: WorkflowStepScientificState,
     source_by_binding: dict[WorkflowStepBindingId, AcceptedStructureSource],
     freshness: WorkflowFreshnessEvaluation,
 ) -> WorkflowEdgeGate:
-    upstream_key = getattr(edge, "upstream_step_key")
-    downstream_key = getattr(edge, "downstream_step_key")
-    role = getattr(edge, "role")
-    if not isinstance(upstream_key, str) or not isinstance(downstream_key, str) or not isinstance(role, str):
-        raise WorkflowGateError("workflow edge is malformed")
-
     if upstream_state in {
         WorkflowStepScientificState.UNMATERIALIZED,
         WorkflowStepScientificState.IN_PROGRESS,
     }:
-        return WorkflowEdgeGate(
-            upstream_step_key=upstream_key,
-            downstream_step_key=downstream_key,
-            role=role,
+        return _edge_gate(
+            edge=edge,
             verdict=WorkflowEdgeGateVerdict.WAITING,
-            reason_codes=(f"upstream_{upstream_state.value}",),
+            reason=f"upstream_{upstream_state.value}",
         )
     if upstream_state is not WorkflowStepScientificState.PASSED:
-        return WorkflowEdgeGate(
-            upstream_step_key=upstream_key,
-            downstream_step_key=downstream_key,
-            role=role,
+        return _edge_gate(
+            edge=edge,
             verdict=WorkflowEdgeGateVerdict.BLOCKED,
-            reason_codes=(f"upstream_{upstream_state.value}",),
+            reason=f"upstream_{upstream_state.value}",
         )
-    if role != WORKFLOW_EDGE_ACCEPTED_STRUCTURE:
-        return WorkflowEdgeGate(
-            upstream_step_key=upstream_key,
-            downstream_step_key=downstream_key,
-            role=role,
+    if edge.role != WORKFLOW_EDGE_ACCEPTED_STRUCTURE:
+        return _edge_gate(
+            edge=edge,
             verdict=WorkflowEdgeGateVerdict.BLOCKED,
-            reason_codes=("unsupported_workflow_edge_role",),
+            reason="unsupported_workflow_edge_role",
         )
 
     upstream_binding = upstream_selection.current_binding
     upstream_calculation = upstream_selection.current_calculation
     if upstream_binding is None or upstream_calculation is None:
-        raise WorkflowGateError("passed workflow step requires a current binding and Calculation")
+        raise WorkflowGateError(
+            "passed workflow step requires a current binding and Calculation"
+        )
     source = source_by_binding.get(upstream_binding.id)
     if source is None:
-        return WorkflowEdgeGate(
-            upstream_step_key=upstream_key,
-            downstream_step_key=downstream_key,
-            role=role,
+        return _edge_gate(
+            edge=edge,
             verdict=WorkflowEdgeGateVerdict.WAITING,
+            reason="accepted_structure_not_promoted",
             source_binding_id=upstream_binding.id,
-            reason_codes=("accepted_structure_not_promoted",),
         )
     if source.upstream_calculation.id != upstream_calculation.id:
         raise WorkflowGateError(
             "accepted-structure source does not reference the current upstream Calculation"
         )
-    snapshot_freshness = freshness.result(source.promotion.snapshot.id).state
-    if snapshot_freshness is not FreshnessState.FRESH:
-        return WorkflowEdgeGate(
-            upstream_step_key=upstream_key,
-            downstream_step_key=downstream_key,
-            role=role,
+    snapshot_state = freshness.result(source.promotion.snapshot.id).state
+    if snapshot_state is not FreshnessState.FRESH:
+        return _edge_gate(
+            edge=edge,
             verdict=WorkflowEdgeGateVerdict.BLOCKED,
+            reason=f"accepted_structure_{snapshot_state.value}",
             source_binding_id=upstream_binding.id,
             accepted_structure_snapshot_id=source.promotion.snapshot.id,
-            reason_codes=(f"accepted_structure_{snapshot_freshness.value}",),
         )
-    return WorkflowEdgeGate(
-        upstream_step_key=upstream_key,
-        downstream_step_key=downstream_key,
-        role=role,
+    return _edge_gate(
+        edge=edge,
         verdict=WorkflowEdgeGateVerdict.OPEN,
+        reason="accepted_structure_converged_fresh_promoted",
         source_binding_id=upstream_binding.id,
         accepted_structure_snapshot_id=source.promotion.snapshot.id,
-        reason_codes=("accepted_structure_converged_fresh_promoted",),
+    )
+
+
+def _edge_gate(
+    *,
+    edge: WorkflowEdgeSpec,
+    verdict: WorkflowEdgeGateVerdict,
+    reason: str,
+    source_binding_id: WorkflowStepBindingId | None = None,
+    accepted_structure_snapshot_id: StructureSnapshotId | None = None,
+) -> WorkflowEdgeGate:
+    return WorkflowEdgeGate(
+        upstream_step_key=edge.upstream_step_key,
+        downstream_step_key=edge.downstream_step_key,
+        role=edge.role,
+        verdict=verdict,
+        source_binding_id=source_binding_id,
+        accepted_structure_snapshot_id=accepted_structure_snapshot_id,
+        reason_codes=(reason,),
+    )
+
+
+def _build_step_gate(
+    *,
+    selection: WorkflowBindingSelection,
+    state: WorkflowStepScientificState,
+    state_reasons: tuple[str, ...],
+    freshness_state: FreshnessState | None,
+    incoming_edges: tuple[WorkflowEdgeGate, ...],
+) -> WorkflowStepGate:
+    readiness, readiness_reason = _step_readiness(
+        selection=selection,
+        state=state,
+        incoming_edges=incoming_edges,
+    )
+    binding = selection.current_binding
+    calculation = selection.current_calculation
+    return WorkflowStepGate(
+        step_key=selection.step_key,
+        scientific_state=state,
+        readiness=readiness,
+        current_binding_id=None if binding is None else binding.id,
+        calculation_id=None if calculation is None else calculation.id,
+        freshness_state=freshness_state,
+        reason_codes=_merge_reason_codes(state_reasons, (readiness_reason,)),
     )
 
 
