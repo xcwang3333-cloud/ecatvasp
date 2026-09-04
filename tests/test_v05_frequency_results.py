@@ -8,12 +8,9 @@ from pathlib import Path
 import pytest
 
 from ecatvasp import domain, vasp
+from ecatvasp.domain.ids import new_project_id
 from ecatvasp.provenance import scientific_hash
 from ecatvasp.vasp.execution_plan import ExecutionPlan
-from ecatvasp.vasp.frequency_results import (
-    VaspFrequencyResultError,
-    parse_vasp_frequency_results,
-)
 
 
 @dataclass(frozen=True)
@@ -108,7 +105,7 @@ def _case(
         else domain.CalculationType.FREQUENCY
     )
     calculation = domain.Calculation(
-        project_id=domain.new_project_id(),
+        project_id=new_project_id(),
         calculation_type=calculation_type,
         input_structure_snapshot_id=snapshot.id,
         recipe_id=recipe.recipe_id,
@@ -250,7 +247,7 @@ def _case(
 
 
 def _parse(case: _Case) -> vasp.VaspResultDocument:
-    return parse_vasp_frequency_results(
+    return vasp.parse_vasp_frequency_results(
         project_root=case.root,
         calculation=case.calculation,
         fingerprint=case.fingerprint,
@@ -347,7 +344,7 @@ def test_selected_frequency_rejects_atom_map_selection_not_bound_to_fingerprint(
         map_selected_index=0,
     )
 
-    with pytest.raises(VaspFrequencyResultError, match="fingerprint"):
+    with pytest.raises(vasp.VaspFrequencyResultError, match="fingerprint"):
         _parse(case)
 
 
@@ -359,7 +356,7 @@ def test_frequency_parser_rejects_outcar_drift_after_intake(tmp_path: Path) -> N
     )
     case.outcar_path.write_text(case.outcar_path.read_text() + "drift\n")
 
-    with pytest.raises(VaspFrequencyResultError, match="size changed"):
+    with pytest.raises(vasp.VaspFrequencyResultError, match="size changed"):
         _parse(case)
 
 
@@ -372,5 +369,5 @@ def test_frequency_parser_rejects_multiple_canonical_dynamical_matrix_blocks(
         outcar=_mode_block(3, 2) + _mode_block(3, 2),
     )
 
-    with pytest.raises(VaspFrequencyResultError, match="multiple canonical"):
+    with pytest.raises(vasp.VaspFrequencyResultError, match="multiple canonical"):
         _parse(case)
