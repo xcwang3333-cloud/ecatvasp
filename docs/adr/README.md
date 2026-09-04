@@ -41,3 +41,4 @@ Frozen ADR set and accepted extensions:
 35. v0.5 CONTCAR Reconstruction and Structure Promotion Boundary
 36. v0.5 Frequency Scientific Results Boundary
 37. v0.5 Result Provenance, Freshness, and Existing-Import Unification Boundary
+38. v0.5 Final Scientific Result Acceptance and Hardening Boundary
