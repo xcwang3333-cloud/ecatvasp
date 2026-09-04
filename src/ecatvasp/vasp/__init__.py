@@ -203,6 +203,15 @@ from ecatvasp.vasp.results import (
     result_source_artifact_type,
     validate_result_parse_analysis,
 )
+from ecatvasp.vasp.structure_promotion import (
+    VASP_CONTCAR_RECONSTRUCTOR_NAME,
+    VASP_CONTCAR_RECONSTRUCTOR_VERSION,
+    VaspContcarReconstruction,
+    VaspStructurePromotionError,
+    VaspStructurePromotionResult,
+    promote_vasp_contcar_snapshot,
+    reconstruct_vasp_contcar_snapshot,
+)
 
 __all__ = [
     "ECATVASP_DIPOLE_AXIS",
@@ -229,6 +238,8 @@ __all__ = [
     "RECIPE_LOBSTER_PREREQUISITE",
     "RECIPE_SELECTED_ATOM_FREQUENCY",
     "RECIPE_SLAB_RELAX",
+    "VASP_CONTCAR_RECONSTRUCTOR_NAME",
+    "VASP_CONTCAR_RECONSTRUCTOR_VERSION",
     "VASP_CONVERGENCE_CLASSIFIER_NAME",
     "VASP_CONVERGENCE_CLASSIFIER_VERSION",
     "VASP_ENERGY_METADATA_PARSER_NAME",
@@ -295,6 +306,7 @@ __all__ = [
     "UidMagmom",
     "UidSelectiveDynamics",
     "VaspCollinearMagnetization",
+    "VaspContcarReconstruction",
     "VaspConvergenceAssessment",
     "VaspConvergenceError",
     "VaspConvergenceEvidence",
@@ -325,6 +337,8 @@ __all__ = [
     "VaspSiteForce",
     "VaspSiteScalarMagnetization",
     "VaspSiteVectorMagnetization",
+    "VaspStructurePromotionError",
+    "VaspStructurePromotionResult",
     "VaspSystemContext",
     "VaspSystemKind",
     "assess_vasp_convergence",
@@ -352,7 +366,9 @@ __all__ = [
     "prepare_incar",
     "prepare_kpoints",
     "prepare_poscar",
+    "promote_vasp_contcar_snapshot",
     "reconcile_generated_input_directory",
+    "reconstruct_vasp_contcar_snapshot",
     "result_source_artifact_type",
     "suggest_encut_baseline",
     "validate_analysis_prerequisite_recipe",

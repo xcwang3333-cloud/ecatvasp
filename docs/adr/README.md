@@ -38,3 +38,4 @@ Frozen ADR set and accepted extensions:
 32. v0.5 Energy and Metadata Parser Boundary
 33. v0.5 Scientific Convergence Classification Boundary
 34. v0.5 Final Forces and Magnetization Boundary
+35. v0.5 CONTCAR Reconstruction and Structure Promotion Boundary
