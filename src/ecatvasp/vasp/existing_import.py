@@ -25,6 +25,7 @@ from ecatvasp.domain import (
     ExecutionAttemptStatus,
     MethodFingerprint,
     Project,
+    StructureOrigin,
     StructureSnapshot,
     StructureVariant,
     canonical_sha256,
@@ -58,10 +59,7 @@ from ecatvasp.vasp.result_intake import (
     VaspResultInputFile,
 )
 from ecatvasp.vasp.result_parser import parse_vasp_energy_metadata
-from ecatvasp.vasp.result_provenance import (
-    VaspScientificResultMaterialization,
-    materialize_vasp_scientific_result,
-)
+from ecatvasp.vasp.result_provenance import materialize_vasp_scientific_result
 from ecatvasp.vasp.results import (
     ConvergenceVerdict,
     VaspConvergenceAssessment,
@@ -190,7 +188,7 @@ def import_existing_vasp_folder(
     input_snapshot = _new_snapshot(
         input_geometry,
         label=f"{variant.name} imported POSCAR",
-        origin=_imported_origin(),
+        origin=StructureOrigin.IMPORTED,
     )
     final_snapshot = _reconstruct_final_snapshot(
         root=root,
@@ -313,12 +311,6 @@ def import_existing_vasp_folder(
     )
 
 
-def _imported_origin():
-    from ecatvasp.domain import StructureOrigin
-
-    return StructureOrigin.IMPORTED
-
-
 def _reconstruct_final_snapshot(
     *,
     root: Path,
@@ -413,7 +405,7 @@ def _apply_imported_structure_policy(
             "converged imported CONTCAR was retained as a candidate because the "
             "StructureVariant already points to another current snapshot"
         )
-        return replace(inspection, warnings=(*inspection.warnings, warning)), baseline
+        return baseline, replace(inspection, warnings=(*inspection.warnings, warning))
     return replace(baseline, current_structure_snapshot_id=final_snapshot.id), inspection
 
 
