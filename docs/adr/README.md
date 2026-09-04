@@ -51,3 +51,4 @@ Frozen ADR set and accepted extensions:
 45. v0.6 Orchestration Reconciliation and Execution/Materialization Handoff Boundary
 46. v0.6 Durable Workflow Reopen, Resume, and Idempotency Boundary
 47. v0.6 Final Workflow Acceptance and Hardening Boundary
+48. v0.7 Electronic Structure and Analysis Architecture Boundary
