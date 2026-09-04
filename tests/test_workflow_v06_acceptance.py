@@ -26,8 +26,8 @@ from ecatvasp.domain import (
     WorkflowRecipeIdentity,
     WorkflowStepBinding,
     new_atom_uid,
-    new_catalyst_id,
 )
+from ecatvasp.domain.ids import new_catalyst_id
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp.contracts import (
     LatticeAxis,
