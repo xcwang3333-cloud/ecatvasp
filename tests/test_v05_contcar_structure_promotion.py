@@ -37,27 +37,25 @@ from ecatvasp.domain.ids import (
     new_structure_snapshot_id,
 )
 from ecatvasp.vasp import (
+    RECIPE_SLAB_RELAX,
+    ExecutionPlan,
     ExpectedOutput,
     PotcarResolutionEntry,
     PotcarResolutionRequest,
-    RECIPE_SLAB_RELAX,
     StagingInput,
     StagingInputKind,
+    VaspConvergenceEvidence,
     VaspResultArtifactIntake,
     VaspResultInputFile,
     VaspResultSource,
     VaspResultSourceRole,
     VaspRuntimeConstraints,
+    VaspStructurePromotionError,
     VaspSystemContext,
     VaspSystemKind,
-    result_source_artifact_type,
-)
-from ecatvasp.vasp.convergence import VaspConvergenceEvidence
-from ecatvasp.vasp.execution_plan import ExecutionPlan
-from ecatvasp.vasp.structure_promotion import (
-    VaspStructurePromotionError,
     promote_vasp_contcar_snapshot,
     reconstruct_vasp_contcar_snapshot,
+    result_source_artifact_type,
 )
 
 
@@ -245,16 +243,16 @@ def _case(tmp_path: Path, *, contcar: bytes | None = None) -> _Case:
         ),
         expected_outputs=(
             ExpectedOutput(
-                role="outcar",
-                artifact_type=ArtifactType.OUTCAR,
-                relative_path="OUTCAR",
+                role="contcar",
+                artifact_type=ArtifactType.CONTCAR,
+                relative_path="CONTCAR",
                 retrieval_policy=RetrievalPolicy.ALWAYS,
                 required=True,
             ),
             ExpectedOutput(
-                role="contcar",
-                artifact_type=ArtifactType.CONTCAR,
-                relative_path="CONTCAR",
+                role="outcar",
+                artifact_type=ArtifactType.OUTCAR,
+                relative_path="OUTCAR",
                 retrieval_policy=RetrievalPolicy.ALWAYS,
                 required=True,
             ),
