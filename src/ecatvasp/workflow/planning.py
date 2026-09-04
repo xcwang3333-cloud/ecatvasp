@@ -57,9 +57,9 @@ def _topological_step_keys(
             raise WorkflowPlanningError(
                 "workflow planning edges must reference steps in the same plan"
             )
-        downstream = adjacency[edge.upstream_step_key]
-        if edge.downstream_step_key not in downstream:
-            downstream.add(edge.downstream_step_key)
+        downstream_keys = adjacency[edge.upstream_step_key]
+        if edge.downstream_step_key not in downstream_keys:
+            downstream_keys.add(edge.downstream_step_key)
             indegree[edge.downstream_step_key] += 1
 
     ready = [key for key, degree in indegree.items() if degree == 0]
@@ -68,10 +68,10 @@ def _topological_step_keys(
     while ready:
         key = heapq.heappop(ready)
         ordered.append(key)
-        for downstream in sorted(adjacency[key]):
-            indegree[downstream] -= 1
-            if indegree[downstream] == 0:
-                heapq.heappush(ready, downstream)
+        for downstream_key in sorted(adjacency[key]):
+            indegree[downstream_key] -= 1
+            if indegree[downstream_key] == 0:
+                heapq.heappush(ready, downstream_key)
 
     if len(ordered) != len(step_keys):
         raise WorkflowPlanningError("workflow planning graph must be acyclic")
