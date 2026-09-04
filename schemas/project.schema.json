@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ecatvasp.local/schema/project-v2.json",
-  "title": "ECatVASP Project Header Schema v2",
+  "$id": "https://ecatvasp.local/schema/project-v3.json",
+  "title": "ECatVASP Project Header Schema v3",
   "description": "Human-readable project.yaml header contract; full domain metadata is stored in .workbench/project.sqlite.",
   "type": "object",
   "required": ["schema_version", "project_id", "name", "slug", "database"],
   "properties": {
     "schema_version": {
-      "const": 2
+      "const": 3
     },
     "project_id": {
       "type": "string",
