@@ -93,10 +93,10 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
 def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
     """Add workflow-capable storage without rewriting existing scientific entities.
 
-    Schema v3 adds persisted ScientificWorkflowPlan and WorkflowStepBinding entity types. Existing
-    v2 projects contain neither type, so migration only advances the Project schema marker and leaves
-    all Calculation, Artifact, Analysis, structure, execution, and provenance rows byte-for-byte
-    unchanged.
+    Schema v3 adds persisted ScientificWorkflowPlan and WorkflowStepBinding entity types.
+    Existing v2 projects contain neither type, so migration only advances the Project schema marker
+    and leaves all Calculation, Artifact, Analysis, structure, execution, and provenance rows
+    byte-for-byte unchanged.
     """
 
     _rewrite_project_schema_version(connection, from_version=2, to_version=3)
