@@ -11,6 +11,7 @@ from ecatvasp.domain import (
     ScientificWorkflowPlan,
     StructureOrigin,
     StructureSnapshot,
+    WorkflowEdgeSpec,
     WorkflowStepBinding,
 )
 from ecatvasp.domain.ids import WorkflowStepBindingId
@@ -149,13 +150,15 @@ def materialize_workflow_step(
     else:
         resolved_snapshot, source_binding_id, default_reason = _resolve_downstream_input(
             plan=plan,
-            step_key=step_key,
             incoming_edges=incoming_edges,
             root_snapshot=root_snapshot,
             accepted_structure_source=accepted_structure_source,
         )
 
-    vasp_spec = get_vasp_recipe_spec(step.recipe_id)
+    try:
+        vasp_spec = get_vasp_recipe_spec(step.recipe_id)
+    except VaspRecipeContractError as error:
+        raise WorkflowMaterializationError(str(error)) from error
     if vasp_spec.calculation_type is not step.calculation_type:
         raise WorkflowMaterializationError(
             "workflow step CalculationType does not match canonical VASP recipe"
@@ -232,8 +235,7 @@ def _resolve_root_input(
 def _resolve_downstream_input(
     *,
     plan: ScientificWorkflowPlan,
-    step_key: str,
-    incoming_edges: tuple[object, ...],
+    incoming_edges: tuple[WorkflowEdgeSpec, ...],
     root_snapshot: StructureSnapshot | None,
     accepted_structure_source: AcceptedStructureSource | None,
 ) -> tuple[StructureSnapshot, WorkflowStepBindingId, str]:
@@ -246,9 +248,7 @@ def _resolve_downstream_input(
             "Block 4 supports exactly one incoming edge per materialized downstream step"
         )
     edge = incoming_edges[0]
-    role = getattr(edge, "role", None)
-    upstream_step_key = getattr(edge, "upstream_step_key", None)
-    if role != WORKFLOW_EDGE_ACCEPTED_STRUCTURE or not isinstance(upstream_step_key, str):
+    if edge.role != WORKFLOW_EDGE_ACCEPTED_STRUCTURE:
         raise WorkflowMaterializationError(
             "Block 4 supports only accepted_structure downstream edges"
         )
@@ -264,11 +264,11 @@ def _resolve_downstream_input(
         raise WorkflowMaterializationError(
             "accepted-structure binding belongs to another workflow plan"
         )
-    if binding.step_key != upstream_step_key:
+    if binding.step_key != edge.upstream_step_key:
         raise WorkflowMaterializationError(
             "accepted-structure binding does not belong to the required upstream step"
         )
-    upstream_step = plan.step(upstream_step_key)
+    upstream_step = plan.step(edge.upstream_step_key)
     if calculation.project_id != plan.project_id:
         raise WorkflowMaterializationError(
             "accepted-structure Calculation belongs to another Project"
@@ -282,7 +282,7 @@ def _resolve_downstream_input(
             "accepted-structure Calculation recipe does not match upstream workflow step"
         )
 
-    reason = f"{WORKFLOW_ACCEPTED_STRUCTURE_REASON} {upstream_step_key}"
+    reason = f"{WORKFLOW_ACCEPTED_STRUCTURE_REASON} {edge.upstream_step_key}"
     return source.promotion.snapshot, binding.id, reason
 
 
