@@ -20,6 +20,8 @@ RemoteJobId = NewType("RemoteJobId", UUID)
 ArtifactId = NewType("ArtifactId", UUID)
 AnalysisId = NewType("AnalysisId", UUID)
 MethodFingerprintId = NewType("MethodFingerprintId", UUID)
+WorkflowPlanId = NewType("WorkflowPlanId", UUID)
+WorkflowStepBindingId = NewType("WorkflowStepBindingId", UUID)
 AtomUid = NewType("AtomUid", UUID)
 
 
@@ -92,6 +94,14 @@ def new_analysis_id() -> AnalysisId:
 
 def new_method_fingerprint_id() -> MethodFingerprintId:
     return MethodFingerprintId(new_uuid7())
+
+
+def new_workflow_plan_id() -> WorkflowPlanId:
+    return WorkflowPlanId(new_uuid7())
+
+
+def new_workflow_step_binding_id() -> WorkflowStepBindingId:
+    return WorkflowStepBindingId(new_uuid7())
 
 
 def new_atom_uid() -> AtomUid:
