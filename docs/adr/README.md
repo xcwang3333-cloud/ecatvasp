@@ -37,3 +37,4 @@ Frozen ADR set and accepted extensions:
 31. v0.5 Result Artifact Intake and Integrity Boundary
 32. v0.5 Energy and Metadata Parser Boundary
 33. v0.5 Scientific Convergence Classification Boundary
+34. v0.5 Final Forces and Magnetization Boundary
