@@ -44,3 +44,4 @@ Frozen ADR set and accepted extensions:
 38. v0.5 Final Scientific Result Acceptance and Hardening Boundary
 39. v0.6 Scientific Workflow Domain Contracts and Schema v3 Boundary
 40. v0.6 Canonical Workflow Recipe Registry Boundary
+41. v0.6 Deterministic Workflow Planning Boundary
