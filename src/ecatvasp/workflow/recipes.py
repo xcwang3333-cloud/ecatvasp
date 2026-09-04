@@ -89,7 +89,8 @@ class WorkflowRecipeSpec:
         """Return a deterministic registry fingerprint including VASP recipe versions."""
 
         referenced_vasp_recipes = tuple(
-            (step.key, get_vasp_recipe_spec(step.recipe_id).identity) for step in self.steps
+            (step.key, get_vasp_recipe_spec(step.recipe_id).identity)
+            for step in self.steps
         )
         return canonical_sha256(
             {
@@ -101,7 +102,11 @@ class WorkflowRecipeSpec:
         )
 
 
-def _step(key: str, calculation_type: CalculationType, recipe_id: str) -> WorkflowStepSpec:
+def _step(
+    key: str,
+    calculation_type: CalculationType,
+    recipe_id: str,
+) -> WorkflowStepSpec:
     return WorkflowStepSpec(
         key=key,
         calculation_type=calculation_type,
@@ -128,7 +133,11 @@ WORKFLOW_RECIPE_SPECS: tuple[WorkflowRecipeSpec, ...] = (
             _step("relax", CalculationType.RELAX, RECIPE_SLAB_RELAX),
             _step("static", CalculationType.STATIC, RECIPE_GROUND_STATE_STATIC),
             _step("dos", CalculationType.DOS_STATIC, RECIPE_DOS_PREREQUISITE),
-            _step("charge", CalculationType.CHARGE_STATIC, RECIPE_CHARGE_DENSITY_STATIC),
+            _step(
+                "charge",
+                CalculationType.CHARGE_STATIC,
+                RECIPE_CHARGE_DENSITY_STATIC,
+            ),
             _step(
                 "lobster",
                 CalculationType.LOBSTER_PREREQUISITE,
@@ -157,7 +166,11 @@ WORKFLOW_RECIPE_SPECS: tuple[WorkflowRecipeSpec, ...] = (
                 RECIPE_SELECTED_ATOM_FREQUENCY,
             ),
             _step("dos", CalculationType.DOS_STATIC, RECIPE_DOS_PREREQUISITE),
-            _step("charge", CalculationType.CHARGE_STATIC, RECIPE_CHARGE_DENSITY_STATIC),
+            _step(
+                "charge",
+                CalculationType.CHARGE_STATIC,
+                RECIPE_CHARGE_DENSITY_STATIC,
+            ),
             _step(
                 "lobster",
                 CalculationType.LOBSTER_PREREQUISITE,
@@ -190,9 +203,9 @@ WORKFLOW_RECIPE_SPECS: tuple[WorkflowRecipeSpec, ...] = (
     ),
 )
 
-WORKFLOW_RECIPE_REGISTRY: Mapping[WorkflowRecipeIdentity, WorkflowRecipeSpec] = MappingProxyType(
-    {spec.identity: spec for spec in WORKFLOW_RECIPE_SPECS}
-)
+WORKFLOW_RECIPE_REGISTRY: Mapping[
+    WorkflowRecipeIdentity, WorkflowRecipeSpec
+] = MappingProxyType({spec.identity: spec for spec in WORKFLOW_RECIPE_SPECS})
 
 if len(WORKFLOW_RECIPE_REGISTRY) != len(WORKFLOW_RECIPE_SPECS):
     raise RuntimeError("workflow recipe identities must be unique")
@@ -256,10 +269,13 @@ def _validate_graph(
         raise WorkflowRecipeContractError("workflow recipe step keys must be unique")
 
     edge_keys = tuple(
-        (edge.upstream_step_key, edge.downstream_step_key, edge.role) for edge in edges
+        (edge.upstream_step_key, edge.downstream_step_key, edge.role)
+        for edge in edges
     )
     if len(edge_keys) != len(set(edge_keys)):
-        raise WorkflowRecipeContractError("duplicate workflow recipe edge semantics are not allowed")
+        raise WorkflowRecipeContractError(
+            "duplicate workflow recipe edge semantics are not allowed"
+        )
 
     known = set(step_keys)
     for edge in edges:
