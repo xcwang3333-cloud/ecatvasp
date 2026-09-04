@@ -1,5 +1,12 @@
 """Scientific workflow orchestration contracts."""
 
+from ecatvasp.workflow.acceptance import (
+    WorkflowAcceptanceError,
+    WorkflowAcceptanceReport,
+    WorkflowAcceptanceState,
+    WorkflowStepAcceptance,
+    validate_v06_workflow_acceptance,
+)
 from ecatvasp.workflow.durability import (
     WorkflowDispatchPersistenceResult,
     WorkflowDurabilityError,
@@ -86,6 +93,9 @@ __all__ = [
     "WORKFLOW_ROOT_STRUCTURE_REASON",
     "WORKFLOW_UPSTREAM_SUPERSESSION_REASON",
     "AcceptedStructureSource",
+    "WorkflowAcceptanceError",
+    "WorkflowAcceptanceReport",
+    "WorkflowAcceptanceState",
     "WorkflowBindingSelection",
     "WorkflowDispatchPersistenceResult",
     "WorkflowDurabilityError",
@@ -112,6 +122,7 @@ __all__ = [
     "WorkflowResumeState",
     "WorkflowSchedulerRecoveryHandoff",
     "WorkflowScientificGateEvaluation",
+    "WorkflowStepAcceptance",
     "WorkflowStepGate",
     "WorkflowStepMaterialization",
     "WorkflowStepOrchestration",
@@ -131,5 +142,6 @@ __all__ = [
     "reconcile_workflow_orchestration",
     "reopen_workflow_resume_state",
     "resolve_workflow_binding_generations",
+    "validate_v06_workflow_acceptance",
     "validate_workflow_plan_recipe_contract",
 ]
