@@ -159,35 +159,57 @@ def _validate_identity(
     result: VaspResultDocument,
 ) -> None:
     if calculation.calculation_type not in _FREQUENCY_TYPES:
-        raise VaspFrequencyResultError("frequency result parsing requires a frequency Calculation")
+        raise VaspFrequencyResultError(
+            "frequency result parsing requires a frequency Calculation"
+        )
     if calculation.recipe_id not in _FREQUENCY_RECIPES:
         raise VaspFrequencyResultError("Calculation recipe is not a frequency recipe")
     if calculation.input_structure_snapshot_id != input_snapshot.id:
-        raise VaspFrequencyResultError("Calculation does not reference the supplied input snapshot")
+        raise VaspFrequencyResultError(
+            "Calculation does not reference the supplied input snapshot"
+        )
     if calculation.method_fingerprint_id != fingerprint.id:
-        raise VaspFrequencyResultError("Calculation does not reference the supplied MethodFingerprint")
+        raise VaspFrequencyResultError(
+            "Calculation does not reference the supplied MethodFingerprint"
+        )
     if calculation.recipe_id != fingerprint.recipe.recipe_id:
-        raise VaspFrequencyResultError("Calculation recipe does not match MethodFingerprint recipe")
+        raise VaspFrequencyResultError(
+            "Calculation recipe does not match MethodFingerprint recipe"
+        )
     spec = get_vasp_recipe_spec(calculation.recipe_id)
     if spec.calculation_type is not calculation.calculation_type:
-        raise VaspFrequencyResultError("CalculationType does not match canonical frequency recipe")
+        raise VaspFrequencyResultError(
+            "CalculationType does not match canonical frequency recipe"
+        )
     if fingerprint.recipe.version != spec.version:
-        raise VaspFrequencyResultError("MethodFingerprint frequency recipe version is not canonical")
+        raise VaspFrequencyResultError(
+            "MethodFingerprint frequency recipe version is not canonical"
+        )
     validate_frequency_recipe(fingerprint.recipe)
     if plan.calculation_id != calculation.id or intake.calculation_id != calculation.id:
         raise VaspFrequencyResultError("plan/intake belongs to another Calculation")
     if plan.recipe_id != calculation.recipe_id or intake.recipe_id != calculation.recipe_id:
         raise VaspFrequencyResultError("plan/intake recipe does not match Calculation")
     if intake.calculation_type is not calculation.calculation_type:
-        raise VaspFrequencyResultError("result intake CalculationType does not match Calculation")
+        raise VaspFrequencyResultError(
+            "result intake CalculationType does not match Calculation"
+        )
     if intake.plan_hash != plan.plan_hash:
-        raise VaspFrequencyResultError("result intake does not reference the exact ExecutionPlan")
+        raise VaspFrequencyResultError(
+            "result intake does not reference the exact ExecutionPlan"
+        )
     if intake.input_manifest_hash != plan.input_manifest_sha256:
-        raise VaspFrequencyResultError("result intake input manifest does not match ExecutionPlan")
+        raise VaspFrequencyResultError(
+            "result intake input manifest does not match ExecutionPlan"
+        )
     if result.calculation_type is not calculation.calculation_type:
-        raise VaspFrequencyResultError("normalized result CalculationType does not match Calculation")
+        raise VaspFrequencyResultError(
+            "normalized result CalculationType does not match Calculation"
+        )
     if result.sources != intake.sources:
-        raise VaspFrequencyResultError("normalized result sources do not match exact result intake")
+        raise VaspFrequencyResultError(
+            "normalized result sources do not match exact result intake"
+        )
     if result.frequencies is not None:
         raise VaspFrequencyResultError("normalized result already contains frequency data")
 
@@ -251,9 +273,13 @@ def _parse_canonical_modes(
             continue
         headers.append(index)
     if not headers:
-        raise VaspFrequencyResultError("OUTCAR is missing the standard dynamical-matrix mode block")
+        raise VaspFrequencyResultError(
+            "OUTCAR is missing the standard dynamical-matrix mode block"
+        )
     if len(headers) != 1:
-        raise VaspFrequencyResultError("OUTCAR contains multiple canonical dynamical-matrix blocks")
+        raise VaspFrequencyResultError(
+            "OUTCAR contains multiple canonical dynamical-matrix blocks"
+        )
 
     start = headers[0] + 1
     end = len(lines)
@@ -279,7 +305,14 @@ def _parse_canonical_modes(
         cursor += 1
         while cursor < end and not lines[cursor].strip():
             cursor += 1
-        if cursor >= end or tuple(lines[cursor].split())[:6] != ("X", "Y", "Z", "dx", "dy", "dz"):
+        if cursor >= end or tuple(lines[cursor].split())[:6] != (
+            "X",
+            "Y",
+            "Z",
+            "dx",
+            "dy",
+            "dz",
+        ):
             raise VaspFrequencyResultError(
                 f"frequency mode {mode_index} is missing its eigenvector table header"
             )
@@ -349,7 +382,9 @@ def _parse_atom_map(
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise VaspFrequencyResultError("atom-index-map.json is not valid UTF-8 JSON") from error
+        raise VaspFrequencyResultError(
+            "atom-index-map.json is not valid UTF-8 JSON"
+        ) from error
     if not isinstance(payload, dict):
         raise VaspFrequencyResultError("atom-index-map.json root must be an object")
     if payload.get("format") != "ecatvasp-v03-atom-index-map" or payload.get("version") != 1:
@@ -357,13 +392,17 @@ def _parse_atom_map(
     if payload.get("structure_snapshot_id") != str(input_snapshot.id):
         raise VaspFrequencyResultError("atom index map belongs to another input snapshot")
     if payload.get("structure_sha256") != scientific_hash(input_snapshot):
-        raise VaspFrequencyResultError("atom index map does not bind the exact input structure hash")
+        raise VaspFrequencyResultError(
+            "atom index map does not bind the exact input structure hash"
+        )
     if payload.get("poscar_sha256") != poscar_sha256:
         raise VaspFrequencyResultError("atom index map does not bind the exact staged POSCAR")
 
     raw_entries = payload.get("entries")
     if not isinstance(raw_entries, list) or len(raw_entries) != len(input_snapshot.sites):
-        raise VaspFrequencyResultError("atom index map atom count does not match input snapshot")
+        raise VaspFrequencyResultError(
+            "atom index map atom count does not match input snapshot"
+        )
 
     entries: list[_AtomMapEntry] = []
     snapshot_indices: list[int] = []
@@ -381,11 +420,15 @@ def _parse_atom_map(
         ):
             raise VaspFrequencyResultError("atom index map snapshot_index is invalid")
         if raw_poscar_index != poscar_index or vasp_ordinal != poscar_index + 1:
-            raise VaspFrequencyResultError("atom index map POSCAR/VASP order is not contiguous")
+            raise VaspFrequencyResultError(
+                "atom index map POSCAR/VASP order is not contiguous"
+            )
         raw_uid = raw.get("atom_uid")
         element = raw.get("element")
         if not isinstance(raw_uid, str) or not isinstance(element, str) or not element.strip():
-            raise VaspFrequencyResultError("atom index map atom identity fields are invalid")
+            raise VaspFrequencyResultError(
+                "atom index map atom identity fields are invalid"
+            )
         try:
             atom_uid = AtomUid(UUID(raw_uid))
         except ValueError as error:
@@ -417,15 +460,23 @@ def _parse_atom_map(
 def _parse_selective_flags(value: object) -> tuple[bool, bool, bool] | None:
     if value is None:
         return None
-    if not isinstance(value, list) or len(value) != 3 or any(type(item) is not bool for item in value):
-        raise VaspFrequencyResultError("atom index map selective_dynamics flags are invalid")
+    if (
+        not isinstance(value, list)
+        or len(value) != 3
+        or any(type(item) is not bool for item in value)
+    ):
+        raise VaspFrequencyResultError(
+            "atom index map selective_dynamics flags are invalid"
+        )
     return (value[0], value[1], value[2])
 
 
 def _require_staging_input(plan: ExecutionPlan, role: str) -> StagingInput:
     matches = tuple(item for item in plan.staging_inputs if item.role == role)
     if len(matches) != 1:
-        raise VaspFrequencyResultError(f"ExecutionPlan requires exactly one {role} staging input")
+        raise VaspFrequencyResultError(
+            f"ExecutionPlan requires exactly one {role} staging input"
+        )
     return matches[0]
 
 
@@ -437,9 +488,13 @@ def _validate_staging_role(
     target: str,
 ) -> None:
     if item.artifact_type is not artifact_type or item.kind is not kind:
-        raise VaspFrequencyResultError(f"staging input role {item.role!r} has the wrong contract")
+        raise VaspFrequencyResultError(
+            f"staging input role {item.role!r} has the wrong contract"
+        )
     if item.target_relative_path != target:
-        raise VaspFrequencyResultError(f"staging input role {item.role!r} targets the wrong path")
+        raise VaspFrequencyResultError(
+            f"staging input role {item.role!r} targets the wrong path"
+        )
 
 
 def _require_result_file(
@@ -448,14 +503,20 @@ def _require_result_file(
 ) -> VaspResultInputFile:
     matches = tuple(item for item in intake.files if item.source.role is role)
     if len(matches) != 1:
-        raise VaspFrequencyResultError(f"result intake requires exactly one {role.value}")
+        raise VaspFrequencyResultError(
+            f"result intake requires exactly one {role.value}"
+        )
     return matches[0]
 
 
 def _read_staging_bytes(*, root: Path, item: StagingInput) -> bytes:
     path = _resolve_relative_path(root=root, relative=item.source_relative_path)
     body = path.read_bytes()
-    _validate_bytes(body=body, expected_size=item.size_bytes, expected_sha256=item.sha256)
+    _validate_bytes(
+        body=body,
+        expected_size=item.size_bytes,
+        expected_sha256=item.sha256,
+    )
     return body
 
 
@@ -473,7 +534,9 @@ def _read_result_bytes(*, root: Path, item: VaspResultInputFile) -> bytes:
 def _resolve_relative_path(*, root: Path, relative: str) -> Path:
     posix = PurePosixPath(relative)
     if posix.is_absolute() or ".." in posix.parts or relative != posix.as_posix():
-        raise VaspFrequencyResultError("managed file path must be a normalized relative POSIX path")
+        raise VaspFrequencyResultError(
+            "managed file path must be a normalized relative POSIX path"
+        )
     path = (root / Path(*posix.parts)).resolve()
     try:
         path.relative_to(root)
@@ -496,7 +559,11 @@ def _parse_float(token: str) -> float:
     try:
         value = float(token.replace("D", "E").replace("d", "e"))
     except ValueError as error:
-        raise VaspFrequencyResultError(f"invalid numeric value in frequency block: {token}") from error
+        raise VaspFrequencyResultError(
+            f"invalid numeric value in frequency block: {token}"
+        ) from error
     if not (-float("inf") < value < float("inf")):
-        raise VaspFrequencyResultError("frequency block contains a non-finite numeric value")
+        raise VaspFrequencyResultError(
+            "frequency block contains a non-finite numeric value"
+        )
     return value
