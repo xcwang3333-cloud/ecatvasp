@@ -220,7 +220,9 @@ class ProjectBundle:
         for binding in self.workflow_step_bindings:
             plan = workflow_plans.get(binding.workflow_plan_id)
             if plan is None:
-                raise ProjectIntegrityError("WorkflowStepBinding references a missing workflow plan")
+                raise ProjectIntegrityError(
+                    "WorkflowStepBinding references a missing workflow plan"
+                )
             try:
                 step = plan.step(binding.step_key)
             except KeyError as error:
