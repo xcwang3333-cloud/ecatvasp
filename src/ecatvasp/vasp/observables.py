@@ -17,9 +17,9 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from uuid import UUID
 
-from ecatvasp.domain import Calculation, MethodFingerprint, SpinTreatment
+from ecatvasp.domain import ArtifactType, Calculation, MethodFingerprint, SpinTreatment
 from ecatvasp.domain.ids import AtomUid
-from ecatvasp.vasp.execution_plan import ExecutionPlan, StagingInput
+from ecatvasp.vasp.execution_plan import ExecutionPlan, StagingInput, StagingInputKind
 from ecatvasp.vasp.result_intake import VaspResultArtifactIntake, VaspResultInputFile
 from ecatvasp.vasp.results import (
     VaspCollinearMagnetization,
@@ -41,7 +41,10 @@ _FORCE_HEADER = re.compile(r"POSITION\s+TOTAL-FORCE\s*\(eV/Angst\)", re.IGNORECA
 _MAG_HEADER = re.compile(r"^\s*magnetization\s*\(([xyz])\)\s*$", re.IGNORECASE)
 _MAG_SITE_ROW = re.compile(r"^\s*(\d+)\s+(.+)$")
 _MAG_TOTAL_ROW = re.compile(r"^\s*tot\s+(.+)$", re.IGNORECASE)
-_CELL_MAG_LINE = re.compile(r"\bnumber\s+of\s+electron\b.*?\bmagnetization\b(.*)$", re.IGNORECASE)
+_CELL_MAG_LINE = re.compile(
+    r"\bnumber\s+of\s+electron\b.*?\bmagnetization\b(.*)$",
+    re.IGNORECASE,
+)
 
 
 class VaspObservableParseError(ValueError):
@@ -125,6 +128,10 @@ def parse_vasp_forces_magnetization(
     evidence = set(result.evidence_codes)
     evidence.add(VaspObservableEvidenceCode.ATOM_INDEX_MAP_VERIFIED.value)
     evidence.update(parsed.evidence_codes)
+    if isinstance(magnetization, VaspCollinearMagnetization) and magnetization.site_moments:
+        evidence.add(VaspObservableEvidenceCode.COLLINEAR_SITE_MAGNETIZATION.value)
+    if isinstance(magnetization, VaspNoncollinearMagnetization) and magnetization.site_moments:
+        evidence.add(VaspObservableEvidenceCode.NONCOLLINEAR_SITE_MAGNETIZATION.value)
     return replace(
         result,
         forces=forces,
@@ -171,6 +178,18 @@ def _load_atom_index_map(
 ) -> tuple[_AtomMapEntry, ...]:
     atom_map_input = _require_staging_input(plan, "atom_index_map")
     poscar_input = _require_staging_input(plan, "poscar")
+    _validate_staging_role(
+        item=atom_map_input,
+        artifact_type=ArtifactType.DERIVED_DATASET,
+        kind=StagingInputKind.METADATA,
+        target="atom-index-map.json",
+    )
+    _validate_staging_role(
+        item=poscar_input,
+        artifact_type=ArtifactType.POSCAR,
+        kind=StagingInputKind.VASP_INPUT,
+        target="POSCAR",
+    )
     atom_map_bytes = _read_staging_bytes(root=root, item=atom_map_input)
     _read_staging_bytes(root=root, item=poscar_input)
     try:
@@ -223,6 +242,19 @@ def _load_atom_index_map(
     if sum(species_counts) != len(entries):
         raise VaspObservableParseError("atom index map species_counts do not match entries")
     return tuple(entries)
+
+
+def _validate_staging_role(
+    *,
+    item: StagingInput,
+    artifact_type: ArtifactType,
+    kind: StagingInputKind,
+    target: str,
+) -> None:
+    if item.artifact_type is not artifact_type or item.kind is not kind:
+        raise VaspObservableParseError(f"staging role {item.role!r} has incompatible metadata")
+    if item.target_relative_path != target:
+        raise VaspObservableParseError(f"staging role {item.role!r} has unexpected target path")
 
 
 def _require_staging_input(plan: ExecutionPlan, role: str) -> StagingInput:
@@ -345,15 +377,19 @@ def _scan_outcar(
             if active_mag_component is not None:
                 total_match = _MAG_TOTAL_ROW.match(line)
                 if total_match is not None:
-                    active_mag_total = _last_finite_float(total_match.group(1), "magnetization total")
+                    active_mag_total = _last_finite_float(
+                        total_match.group(1),
+                        "magnetization total",
+                    )
                     continue
-                site_match = _MAG_SITE_ROW.match(line)
-                if site_match is not None:
-                    ordinal = int(site_match.group(1))
-                    values = _float_values(site_match.group(2))
-                    if values:
-                        active_mag_values.append((ordinal, values[-1]))
-                        continue
+                if active_mag_total is None:
+                    site_match = _MAG_SITE_ROW.match(line)
+                    if site_match is not None:
+                        ordinal = int(site_match.group(1))
+                        values = _float_values(site_match.group(2))
+                        if values:
+                            active_mag_values.append((ordinal, values[-1]))
+                            continue
 
             cell_match = _CELL_MAG_LINE.search(line)
             if cell_match is not None:
@@ -413,9 +449,7 @@ def _finish_mag_table(
     if not values and projected_total is None:
         return
     if len(values) != atom_count or projected_total is None:
-        raise VaspObservableParseError(
-            f"magnetization ({component}) table is incomplete"
-        )
+        raise VaspObservableParseError(f"magnetization ({component}) table is incomplete")
     ordinals = tuple(item[0] for item in values)
     if ordinals != tuple(range(1, atom_count + 1)):
         raise VaspObservableParseError(
@@ -488,7 +522,7 @@ def _collinear_magnetization(
     table = tables[-1] if tables else None
     if table is None and cell is None:
         return None
-    site_moments = ()
+    site_moments: tuple[VaspSiteScalarMagnetization, ...] = ()
     projected_total = None
     if table is not None:
         site_moments = tuple(
@@ -515,7 +549,7 @@ def _noncollinear_magnetization(
         )
     if not tables and cell is None:
         return None
-    site_moments = ()
+    site_moments: tuple[VaspSiteVectorMagnetization, ...] = ()
     projected_total = None
     if tables:
         final_generation = max(item.generation for item in tables)
@@ -525,11 +559,9 @@ def _noncollinear_magnetization(
             raise VaspObservableParseError(
                 "final noncollinear magnetization group requires x/y/z tables together"
             )
-        x_table, y_table, z_table = (
-            by_component["x"],
-            by_component["y"],
-            by_component["z"],
-        )
+        x_table = by_component["x"]
+        y_table = by_component["y"]
+        z_table = by_component["z"]
         site_moments = tuple(
             VaspSiteVectorMagnetization(
                 atom_uid=entry.atom_uid,
@@ -554,10 +586,7 @@ def _noncollinear_magnetization(
 
 
 def _float_values(text: str) -> list[float]:
-    values: list[float] = []
-    for token in _FLOAT_PATTERN.findall(text):
-        values.append(_finite_float(token))
-    return values
+    return [_finite_float(token) for token in _FLOAT_PATTERN.findall(text)]
 
 
 def _last_finite_float(text: str, field_name: str) -> float:
