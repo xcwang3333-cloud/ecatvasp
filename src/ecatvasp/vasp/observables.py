@@ -393,9 +393,9 @@ def _scan_outcar(
 
             cell_match = _CELL_MAG_LINE.search(line)
             if cell_match is not None:
-                values = tuple(_float_values(cell_match.group(1)))
-                if values:
-                    cell_magnetization = values
+                cell_values = tuple(_float_values(cell_match.group(1)))
+                if cell_values:
+                    cell_magnetization = cell_values
 
     if active_force is not None:
         force_blocks.append(tuple(active_force))
