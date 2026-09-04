@@ -45,6 +45,11 @@ from ecatvasp.vasp.execution_plan import (
     VaspRuntimeConstraints,
     build_execution_plan,
 )
+from ecatvasp.vasp.existing_import import (
+    ExistingVaspImport,
+    ParsedVaspResult,
+    import_existing_vasp_folder,
+)
 from ecatvasp.vasp.frequency import (
     ECATVASP_FREQUENCY_MAX_EDIFF_EV,
     ECATVASP_FREQUENCY_SELECTION_DIGEST,
@@ -72,11 +77,6 @@ from ecatvasp.vasp.importer import (
     VaspFolderInspection,
     VaspImportError,
     inspect_vasp_folder,
-)
-from ecatvasp.vasp.existing_import import (
-    ExistingVaspImport,
-    ParsedVaspResult,
-    import_existing_vasp_folder,
 )
 from ecatvasp.vasp.incar import (
     ECAT_STANDARD_ALGO,
