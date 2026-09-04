@@ -50,3 +50,4 @@ Frozen ADR set and accepted extensions:
 44. v0.6 Workflow Recovery and Continuation Policy Boundary
 45. v0.6 Orchestration Reconciliation and Execution/Materialization Handoff Boundary
 46. v0.6 Durable Workflow Reopen, Resume, and Idempotency Boundary
+47. v0.6 Final Workflow Acceptance and Hardening Boundary
