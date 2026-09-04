@@ -27,6 +27,7 @@ from ecatvasp.workflow.gates import (
     WorkflowEdgeGate,
     WorkflowEdgeGateVerdict,
     WorkflowScientificGateEvaluation,
+    WorkflowStepGate,
     WorkflowStepReadiness,
     WorkflowStepScientificState,
 )
@@ -142,61 +143,9 @@ class WorkflowStepOrchestration:
             raise WorkflowOrchestrationError(
                 "workflow orchestration handoff requires at least one reason code"
             )
-        if self.action is WorkflowOrchestrationAction.MATERIALIZE_STEP:
-            if self.target_input_structure_snapshot_id is None:
-                raise WorkflowOrchestrationError(
-                    "materialization handoff requires an exact target StructureSnapshot"
-                )
-        elif any(
-            value is not None
-            for value in (
-                self.previous_binding_id,
-                self.target_input_structure_snapshot_id,
-                self.source_binding_id,
-                self.materialization_reason,
-            )
-        ):
-            raise WorkflowOrchestrationError(
-                "non-materialization handoff cannot carry materialization fields"
-            )
-
-        execution_actions = {
-            WorkflowOrchestrationAction.EXECUTION_READY,
-            WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
-            WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
-            WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY,
-        }
-        if self.action in execution_actions:
-            if self.execution_plan_hash is None:
-                raise WorkflowOrchestrationError(
-                    "execution handoff requires an exact ExecutionPlan hash"
-                )
-        elif self.execution_plan_hash is not None or self.scheduler_node_id is not None:
-            raise WorkflowOrchestrationError(
-                "non-execution-ready handoff cannot carry execution dispatch fields"
-            )
-
-        if self.action is WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY:
-            if (
-                self.execution_recovery_action is not RecoveryAction.NEW_EXECUTION_ATTEMPT
-                or self.recovery_decision_hash is None
-                or self.scheduler_node_id is None
-            ):
-                raise WorkflowOrchestrationError(
-                    "execution recovery dispatch requires NEW_EXECUTION_ATTEMPT provenance"
-                )
-        elif self.action in {
-            WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
-            WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
-        }:
-            if self.execution_recovery_action is None or self.recovery_decision_hash is None:
-                raise WorkflowOrchestrationError(
-                    "same-attempt recovery handoff requires RecoveryDecision provenance"
-                )
-        elif self.execution_recovery_action is not None or self.recovery_decision_hash is not None:
-            raise WorkflowOrchestrationError(
-                "non-recovery handoff cannot carry RecoveryDecision provenance"
-            )
+        _validate_materialization_fields(self)
+        _validate_execution_fields(self)
+        _validate_recovery_fields(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,17 +169,25 @@ class WorkflowOrchestrationEvaluation:
             raise WorkflowOrchestrationError(
                 "scheduler recovery handoffs must have unique node ids"
             )
-        if self.scheduler_dag is None:
-            if self.scheduler_recoveries:
-                raise WorkflowOrchestrationError(
-                    "scheduler recovery handoff requires a SchedulerDag"
-                )
-            scheduler_node_ids: set[str] = set()
-        else:
-            scheduler_node_ids = {item.node_id for item in self.scheduler_dag.nodes}
+        scheduler_node_ids = (
+            set() if self.scheduler_dag is None else {item.node_id for item in self.scheduler_dag.nodes}
+        )
+        if self.scheduler_dag is None and self.scheduler_recoveries:
+            raise WorkflowOrchestrationError(
+                "scheduler recovery handoff requires a SchedulerDag"
+            )
         if not set(recovery_node_ids).issubset(scheduler_node_ids):
             raise WorkflowOrchestrationError(
                 "scheduler recovery handoff references a node outside SchedulerDag"
+            )
+        handoff_node_ids = {
+            item.scheduler_node_id
+            for item in self.step_handoffs
+            if item.scheduler_node_id is not None
+        }
+        if handoff_node_ids != scheduler_node_ids:
+            raise WorkflowOrchestrationError(
+                "SchedulerDag nodes must match execution-ready workflow handoffs exactly"
             )
         object.__setattr__(
             self,
@@ -313,6 +270,85 @@ def reconcile_workflow_orchestration(
     )
 
 
+def _validate_materialization_fields(item: WorkflowStepOrchestration) -> None:
+    materialization_values = (
+        item.previous_binding_id,
+        item.target_input_structure_snapshot_id,
+        item.source_binding_id,
+        item.materialization_reason,
+    )
+    if item.action is WorkflowOrchestrationAction.MATERIALIZE_STEP:
+        if item.target_input_structure_snapshot_id is None:
+            raise WorkflowOrchestrationError(
+                "materialization handoff requires an exact target StructureSnapshot"
+            )
+        return
+    if any(value is not None for value in materialization_values):
+        raise WorkflowOrchestrationError(
+            "non-materialization handoff cannot carry materialization fields"
+        )
+
+
+def _validate_execution_fields(item: WorkflowStepOrchestration) -> None:
+    execution_ready = {
+        WorkflowOrchestrationAction.EXECUTION_READY,
+        WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
+        WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
+        WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY,
+    }
+    if item.action in execution_ready:
+        if item.execution_plan_hash is None:
+            raise WorkflowOrchestrationError(
+                "execution handoff requires an exact ExecutionPlan hash"
+            )
+        if item.action in {
+            WorkflowOrchestrationAction.EXECUTION_READY,
+            WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY,
+        } and item.scheduler_node_id is None:
+            raise WorkflowOrchestrationError(
+                "scheduler-dispatch handoff requires a deterministic scheduler node id"
+            )
+        if item.action in {
+            WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
+            WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
+        } and item.scheduler_node_id is not None:
+            raise WorkflowOrchestrationError(
+                "same-attempt recovery must not be routed into scheduler new-attempt DAG"
+            )
+        return
+    if item.execution_plan_hash is not None or item.scheduler_node_id is not None:
+        raise WorkflowOrchestrationError(
+            "non-execution-ready handoff cannot carry execution dispatch fields"
+        )
+
+
+def _validate_recovery_fields(item: WorkflowStepOrchestration) -> None:
+    same_attempt = {
+        WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT: RecoveryAction.RETRY_SAME_ATTEMPT,
+        WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT: RecoveryAction.RESUBMIT_SAME_ATTEMPT,
+    }
+    if item.action is WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY:
+        if (
+            item.execution_recovery_action is not RecoveryAction.NEW_EXECUTION_ATTEMPT
+            or item.recovery_decision_hash is None
+        ):
+            raise WorkflowOrchestrationError(
+                "execution recovery dispatch requires NEW_EXECUTION_ATTEMPT provenance"
+            )
+        return
+    expected = same_attempt.get(item.action)
+    if expected is not None:
+        if item.execution_recovery_action is not expected or item.recovery_decision_hash is None:
+            raise WorkflowOrchestrationError(
+                "same-attempt recovery handoff requires exact RecoveryDecision provenance"
+            )
+        return
+    if item.execution_recovery_action is not None or item.recovery_decision_hash is not None:
+        raise WorkflowOrchestrationError(
+            "non-recovery handoff cannot carry RecoveryDecision provenance"
+        )
+
+
 def _validate_projections(
     *,
     plan: ScientificWorkflowPlan,
@@ -340,6 +376,26 @@ def _validate_projections(
         raise WorkflowOrchestrationError(
             "workflow recovery policies do not match canonical plan step order"
         )
+    expected_edges = {
+        (item.upstream_step_key, item.downstream_step_key, item.role) for item in plan.edges
+    }
+    actual_edges = {
+        (item.upstream_step_key, item.downstream_step_key, item.role) for item in gates.edge_gates
+    }
+    if actual_edges != expected_edges:
+        raise WorkflowOrchestrationError(
+            "workflow edge gates do not match canonical plan edge set"
+        )
+    for step_key in expected:
+        gate = gates.step(step_key)
+        policy = recovery.step(step_key)
+        if (
+            policy.current_binding_id != gate.current_binding_id
+            or policy.calculation_id != gate.calculation_id
+        ):
+            raise WorkflowOrchestrationError(
+                "workflow recovery policy does not match the exact current Block 5 generation"
+            )
 
 
 def _validate_execution_sources(
@@ -393,7 +449,7 @@ def _validate_execution_sources(
 def _reconcile_step(
     *,
     plan: ScientificWorkflowPlan,
-    gate: object,
+    gate: WorkflowStepGate,
     selection: WorkflowBindingSelection,
     policy: WorkflowStepRecoveryPolicy,
     incoming_edges: tuple[WorkflowEdgeGate, ...],
@@ -403,205 +459,37 @@ def _reconcile_step(
     SchedulerDagNode | None,
     WorkflowSchedulerRecoveryHandoff | None,
 ]:
-    # Kept local to avoid exposing a second public gate type hierarchy.
-    workflow_gate = gate
-    if not hasattr(workflow_gate, "step_key"):
-        raise WorkflowOrchestrationError("invalid workflow step gate")
-    step_key = workflow_gate.step_key
-    state = workflow_gate.scientific_state
-    readiness = workflow_gate.readiness
-
-    if policy.step_key != step_key:
+    if policy.step_key != gate.step_key:
         raise WorkflowOrchestrationError("recovery policy step does not match workflow gate")
 
     if policy.action is WorkflowRecoveryAction.NONE:
-        if state is WorkflowStepScientificState.UNMATERIALIZED:
-            _forbid_execution_source(execution_source, "unmaterialized step")
-            if readiness is not WorkflowStepReadiness.READY:
-                raise WorkflowOrchestrationError(
-                    "unmaterialized NONE policy requires Block 5 READY state"
-                )
-            target, source_binding_id = _materialization_target(
-                plan=plan,
-                incoming_edges=incoming_edges,
-            )
-            return (
-                _handoff(
-                    step_key=step_key,
-                    action=WorkflowOrchestrationAction.MATERIALIZE_STEP,
-                    current_binding_id=None,
-                    calculation_id=None,
-                    target_input_structure_snapshot_id=target,
-                    source_binding_id=source_binding_id,
-                    reason_codes=("ordinary_ready_step_materialization",),
-                ),
-                None,
-                None,
-            )
-        if state is WorkflowStepScientificState.PASSED:
-            _forbid_execution_source(execution_source, "satisfied step")
-            return (
-                _handoff(
-                    step_key=step_key,
-                    action=WorkflowOrchestrationAction.SATISFIED,
-                    current_binding_id=workflow_gate.current_binding_id,
-                    calculation_id=workflow_gate.calculation_id,
-                    reason_codes=("current_generation_scientifically_satisfied",),
-                ),
-                None,
-                None,
-            )
-        raise WorkflowOrchestrationError(
-            "NONE recovery policy is incompatible with current workflow scientific state"
-        )
-
-    if policy.action is WorkflowRecoveryAction.WAIT_FOR_PREREQUISITE:
-        if state is WorkflowStepScientificState.IN_PROGRESS:
-            calculation = _require_current_calculation(selection)
-            if calculation.status in {
-                CalculationScientificStatus.DRAFT,
-                CalculationScientificStatus.READY,
-            }:
-                if execution_source is None:
-                    return (
-                        _handoff(
-                            step_key=step_key,
-                            action=WorkflowOrchestrationAction.EXECUTION_PLAN_REQUIRED,
-                            current_binding_id=workflow_gate.current_binding_id,
-                            calculation_id=workflow_gate.calculation_id,
-                            reason_codes=("current_generation_requires_execution_plan",),
-                        ),
-                        None,
-                        None,
-                    )
-                _validate_ordinary_execution_source(execution_source)
-                node = _scheduler_node(selection=selection, source=execution_source)
-                return (
-                    _handoff(
-                        step_key=step_key,
-                        action=WorkflowOrchestrationAction.EXECUTION_READY,
-                        current_binding_id=workflow_gate.current_binding_id,
-                        calculation_id=workflow_gate.calculation_id,
-                        execution_plan_hash=execution_source.plan.plan_hash,
-                        scheduler_node_id=node.node_id,
-                        reason_codes=("current_generation_ready_for_execution_handoff",),
-                    ),
-                    node,
-                    None,
-                )
-            if calculation.status in {
-                CalculationScientificStatus.SUBMITTED,
-                CalculationScientificStatus.RUNNING,
-                CalculationScientificStatus.PARSING,
-            }:
-                _forbid_execution_source(execution_source, "already in-flight step")
-                return (
-                    _handoff(
-                        step_key=step_key,
-                        action=WorkflowOrchestrationAction.EXECUTION_IN_FLIGHT,
-                        current_binding_id=workflow_gate.current_binding_id,
-                        calculation_id=workflow_gate.calculation_id,
-                        reason_codes=(f"calculation_{calculation.status.value}_already_in_flight",),
-                    ),
-                    None,
-                    None,
-                )
-        _forbid_execution_source(execution_source, "waiting step")
-        return (
-            _handoff(
-                step_key=step_key,
-                action=WorkflowOrchestrationAction.WAIT,
-                current_binding_id=workflow_gate.current_binding_id,
-                calculation_id=workflow_gate.calculation_id,
-                reason_codes=policy.reason_codes or ("workflow_prerequisite_not_ready",),
-            ),
-            None,
-            None,
-        )
-
-    if policy.action is WorkflowRecoveryAction.REMATERIALIZE_STEP:
-        _forbid_execution_source(execution_source, "rematerialization step")
-        if policy.previous_binding_id is None or policy.target_input_structure_snapshot_id is None:
-            raise WorkflowOrchestrationError(
-                "rematerialization policy lacks previous binding or target structure"
-            )
-        target, source_binding_id = _materialization_target(
+        return _reconcile_none_policy(
             plan=plan,
+            gate=gate,
             incoming_edges=incoming_edges,
+            execution_source=execution_source,
         )
-        if target != policy.target_input_structure_snapshot_id:
-            raise WorkflowOrchestrationError(
-                "recovery materialization target does not match current scientific lineage"
-            )
-        return (
-            _handoff(
-                step_key=step_key,
-                action=WorkflowOrchestrationAction.MATERIALIZE_STEP,
-                current_binding_id=workflow_gate.current_binding_id,
-                calculation_id=workflow_gate.calculation_id,
-                previous_binding_id=policy.previous_binding_id,
-                target_input_structure_snapshot_id=target,
-                source_binding_id=source_binding_id,
-                materialization_reason=policy.materialization_reason,
-                reason_codes=policy.reason_codes or ("workflow_step_rematerialization",),
-            ),
-            None,
-            None,
+    if policy.action is WorkflowRecoveryAction.WAIT_FOR_PREREQUISITE:
+        return _reconcile_wait_policy(
+            gate=gate,
+            selection=selection,
+            execution_source=execution_source,
         )
-
-    if policy.action is WorkflowRecoveryAction.EXECUTION_RECOVERY:
-        if execution_source is None:
-            raise WorkflowOrchestrationError(
-                "execution recovery policy requires an exact WorkflowExecutionSource"
-            )
-        decision = _validate_recovery_execution_source(
+    if policy.action is WorkflowRecoveryAction.REMATERIALIZE_STEP:
+        return _reconcile_rematerialization(
+            plan=plan,
+            gate=gate,
+            selection=selection,
             policy=policy,
-            source=execution_source,
+            incoming_edges=incoming_edges,
+            execution_source=execution_source,
         )
-        if decision.action is RecoveryAction.RETRY_SAME_ATTEMPT:
-            return (
-                _recovery_handoff(
-                    step_key=step_key,
-                    workflow_gate=workflow_gate,
-                    action=WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
-                    source=execution_source,
-                    decision=decision,
-                ),
-                None,
-                None,
-            )
-        if decision.action is RecoveryAction.RESUBMIT_SAME_ATTEMPT:
-            return (
-                _recovery_handoff(
-                    step_key=step_key,
-                    workflow_gate=workflow_gate,
-                    action=WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
-                    source=execution_source,
-                    decision=decision,
-                ),
-                None,
-                None,
-            )
-        if decision.action is RecoveryAction.NEW_EXECUTION_ATTEMPT:
-            node = _scheduler_node(selection=selection, source=execution_source)
-            scheduler_recovery = WorkflowSchedulerRecoveryHandoff(
-                node_id=node.node_id,
-                decision=decision,
-            )
-            return (
-                _recovery_handoff(
-                    step_key=step_key,
-                    workflow_gate=workflow_gate,
-                    action=WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY,
-                    source=execution_source,
-                    decision=decision,
-                    scheduler_node_id=node.node_id,
-                ),
-                node,
-                scheduler_recovery,
-            )
-        raise WorkflowOrchestrationError(
-            "Block 7 execution recovery received a non-execution RecoveryAction"
+    if policy.action is WorkflowRecoveryAction.EXECUTION_RECOVERY:
+        return _reconcile_execution_recovery(
+            gate=gate,
+            selection=selection,
+            policy=policy,
+            execution_source=execution_source,
         )
 
     _forbid_execution_source(execution_source, "non-execution policy")
@@ -624,14 +512,236 @@ def _reconcile_step(
         ) from error
     return (
         _handoff(
-            step_key=step_key,
+            gate=gate,
             action=action,
-            current_binding_id=workflow_gate.current_binding_id,
-            calculation_id=workflow_gate.calculation_id,
             reason_codes=policy.reason_codes or (policy.action.value,),
         ),
         None,
         None,
+    )
+
+
+def _reconcile_none_policy(
+    *,
+    plan: ScientificWorkflowPlan,
+    gate: WorkflowStepGate,
+    incoming_edges: tuple[WorkflowEdgeGate, ...],
+    execution_source: WorkflowExecutionSource | None,
+) -> tuple[
+    WorkflowStepOrchestration,
+    SchedulerDagNode | None,
+    WorkflowSchedulerRecoveryHandoff | None,
+]:
+    if gate.scientific_state is WorkflowStepScientificState.UNMATERIALIZED:
+        _forbid_execution_source(execution_source, "unmaterialized step")
+        if gate.readiness is not WorkflowStepReadiness.READY:
+            raise WorkflowOrchestrationError(
+                "unmaterialized NONE policy requires Block 5 READY state"
+            )
+        target, source_binding_id = _materialization_target(
+            plan=plan,
+            incoming_edges=incoming_edges,
+        )
+        return (
+            _handoff(
+                gate=gate,
+                action=WorkflowOrchestrationAction.MATERIALIZE_STEP,
+                target_input_structure_snapshot_id=target,
+                source_binding_id=source_binding_id,
+                reason_codes=("ordinary_ready_step_materialization",),
+            ),
+            None,
+            None,
+        )
+    if gate.scientific_state is WorkflowStepScientificState.PASSED:
+        _forbid_execution_source(execution_source, "satisfied step")
+        return (
+            _handoff(
+                gate=gate,
+                action=WorkflowOrchestrationAction.SATISFIED,
+                reason_codes=("current_generation_scientifically_satisfied",),
+            ),
+            None,
+            None,
+        )
+    raise WorkflowOrchestrationError(
+        "NONE recovery policy is incompatible with current workflow scientific state"
+    )
+
+
+def _reconcile_wait_policy(
+    *,
+    gate: WorkflowStepGate,
+    selection: WorkflowBindingSelection,
+    execution_source: WorkflowExecutionSource | None,
+) -> tuple[
+    WorkflowStepOrchestration,
+    SchedulerDagNode | None,
+    WorkflowSchedulerRecoveryHandoff | None,
+]:
+    if gate.scientific_state is WorkflowStepScientificState.IN_PROGRESS:
+        calculation = _require_current_calculation(selection)
+        if calculation.status in {
+            CalculationScientificStatus.DRAFT,
+            CalculationScientificStatus.READY,
+        }:
+            if execution_source is None:
+                return (
+                    _handoff(
+                        gate=gate,
+                        action=WorkflowOrchestrationAction.EXECUTION_PLAN_REQUIRED,
+                        reason_codes=("current_generation_requires_execution_plan",),
+                    ),
+                    None,
+                    None,
+                )
+            _validate_ordinary_execution_source(execution_source)
+            node = _scheduler_node(selection=selection, source=execution_source)
+            return (
+                _handoff(
+                    gate=gate,
+                    action=WorkflowOrchestrationAction.EXECUTION_READY,
+                    execution_plan_hash=execution_source.plan.plan_hash,
+                    scheduler_node_id=node.node_id,
+                    reason_codes=("current_generation_ready_for_execution_handoff",),
+                ),
+                node,
+                None,
+            )
+        if calculation.status in {
+            CalculationScientificStatus.SUBMITTED,
+            CalculationScientificStatus.RUNNING,
+            CalculationScientificStatus.PARSING,
+        }:
+            _forbid_execution_source(execution_source, "already in-flight step")
+            return (
+                _handoff(
+                    gate=gate,
+                    action=WorkflowOrchestrationAction.EXECUTION_IN_FLIGHT,
+                    reason_codes=(f"calculation_{calculation.status.value}_already_in_flight",),
+                ),
+                None,
+                None,
+            )
+    _forbid_execution_source(execution_source, "waiting step")
+    return (
+        _handoff(
+            gate=gate,
+            action=WorkflowOrchestrationAction.WAIT,
+            reason_codes=("workflow_prerequisite_not_ready",),
+        ),
+        None,
+        None,
+    )
+
+
+def _reconcile_rematerialization(
+    *,
+    plan: ScientificWorkflowPlan,
+    gate: WorkflowStepGate,
+    selection: WorkflowBindingSelection,
+    policy: WorkflowStepRecoveryPolicy,
+    incoming_edges: tuple[WorkflowEdgeGate, ...],
+    execution_source: WorkflowExecutionSource | None,
+) -> tuple[
+    WorkflowStepOrchestration,
+    SchedulerDagNode | None,
+    WorkflowSchedulerRecoveryHandoff | None,
+]:
+    _forbid_execution_source(execution_source, "rematerialization step")
+    binding = selection.current_binding
+    if binding is None or selection.current_calculation is None:
+        raise WorkflowOrchestrationError(
+            "rematerialization requires a current workflow binding generation"
+        )
+    if policy.previous_binding_id != binding.id:
+        raise WorkflowOrchestrationError(
+            "rematerialization policy must supersede the exact current binding generation"
+        )
+    if policy.target_input_structure_snapshot_id is None:
+        raise WorkflowOrchestrationError(
+            "rematerialization policy lacks exact target StructureSnapshot"
+        )
+    target, source_binding_id = _materialization_target(
+        plan=plan,
+        incoming_edges=incoming_edges,
+    )
+    if target != policy.target_input_structure_snapshot_id:
+        raise WorkflowOrchestrationError(
+            "recovery materialization target does not match current scientific lineage"
+        )
+    return (
+        _handoff(
+            gate=gate,
+            action=WorkflowOrchestrationAction.MATERIALIZE_STEP,
+            previous_binding_id=binding.id,
+            target_input_structure_snapshot_id=target,
+            source_binding_id=source_binding_id,
+            materialization_reason=policy.materialization_reason,
+            reason_codes=policy.reason_codes or ("workflow_step_rematerialization",),
+        ),
+        None,
+        None,
+    )
+
+
+def _reconcile_execution_recovery(
+    *,
+    gate: WorkflowStepGate,
+    selection: WorkflowBindingSelection,
+    policy: WorkflowStepRecoveryPolicy,
+    execution_source: WorkflowExecutionSource | None,
+) -> tuple[
+    WorkflowStepOrchestration,
+    SchedulerDagNode | None,
+    WorkflowSchedulerRecoveryHandoff | None,
+]:
+    if execution_source is None:
+        raise WorkflowOrchestrationError(
+            "execution recovery policy requires an exact WorkflowExecutionSource"
+        )
+    decision = _validate_recovery_execution_source(policy=policy, source=execution_source)
+    if decision.action is RecoveryAction.RETRY_SAME_ATTEMPT:
+        return (
+            _recovery_handoff(
+                gate=gate,
+                action=WorkflowOrchestrationAction.RETRY_SAME_ATTEMPT,
+                source=execution_source,
+                decision=decision,
+            ),
+            None,
+            None,
+        )
+    if decision.action is RecoveryAction.RESUBMIT_SAME_ATTEMPT:
+        return (
+            _recovery_handoff(
+                gate=gate,
+                action=WorkflowOrchestrationAction.RESUBMIT_SAME_ATTEMPT,
+                source=execution_source,
+                decision=decision,
+            ),
+            None,
+            None,
+        )
+    if decision.action is RecoveryAction.NEW_EXECUTION_ATTEMPT:
+        node = _scheduler_node(selection=selection, source=execution_source)
+        scheduler_recovery = WorkflowSchedulerRecoveryHandoff(
+            node_id=node.node_id,
+            decision=decision,
+        )
+        return (
+            _recovery_handoff(
+                gate=gate,
+                action=WorkflowOrchestrationAction.EXECUTION_RECOVERY_READY,
+                source=execution_source,
+                decision=decision,
+                scheduler_node_id=node.node_id,
+            ),
+            node,
+            scheduler_recovery,
+        )
+    raise WorkflowOrchestrationError(
+        "Block 7 execution recovery received a non-execution RecoveryAction"
     )
 
 
@@ -721,9 +831,8 @@ def _scheduler_node(
         raise WorkflowOrchestrationError(
             "scheduler handoff requires a current workflow binding"
         )
-    node_id = f"workflow-{source.step_key}-g{binding.generation}"
     return SchedulerDagNode(
-        node_id=node_id,
+        node_id=f"workflow-{source.step_key}-g{binding.generation}",
         calculation=source.calculation,
         plan=source.plan,
         depends_on=(),
@@ -732,18 +841,15 @@ def _scheduler_node(
 
 def _recovery_handoff(
     *,
-    step_key: str,
-    workflow_gate: object,
+    gate: WorkflowStepGate,
     action: WorkflowOrchestrationAction,
     source: WorkflowExecutionSource,
     decision: RecoveryDecision,
     scheduler_node_id: str | None = None,
 ) -> WorkflowStepOrchestration:
     return _handoff(
-        step_key=step_key,
+        gate=gate,
         action=action,
-        current_binding_id=workflow_gate.current_binding_id,
-        calculation_id=workflow_gate.calculation_id,
         execution_plan_hash=source.plan.plan_hash,
         scheduler_node_id=scheduler_node_id,
         execution_recovery_action=decision.action,
@@ -772,10 +878,8 @@ def _forbid_execution_source(
 
 def _handoff(
     *,
-    step_key: str,
+    gate: WorkflowStepGate,
     action: WorkflowOrchestrationAction,
-    current_binding_id: WorkflowStepBindingId | None,
-    calculation_id: CalculationId | None,
     previous_binding_id: WorkflowStepBindingId | None = None,
     target_input_structure_snapshot_id: StructureSnapshotId | None = None,
     source_binding_id: WorkflowStepBindingId | None = None,
@@ -787,10 +891,10 @@ def _handoff(
     reason_codes: tuple[str, ...],
 ) -> WorkflowStepOrchestration:
     return WorkflowStepOrchestration(
-        step_key=step_key,
+        step_key=gate.step_key,
         action=action,
-        current_binding_id=current_binding_id,
-        calculation_id=calculation_id,
+        current_binding_id=gate.current_binding_id,
+        calculation_id=gate.calculation_id,
         previous_binding_id=previous_binding_id,
         target_input_structure_snapshot_id=target_input_structure_snapshot_id,
         source_binding_id=source_binding_id,
