@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 
@@ -15,6 +16,7 @@ from ecatvasp.domain import (
     PotcarIdentity,
     ProtocolDefinition,
     RecipeIdentity,
+    ScientificWorkflowPlan,
     StructureOrigin,
     StructureSite,
     StructureSnapshot,
@@ -23,7 +25,12 @@ from ecatvasp.domain import (
     WorkflowRecipeIdentity,
     WorkflowStepBinding,
 )
-from ecatvasp.domain.ids import new_atom_uid, new_catalyst_id, new_workflow_step_binding_id
+from ecatvasp.domain.ids import (
+    new_atom_uid,
+    new_catalyst_id,
+    new_project_id,
+    new_workflow_step_binding_id,
+)
 from ecatvasp.provenance import (
     DependencyKind,
     DependencyRecord,
@@ -109,7 +116,10 @@ def _context() -> VaspSystemContext:
     )
 
 
-def _lock(plan, fingerprint: MethodFingerprint) -> ProjectNumericalLock:
+def _lock(
+    plan: ScientificWorkflowPlan,
+    fingerprint: MethodFingerprint,
+) -> ProjectNumericalLock:
     return ProjectNumericalLock(
         project_id=plan.project_id,
         system_kind=VaspSystemKind.SLAB_2D,
@@ -121,9 +131,9 @@ def _lock(plan, fingerprint: MethodFingerprint) -> ProjectNumericalLock:
     )
 
 
-def _plan(root: StructureSnapshot):
+def _plan(root: StructureSnapshot) -> ScientificWorkflowPlan:
     return plan_scientific_workflow(
-        project_id=_lock_project_id(),
+        project_id=new_project_id(),
         workflow_recipe=WorkflowRecipeIdentity(
             WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION
         ),
@@ -131,20 +141,14 @@ def _plan(root: StructureSnapshot):
     ).plan
 
 
-def _lock_project_id():
-    from ecatvasp.domain.ids import new_project_id
-
-    return new_project_id()
-
-
 def _relax_generation(
     *,
-    plan,
+    plan: ScientificWorkflowPlan,
     root: StructureSnapshot,
     status: CalculationScientificStatus = CalculationScientificStatus.CONVERGED,
     previous_binding: WorkflowStepBinding | None = None,
     z: float = 0.31,
-):
+) -> tuple[Calculation, WorkflowStepBinding, AcceptedStructureSource]:
     fingerprint = _fingerprint(RECIPE_SLAB_RELAX)
     materialized = materialize_workflow_step(
         plan=plan,
@@ -181,7 +185,11 @@ def _relax_generation(
     return calculation, materialized.binding, source
 
 
-def _static_generation(*, plan, source: AcceptedStructureSource):
+def _static_generation(
+    *,
+    plan: ScientificWorkflowPlan,
+    source: AcceptedStructureSource,
+) -> tuple[Calculation, WorkflowStepBinding]:
     fingerprint = _fingerprint(RECIPE_GROUND_STATE_STATIC)
     materialized = materialize_workflow_step(
         plan=plan,
@@ -191,10 +199,11 @@ def _static_generation(*, plan, source: AcceptedStructureSource):
         project_lock=_lock(plan, fingerprint),
         accepted_structure_source=source,
     )
-    return replace(
+    calculation = replace(
         materialized.calculation,
         status=CalculationScientificStatus.CONVERGED,
-    ), materialized.binding
+    )
+    return calculation, materialized.binding
 
 
 def test_converged_fresh_promoted_upstream_opens_downstream_gate() -> None:
@@ -272,11 +281,12 @@ def test_nonpassing_upstream_never_opens_downstream(
 
     edge = gates.edge("relax", "static", WORKFLOW_EDGE_ACCEPTED_STRUCTURE)
     assert edge.verdict is expected_verdict
-    assert gates.step("static").readiness is (
+    expected_readiness = (
         WorkflowStepReadiness.WAITING
         if expected_verdict is WorkflowEdgeGateVerdict.WAITING
         else WorkflowStepReadiness.BLOCKED
     )
+    assert gates.step("static").readiness is expected_readiness
 
 
 def test_unpromoted_converged_relaxation_keeps_downstream_closed() -> None:
@@ -303,7 +313,7 @@ def test_unpromoted_converged_relaxation_keeps_downstream_closed() -> None:
     assert gates.step("static").readiness is WorkflowStepReadiness.WAITING
 
 
-def test_stale_or_invalid_scientific_inputs_fail_closed() -> None:
+def test_stale_or_invalid_calculation_freshness_fails_closed() -> None:
     root = _snapshot()
     plan = _plan(root)
     relax, relax_binding, source = _relax_generation(plan=plan, root=root)
@@ -389,7 +399,7 @@ def test_stale_promoted_snapshot_blocks_accepted_structure_edge() -> None:
     assert "accepted_structure_stale" in edge.reason_codes
 
 
-def test_new_upstream_generation_supersedes_old_and_stales_old_downstream_binding() -> None:
+def test_new_upstream_generation_supersedes_old_downstream_lineage() -> None:
     root = _snapshot()
     plan = _plan(root)
     relax1, binding1, source1 = _relax_generation(plan=plan, root=root, z=0.31)
@@ -459,8 +469,6 @@ def test_unknown_freshness_override_fails_closed() -> None:
     root = _snapshot()
     plan = _plan(root)
     relax, relax_binding, source = _relax_generation(plan=plan, root=root)
-
-    from uuid import uuid4
 
     with pytest.raises(WorkflowGateError, match="outside the evaluation graph"):
         evaluate_workflow_freshness(
