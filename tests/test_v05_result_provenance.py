@@ -238,7 +238,7 @@ def test_result_materialization_builds_durable_analysis_artifact_chain(
     bundle.validate()
     ProjectStore(tmp_path).save(bundle)
     assert ProjectStore(tmp_path).open() == bundle
-    assert SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 3
 
 
 def test_raw_hash_drift_stales_entire_scientific_result_chain(tmp_path: Path) -> None:
