@@ -73,12 +73,12 @@ Generation 1 has no predecessor. Generation >1 must explicitly identify the bind
 The ProjectBundle validates that a supersession remains on the same plan/step and increments the
 generation contiguously. Historical bindings and Calculations are retained rather than mutated.
 
-`binding_hash` is deterministic over the resolved orchestration identity. Human-readable
-`materialization_reason` is audit context and intentionally does not alter the scientific binding
-hash.
+`binding_hash` is a deterministic audit identity for an already-materialized binding. Human-readable
+`materialization_reason` is audit context and intentionally does not alter that hash. Because the hash
+contains the resolved Calculation identity, it is not the pre-materialization reuse key. Deterministic
+planning and the idempotency key used before creating a Calculation remain later v0.6 scope.
 
-This contract establishes the durable identity required for later idempotent reconciliation; Block 1
-does not yet create, resume, or supersede bindings automatically.
+Block 1 does not create, resume, reuse, or supersede bindings automatically.
 
 ### 5. ProjectBundle validates the workflow-to-Calculation boundary
 
