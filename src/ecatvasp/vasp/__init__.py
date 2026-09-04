@@ -45,6 +45,11 @@ from ecatvasp.vasp.execution_plan import (
     VaspRuntimeConstraints,
     build_execution_plan,
 )
+from ecatvasp.vasp.existing_import import (
+    ExistingVaspImport,
+    ParsedVaspResult,
+    import_existing_vasp_folder,
+)
 from ecatvasp.vasp.frequency import (
     ECATVASP_FREQUENCY_MAX_EDIFF_EV,
     ECATVASP_FREQUENCY_SELECTION_DIGEST,
@@ -69,11 +74,8 @@ from ecatvasp.vasp.frequency_results import (
     parse_vasp_frequency_results,
 )
 from ecatvasp.vasp.importer import (
-    ExistingVaspImport,
-    ParsedVaspResult,
     VaspFolderInspection,
     VaspImportError,
-    import_existing_vasp_folder,
     inspect_vasp_folder,
 )
 from ecatvasp.vasp.incar import (
@@ -190,6 +192,17 @@ from ecatvasp.vasp.result_parser import (
     VaspResultParseError,
     parse_vasp_energy_metadata,
 )
+from ecatvasp.vasp.result_provenance import (
+    VASP_CONVERGENCE_ARTIFACT_FORMAT,
+    VASP_CONVERGENCE_ARTIFACT_VERSION,
+    VASP_SCIENTIFIC_RESULT_PIPELINE_NAME,
+    VASP_SCIENTIFIC_RESULT_PIPELINE_VERSION,
+    VaspResultProvenanceError,
+    VaspScientificResultIntake,
+    VaspScientificResultMaterialization,
+    materialize_vasp_scientific_result,
+    reconcile_vasp_calculation_status,
+)
 from ecatvasp.vasp.results import (
     VASP_RESULT_DOCUMENT_FORMAT,
     VASP_RESULT_DOCUMENT_VERSION,
@@ -250,6 +263,8 @@ __all__ = [
     "RECIPE_SLAB_RELAX",
     "VASP_CONTCAR_RECONSTRUCTOR_NAME",
     "VASP_CONTCAR_RECONSTRUCTOR_VERSION",
+    "VASP_CONVERGENCE_ARTIFACT_FORMAT",
+    "VASP_CONVERGENCE_ARTIFACT_VERSION",
     "VASP_CONVERGENCE_CLASSIFIER_NAME",
     "VASP_CONVERGENCE_CLASSIFIER_VERSION",
     "VASP_ENERGY_METADATA_PARSER_NAME",
@@ -263,6 +278,8 @@ __all__ = [
     "VASP_RECIPE_SPECS",
     "VASP_RESULT_DOCUMENT_FORMAT",
     "VASP_RESULT_DOCUMENT_VERSION",
+    "VASP_SCIENTIFIC_RESULT_PIPELINE_NAME",
+    "VASP_SCIENTIFIC_RESULT_PIPELINE_VERSION",
     "AnalysisPrerequisiteInputPipelineError",
     "AnalysisPrerequisiteInputResult",
     "AnalysisPrerequisitePreparationError",
@@ -347,10 +364,13 @@ __all__ = [
     "VaspResultInputFile",
     "VaspResultIntakeError",
     "VaspResultParseError",
+    "VaspResultProvenanceError",
     "VaspResultSource",
     "VaspResultSourceRole",
     "VaspRuntimeCapability",
     "VaspRuntimeConstraints",
+    "VaspScientificResultIntake",
+    "VaspScientificResultMaterialization",
     "VaspSiteForce",
     "VaspSiteScalarMagnetization",
     "VaspSiteVectorMagnetization",
@@ -371,6 +391,7 @@ __all__ = [
     "inspect_vasp_folder",
     "lobster_recipe_parameters",
     "materialize_calculation_inputs",
+    "materialize_vasp_scientific_result",
     "parse_vasp_energy_metadata",
     "parse_vasp_forces_magnetization",
     "parse_vasp_frequency_results",
@@ -386,6 +407,7 @@ __all__ = [
     "prepare_poscar",
     "promote_vasp_contcar_snapshot",
     "reconcile_generated_input_directory",
+    "reconcile_vasp_calculation_status",
     "reconstruct_vasp_contcar_snapshot",
     "result_source_artifact_type",
     "suggest_encut_baseline",

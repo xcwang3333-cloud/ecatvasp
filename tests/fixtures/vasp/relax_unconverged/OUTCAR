@@ -1,4 +1,5 @@
 vasp.6.4.3 18Apr24 (build Aug 20 2026)
+ NELM = 60; NSW = 200
  free  energy   TOTEN  =       -120.100000 eV
  E-fermi :   2.1000
  POSITION                                       TOTAL-FORCE (eV/Angst)
@@ -10,3 +11,4 @@ vasp.6.4.3 18Apr24 (build Aug 20 2026)
  -----------------------------------------------------------------------------------
  free  energy   TOTEN  =       -120.250000 eV
  E-fermi :   2.1500
+ General timing and accounting information for this job:
