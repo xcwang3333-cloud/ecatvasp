@@ -37,7 +37,11 @@ from ecatvasp.structures.identity import validate_identity_preserving_revision
 from ecatvasp.vasp.convergence import VaspConvergenceEvidence, assess_vasp_convergence
 from ecatvasp.vasp.execution_plan import ExecutionPlan, StagingInput, StagingInputKind
 from ecatvasp.vasp.result_intake import VaspResultArtifactIntake, VaspResultInputFile
-from ecatvasp.vasp.results import ConvergenceVerdict, VaspConvergenceAssessment, VaspResultSourceRole
+from ecatvasp.vasp.results import (
+    ConvergenceVerdict,
+    VaspConvergenceAssessment,
+    VaspResultSourceRole,
+)
 
 VASP_CONTCAR_RECONSTRUCTOR_NAME = "ecatvasp.vasp.contcar-reconstructor"
 VASP_CONTCAR_RECONSTRUCTOR_VERSION = "1"
@@ -200,7 +204,9 @@ def promote_vasp_contcar_snapshot(
     if reconstruction.input_snapshot_id != input_snapshot.id:
         raise VaspStructurePromotionError("reconstruction belongs to another input snapshot")
     if calculation.input_structure_snapshot_id != input_snapshot.id:
-        raise VaspStructurePromotionError("Calculation does not reference the supplied input snapshot")
+        raise VaspStructurePromotionError(
+            "Calculation does not reference the supplied input snapshot"
+        )
     if evidence.calculation_id != calculation.id:
         raise VaspStructurePromotionError("convergence evidence belongs to another Calculation")
     if evidence.intake_hash.lower() != reconstruction.intake_hash.lower():
@@ -246,17 +252,25 @@ def _validate_reconstruction_identity(
     if calculation.calculation_type not in _RELAX_TYPES:
         raise VaspStructurePromotionError("CONTCAR reconstruction requires a relax Calculation")
     if calculation.input_structure_snapshot_id != input_snapshot.id:
-        raise VaspStructurePromotionError("Calculation does not reference the supplied input snapshot")
+        raise VaspStructurePromotionError(
+            "Calculation does not reference the supplied input snapshot"
+        )
     if plan.calculation_id != calculation.id or intake.calculation_id != calculation.id:
         raise VaspStructurePromotionError("plan/intake belongs to another Calculation")
     if plan.recipe_id != calculation.recipe_id or intake.recipe_id != calculation.recipe_id:
         raise VaspStructurePromotionError("plan/intake recipe does not match Calculation")
     if intake.calculation_type is not calculation.calculation_type:
-        raise VaspStructurePromotionError("result intake CalculationType does not match Calculation")
+        raise VaspStructurePromotionError(
+            "result intake CalculationType does not match Calculation"
+        )
     if intake.plan_hash != plan.plan_hash:
-        raise VaspStructurePromotionError("result intake does not reference the exact ExecutionPlan")
+        raise VaspStructurePromotionError(
+            "result intake does not reference the exact ExecutionPlan"
+        )
     if intake.input_manifest_hash != plan.input_manifest_sha256:
-        raise VaspStructurePromotionError("result intake input manifest does not match ExecutionPlan")
+        raise VaspStructurePromotionError(
+            "result intake input manifest does not match ExecutionPlan"
+        )
 
 
 def _parse_atom_map(
@@ -345,7 +359,8 @@ def _parse_vasp_structure_bytes(body: bytes, *, source_name: str) -> _ParsedVasp
     scale = _parse_float(scale_tokens[0], f"{source_name} scale factor")
     if scale <= 0:
         raise VaspStructurePromotionError(
-            f"{source_name} requires a positive scale factor; negative volume scaling is unsupported"
+            f"{source_name} requires a positive scale factor; "
+            "negative volume scaling is unsupported"
         )
 
     lattice = Lattice(
@@ -390,7 +405,10 @@ def _parse_vasp_structure_bytes(body: bytes, *, source_name: str) -> _ParsedVasp
             (coord[0] * scale, coord[1] * scale, coord[2] * scale)
             for coord in coordinates
         )
-        fractional = tuple(_cartesian_to_fractional(coord, lattice, source_name) for coord in scaled_cartesian)
+        fractional = tuple(
+            _cartesian_to_fractional(coord, lattice, source_name)
+            for coord in scaled_cartesian
+        )
     else:
         raise VaspStructurePromotionError(f"unsupported {source_name} coordinate mode")
     return _ParsedVaspStructure(
@@ -400,7 +418,11 @@ def _parse_vasp_structure_bytes(body: bytes, *, source_name: str) -> _ParsedVasp
     )
 
 
-def _scaled_vector(line: str, scale: float, source_name: str) -> tuple[float, float, float]:
+def _scaled_vector(
+    line: str,
+    scale: float,
+    source_name: str,
+) -> tuple[float, float, float]:
     values = _parse_coordinate_row(line, source_name)
     return values[0] * scale, values[1] * scale, values[2] * scale
 
