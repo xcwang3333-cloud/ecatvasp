@@ -229,25 +229,25 @@ class ProjectBundle:
                 raise ProjectIntegrityError(
                     "WorkflowStepBinding references a missing workflow step"
                 ) from error
-            calculation = calculations.get(binding.calculation_id)
-            if calculation is None:
+            bound_calculation = calculations.get(binding.calculation_id)
+            if bound_calculation is None:
                 raise ProjectIntegrityError("WorkflowStepBinding references a missing Calculation")
             if binding.resolved_input_structure_snapshot_id not in snapshots:
                 raise ProjectIntegrityError(
                     "WorkflowStepBinding resolved StructureSnapshot is missing"
                 )
             if (
-                calculation.input_structure_snapshot_id
+                bound_calculation.input_structure_snapshot_id
                 != binding.resolved_input_structure_snapshot_id
             ):
                 raise ProjectIntegrityError(
                     "WorkflowStepBinding resolved snapshot does not match Calculation input"
                 )
-            if calculation.calculation_type is not step.calculation_type:
+            if bound_calculation.calculation_type is not step.calculation_type:
                 raise ProjectIntegrityError(
                     "WorkflowStepBinding CalculationType does not match workflow step"
                 )
-            if calculation.recipe_id != step.recipe_id:
+            if bound_calculation.recipe_id != step.recipe_id:
                 raise ProjectIntegrityError(
                     "WorkflowStepBinding Calculation recipe does not match workflow step"
                 )
