@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import heapq
 from collections import defaultdict
 from dataclasses import dataclass, field
-import heapq
 
 from ecatvasp.domain import (
     ProjectId,
@@ -144,13 +144,18 @@ def plan_scientific_workflow(
     except WorkflowRecipeContractError as error:
         raise WorkflowPlanningError(str(error)) from error
 
+    normalized_parameters_hash = (
+        None
+        if parameters_hash is None
+        else _validate_sha256(parameters_hash, "parameters_hash")
+    )
     plan = ScientificWorkflowPlan(
         project_id=project_id,
         workflow_recipe=spec.identity,
         root_structure_snapshot_id=root_structure_snapshot_id,
         steps=spec.steps,
         edges=spec.edges,
-        parameters_hash=parameters_hash,
+        parameters_hash=normalized_parameters_hash,
     )
     try:
         validate_workflow_plan_recipe_contract(plan)
