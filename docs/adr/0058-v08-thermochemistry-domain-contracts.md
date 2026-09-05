@@ -39,17 +39,28 @@ the rejected condition.
 Block 1 intentionally provides no absolute-value conversion for imaginary frequencies, no automatic
 quasi-RRHO floor, and no heuristic mode classifier.
 
-### 4. Gas molecular metadata is explicit
+### 4. Gas molecular metadata and atomic masses are explicit
 
-`GasMoleculeModel` records monatomic/linear/nonlinear geometry class, symmetry number, and spin
-multiplicity. Gas thermochemistry identity requires this metadata and an ideal-gas standard state.
+`GasMoleculeModel` records monatomic/linear/nonlinear geometry class, symmetry number, spin
+multiplicity, and exact atom-UID-bound masses. `GasAtomicMass` preserves the mass used for each
+source atom and may carry an isotopologue label. A later gas materializer must validate that the
+mass assignment is a complete permutation of the exact source snapshot/frequency atom UIDs; it may
+not silently substitute an ASE periodic-table default.
+
+Gas thermochemistry identity requires this molecular metadata and an ideal-gas standard state.
 Spin-degeneracy electronic entropy is legal only when explicit gas molecular metadata exists.
+Changing any mass or isotopologue assignment changes the Analysis parameters hash.
 
-### 5. Thermochemistry identity is directly hashable
+### 5. Thermochemistry identity is directly hashable and correction-complete
 
 `ThermochemistryIdentity.parameters_hash` uses the existing canonical serializer. Temperature,
 pressure, standard state, electronic-energy semantic, electronic-entropy policy, vibrational policy,
-mode exclusions, and gas molecular metadata therefore produce deterministic identity drift.
+mode exclusions, gas geometry/symmetry/spin/masses, and all declared additive corrections therefore
+produce deterministic identity drift.
+
+Corrections are typed and carry value, label, policy id, and policy version in the identity. A result
+must carry exactly the same correction tuple; the final free energy cannot change under an unchanged
+Analysis identity by silently replacing a correction value.
 
 The hash is intended to populate the existing `Analysis.parameters_hash`; no new persisted identity
 entity is created.
@@ -58,17 +69,18 @@ entity is created.
 
 `ThermochemistryComponents` stores electronic energy, ZPE, vibrational/translational/rotational
 thermal-energy terms, the ideal-gas pV term, vibrational/translational/rotational/electronic entropy
-terms, and an ordered set of visible additive corrections. `ThermochemistryResult` may derive
-Gibbs energy from those components, but the component values remain first-class dataset content.
+terms, and the visible additive corrections. `ThermochemistryResult` may derive Gibbs energy from
+those components, but the component values remain first-class dataset content.
 
-Corrections are typed and carry label plus policy id/version. Later Blocks must additionally bind
-correction source/provenance through exact Analysis inputs and SCIENTIFIC dependencies.
+Later Blocks must additionally bind correction source/provenance through exact Analysis inputs and
+SCIENTIFIC dependencies.
 
-### 7. Concrete mode selection is result evidence
+### 7. Concrete mode selection is result evidence and must match identity
 
 `ThermochemistryModeSelection` records accepted raw VASP mode indices and explicit exclusions. A
 mode cannot be both accepted and excluded. An identity with vibrational policy requires a concrete
-selection in its result; a result without vibrational policy rejects mode-selection evidence.
+selection in its result; a result without vibrational policy rejects mode-selection evidence. The
+result exclusion set must equal the exclusions declared by the identity policy exactly.
 
 ### 8. Scope remains value-contract only
 
