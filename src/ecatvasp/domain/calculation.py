@@ -1,38 +1,27 @@
-"""Calculation, execution, and artifact domain entities."""
+"""Calculation, execution, artifact, and analysis domain entities."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
-from pathlib import PurePosixPath
-from typing import NewType
-from uuid import UUID
+from typing import ClassVar, TypeAlias
 
 from ecatvasp.domain.ids import (
+    AnalysisId,
+    ArtifactId,
     CalculationId,
     ExecutionAttemptId,
     MethodFingerprintId,
     ProjectId,
     RemoteJobId,
     StructureSnapshotId,
-    new_uuid7,
+    new_analysis_id,
+    new_artifact_id,
+    new_calculation_id,
+    new_execution_attempt_id,
+    new_remote_job_id,
 )
-
-ArtifactId = NewType("ArtifactId", UUID)
-AnalysisId = NewType("AnalysisId", UUID)
-
-
-def new_artifact_id() -> ArtifactId:
-    return ArtifactId(new_uuid7())
-
-
-def new_analysis_id() -> AnalysisId:
-    return AnalysisId(new_uuid7())
-
-
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 def _require_text(value: str, field_name: str) -> None:
@@ -40,16 +29,22 @@ def _require_text(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must not be blank")
 
 
-def _normalized_sha256(value: str, field_name: str) -> str:
-    normalized = value.lower()
-    valid_hex = all(character in "0123456789abcdef" for character in normalized)
-    if len(normalized) != 64 or not valid_hex:
+def _validate_sha256(value: str | None, field_name: str) -> None:
+    if value is None:
+        return
+    if len(value) != 64 or any(character not in "0123456789abcdefABCDEF" for character in value):
         raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
-    return normalized
+
+
+def _validate_time_window(started_at: datetime | None, finished_at: datetime | None) -> None:
+    if finished_at is not None and started_at is None:
+        raise ValueError("finished_at requires started_at")
+    if started_at is not None and finished_at is not None and finished_at < started_at:
+        raise ValueError("finished_at must not be earlier than started_at")
 
 
 class CalculationType(StrEnum):
-    """Scientific Calculation identity classes supported by ECatVASP."""
+    """Scientific calculation tasks that execute an electronic-structure engine."""
 
     RELAX = "relax"
     STATIC = "static"
@@ -57,10 +52,18 @@ class CalculationType(StrEnum):
     DOS_STATIC = "dos_static"
     CHARGE_STATIC = "charge_static"
     LOBSTER_PREREQUISITE = "lobster_prerequisite"
+    GAS_RELAX = "gas_relax"
+    GAS_FREQUENCY = "gas_frequency"
+
+
+class CalculationEngine(StrEnum):
+    """Electronic-structure engine used by a Calculation."""
+
+    VASP = "vasp"
 
 
 class CalculationScientificStatus(StrEnum):
-    """Scientific lifecycle; scheduler completion is intentionally excluded."""
+    """Scientific state, deliberately separate from scheduler state."""
 
     DRAFT = "draft"
     READY = "ready"
@@ -147,37 +150,45 @@ class ArtifactType(StrEnum):
 
 
 class ArtifactAvailability(StrEnum):
-    """Where exact Artifact content is currently available."""
+    """Where an artifact is currently available."""
 
     LOCAL = "local"
     REMOTE = "remote"
     BOTH = "both"
     MISSING = "missing"
+    ARCHIVED = "archived"
 
 
 class RetrievalPolicy(StrEnum):
-    """Default retrieval expectation for output artifacts."""
+    """Default movement policy for potentially large artifacts."""
 
     ALWAYS = "always"
     ON_DEMAND = "on_demand"
-    NEVER = "never"
+    REMOTE_ONLY = "remote_only"
+    DISCARDABLE = "discardable"
 
 
 class AnalysisType(StrEnum):
-    """Derived scientific analysis classes."""
+    """Derived scientific analyses; these are not VASP Calculation types."""
 
+    RESULT_PARSE = "result_parse"
+    CONVERGENCE = "convergence"
     BADER = "bader"
     CHARGE_DIFFERENCE = "charge_difference"
     DOS = "dos"
     PDOS = "pdos"
     COHP = "cohp"
     BAND_CENTER = "band_center"
+    GEOMETRY = "geometry"
+    THERMOCHEMISTRY = "thermochemistry"
 
 
 class AnalysisStatus(StrEnum):
-    """Lifecycle for derived analysis independent of Calculation status."""
+    """Lifecycle of a derived analysis independent from Calculation status."""
 
-    PLANNED = "planned"
+    DRAFT = "draft"
+    READY = "ready"
+    BLOCKED = "blocked"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -185,98 +196,116 @@ class AnalysisStatus(StrEnum):
     INVALID = "invalid"
 
 
+class ArtifactProducerKind(StrEnum):
+    """Kinds of immutable domain objects allowed to produce an Artifact."""
+
+    CALCULATION = "calculation"
+    EXECUTION_ATTEMPT = "execution_attempt"
+    ANALYSIS = "analysis"
+
+
 @dataclass(frozen=True, slots=True)
 class CalculationProducerRef:
-    """Artifact produced deterministically by a Calculation preparation stage."""
+    """Reference to a Calculation that materialized a calculation-level artifact."""
 
     id: CalculationId
+    kind: ClassVar[ArtifactProducerKind] = ArtifactProducerKind.CALCULATION
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionAttemptProducerRef:
-    """Artifact produced by a specific immutable execution attempt."""
+    """Reference to an attempt that produced a concrete runtime artifact."""
 
     id: ExecutionAttemptId
+    kind: ClassVar[ArtifactProducerKind] = ArtifactProducerKind.EXECUTION_ATTEMPT
 
 
 @dataclass(frozen=True, slots=True)
 class AnalysisProducerRef:
-    """Artifact produced by a derived scientific Analysis."""
+    """Reference to an Analysis that produced a derived artifact."""
 
     id: AnalysisId
+    kind: ClassVar[ArtifactProducerKind] = ArtifactProducerKind.ANALYSIS
 
 
-ArtifactProducerRef = CalculationProducerRef | ExecutionAttemptProducerRef | AnalysisProducerRef
+ArtifactProducerRef: TypeAlias = (
+    CalculationProducerRef | ExecutionAttemptProducerRef | AnalysisProducerRef
+)
 
 
 @dataclass(frozen=True, slots=True)
 class Calculation:
-    """Immutable scientific Calculation identity; execution attempts are separate."""
+    """One scientific calculation intent, independent from any execution attempt."""
 
     project_id: ProjectId
     calculation_type: CalculationType
     input_structure_snapshot_id: StructureSnapshotId
     recipe_id: str
     method_fingerprint_id: MethodFingerprintId
-    id: CalculationId = field(default_factory=lambda: CalculationId(new_uuid7()))
-    engine: str = "vasp"
+    id: CalculationId = field(default_factory=new_calculation_id)
+    engine: CalculationEngine = CalculationEngine.VASP
     status: CalculationScientificStatus = CalculationScientificStatus.DRAFT
-    created_at: datetime = field(default_factory=_utc_now)
+    slug: str | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.recipe_id, "recipe_id")
-        _require_text(self.engine, "engine")
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at must be timezone-aware")
+        if self.slug is not None:
+            _require_text(self.slug, "slug")
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionAttempt:
-    """One immutable execution try for an existing scientific Calculation."""
+    """One immutable run attempt for a Calculation."""
 
     calculation_id: CalculationId
     attempt_number: int
-    id: ExecutionAttemptId = field(default_factory=lambda: ExecutionAttemptId(new_uuid7()))
+    id: ExecutionAttemptId = field(default_factory=new_execution_attempt_id)
     status: ExecutionAttemptStatus = ExecutionAttemptStatus.CREATED
-    execution_target: str | None = None
-    created_at: datetime = field(default_factory=_utc_now)
+    previous_attempt_id: ExecutionAttemptId | None = None
+    input_manifest_hash: str | None = None
+    execution_plan_hash: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.attempt_number < 1:
             raise ValueError("attempt_number must be positive")
-        if self.execution_target is not None:
-            _require_text(self.execution_target, "execution_target")
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at must be timezone-aware")
+        if self.previous_attempt_id == self.id:
+            raise ValueError("an ExecutionAttempt cannot reference itself as previous")
+        _validate_sha256(self.input_manifest_hash, "input_manifest_hash")
+        _validate_sha256(self.execution_plan_hash, "execution_plan_hash")
+        _validate_time_window(self.started_at, self.finished_at)
 
 
 @dataclass(frozen=True, slots=True)
 class RemoteJob:
-    """Scheduler record attached to one ExecutionAttempt; never owns scientific identity."""
+    """Scheduler record for one ExecutionAttempt, separate from scientific status."""
 
     execution_attempt_id: ExecutionAttemptId
     scheduler: SchedulerType
     scheduler_job_id: str
-    id: RemoteJobId = field(default_factory=lambda: RemoteJobId(new_uuid7()))
+    remote_directory: str
+    id: RemoteJobId = field(default_factory=new_remote_job_id)
     state: SchedulerState = SchedulerState.PENDING
-    scheduler_reason: str | None = None
-    exit_code: int | None = None
-    submitted_at: datetime = field(default_factory=_utc_now)
-    last_observed_at: datetime | None = None
+    submitted_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
     def __post_init__(self) -> None:
         _require_text(self.scheduler_job_id, "scheduler_job_id")
-        if self.scheduler_reason is not None:
-            _require_text(self.scheduler_reason, "scheduler_reason")
-        if self.submitted_at.tzinfo is None:
-            raise ValueError("submitted_at must be timezone-aware")
-        if self.last_observed_at is not None and self.last_observed_at.tzinfo is None:
-            raise ValueError("last_observed_at must be timezone-aware")
+        _require_text(self.remote_directory, "remote_directory")
+        _validate_time_window(self.started_at, self.finished_at)
+        if (
+            self.started_at is not None
+            and self.submitted_at is not None
+            and self.started_at < self.submitted_at
+        ):
+            raise ValueError("started_at must not be earlier than submitted_at")
 
 
 @dataclass(frozen=True, slots=True)
 class Artifact:
-    """Metadata for an exact local/remote scientific or execution artifact."""
+    """Metadata for a scientific or execution file without embedding its contents."""
 
     artifact_type: ArtifactType
     producer: ArtifactProducerRef
@@ -287,53 +316,43 @@ class Artifact:
     remote_path: str | None = None
     size_bytes: int | None = None
     sha256: str | None = None
-    created_at: datetime = field(default_factory=_utc_now)
 
     def __post_init__(self) -> None:
-        if self.local_path is not None:
-            _validate_relative_path(self.local_path, "local_path")
-        if self.remote_path is not None:
-            _require_text(self.remote_path, "remote_path")
         if self.size_bytes is not None and self.size_bytes < 0:
             raise ValueError("size_bytes must not be negative")
-        if self.sha256 is not None:
-            object.__setattr__(self, "sha256", _normalized_sha256(self.sha256, "sha256"))
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at must be timezone-aware")
+        _validate_sha256(self.sha256, "sha256")
+
+        if self.availability is ArtifactAvailability.LOCAL and self.local_path is None:
+            raise ValueError("LOCAL artifact availability requires local_path")
+        if self.availability is ArtifactAvailability.REMOTE and self.remote_path is None:
+            raise ValueError("REMOTE artifact availability requires remote_path")
+        if (
+            self.availability is ArtifactAvailability.BOTH
+            and (self.local_path is None or self.remote_path is None)
+        ):
+            raise ValueError("BOTH artifact availability requires local_path and remote_path")
+        if self.retrieval_policy is RetrievalPolicy.REMOTE_ONLY and self.remote_path is None:
+            raise ValueError("REMOTE_ONLY retrieval policy requires remote_path")
 
 
 @dataclass(frozen=True, slots=True)
 class Analysis:
-    """Derived result over immutable input Artifacts."""
+    """Derived scientific interpretation consuming existing artifacts."""
 
     project_id: ProjectId
     analysis_type: AnalysisType
     input_artifact_ids: tuple[ArtifactId, ...]
     id: AnalysisId = field(default_factory=new_analysis_id)
-    status: AnalysisStatus = AnalysisStatus.PLANNED
+    status: AnalysisStatus = AnalysisStatus.DRAFT
     tool: str | None = None
     tool_version: str | None = None
     parameters_hash: str | None = None
-    created_at: datetime = field(default_factory=_utc_now)
 
     def __post_init__(self) -> None:
         if len(self.input_artifact_ids) != len(set(self.input_artifact_ids)):
-            raise ValueError("Analysis input_artifact_ids must be unique")
+            raise ValueError("input_artifact_ids must be unique")
         if self.tool is not None:
             _require_text(self.tool, "tool")
         if self.tool_version is not None:
             _require_text(self.tool_version, "tool_version")
-        if self.parameters_hash is not None:
-            object.__setattr__(
-                self,
-                "parameters_hash",
-                _normalized_sha256(self.parameters_hash, "parameters_hash"),
-            )
-        if self.created_at.tzinfo is None:
-            raise ValueError("created_at must be timezone-aware")
-
-
-def _validate_relative_path(value: str, field_name: str) -> None:
-    path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts or value != path.as_posix() or value in {"", "."}:
-        raise ValueError(f"{field_name} must be a normalized relative path")
+        _validate_sha256(self.parameters_hash, "parameters_hash")
