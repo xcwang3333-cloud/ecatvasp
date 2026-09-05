@@ -66,7 +66,6 @@ from ecatvasp.thermo.references import (
     ReferenceCorrectionPolicy,
     ReferencePhase,
     ReferenceThermochemistryResult,
-    apply_reference_corrections,
     materialize_reference_thermochemistry,
 )
 
@@ -124,7 +123,6 @@ __all__ = [
     "ThermochemistrySubjectKind",
     "VibrationalModePolicy",
     "apply_bound_reference_corrections",
-    "apply_reference_corrections",
     "calculate_harmonic_thermochemistry",
     "calculate_ideal_gas_thermochemistry",
     "materialize_harmonic_thermochemistry",
