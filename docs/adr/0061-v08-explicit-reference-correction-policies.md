@@ -105,13 +105,19 @@ The existing correction vocabulary remains available:
 Block 4 does not assign default meanings or values to these kinds. They are typed audit labels around
 an explicit signed additive energy and a versioned policy identity.
 
-### 7. Double correction is rejected
+### 7. Species binding is explicit and double correction is rejected
 
-`apply_reference_corrections()` accepts only a raw gas thermochemistry parent whose identity and
-components contain no pre-existing corrections. A corrected `ThermochemistryResult` cannot be fed
-back into Block 4 and corrected again.
+The public pure-function boundary is `apply_bound_reference_corrections()`. Its input is a
+`BoundGasReferenceThermochemistry` containing both the exact raw `ThermochemistryResult` and an
+explicit `GasReferenceDefinition`. The bound reference must exactly equal the adjustment reference;
+there is no species inference from mass, geometry, filenames, or formula-like labels.
 
-This keeps each correction layer single, explicit, and inspectable.
+The lower-level additive helper remains internal to the correction implementation and durable
+materializer. Both layers accept only raw gas thermochemistry whose identity and components contain
+no pre-existing corrections. A corrected `ThermochemistryResult` cannot be fed back into Block 4 and
+corrected again.
+
+This keeps species identity explicit and each correction layer single, inspectable, and fail-closed.
 
 ### 8. Durable provenance uses the existing scientific DAG
 
