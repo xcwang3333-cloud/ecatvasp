@@ -242,8 +242,6 @@ class ReactionPathwayDefinition:
             raise ReactionFreeEnergyError("reaction pathway requires at least two states")
         for state_key in self.state_keys:
             _require_text(state_key, "state_key")
-        if len(self.state_keys) != len(set(self.state_keys)):
-            raise ReactionFreeEnergyError("reaction pathway state_keys must be unique")
         if len(self.steps) != len(self.state_keys) - 1:
             raise ReactionFreeEnergyError(
                 "reaction pathway requires exactly one directed step between adjacent states"
@@ -391,6 +389,20 @@ class ReactionPathwayResult:
             raise ReactionFreeEnergyError("pathway cumulative free energies must be finite")
         if self.cumulative_state_free_energies_ev[0] != 0.0:
             raise ReactionFreeEnergyError("pathway cumulative free energy must start at zero")
+        temperatures = {item.temperature_k for item in self.step_results}
+        if len(temperatures) != 1:
+            raise ReactionFreeEnergyError(
+                "pathway result steps must share the exact same temperature"
+            )
+        condition_hashes = {
+            item.electrochemical_condition_hash
+            for item in self.step_results
+            if item.electrochemical_condition_hash is not None
+        }
+        if len(condition_hashes) > 1:
+            raise ReactionFreeEnergyError(
+                "pathway result CHE steps must share exact electrochemical conditions"
+            )
         cumulative = 0.0
         for index, step_result in enumerate(self.step_results):
             if step_result.initial_state_key != self.state_keys[index]:
