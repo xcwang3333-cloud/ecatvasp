@@ -1,5 +1,16 @@
 """Thermochemistry scientific contracts and materialization adapters."""
 
+from ecatvasp.thermo.che import (
+    CHEConditions,
+    CHEError,
+    CHEHydrogenReference,
+    CHEPhSemantics,
+    CHEProtonElectronChemicalPotential,
+    ElectrodePotentialReference,
+    proton_electron_chemical_potential,
+    rhe_to_she_potential_v,
+    she_to_rhe_potential_v,
+)
 from ecatvasp.thermo.contracts import (
     ONE_ATM_PA,
     ONE_BAR_PA,
@@ -87,11 +98,17 @@ __all__ = [
     "REFERENCE_CORRECTION_TOOL_NAME",
     "REFERENCE_CORRECTION_TOOL_VERSION",
     "BoundGasReferenceThermochemistry",
+    "CHEConditions",
+    "CHEError",
+    "CHEHydrogenReference",
+    "CHEPhSemantics",
+    "CHEProtonElectronChemicalPotential",
     "CorrectionEvidence",
     "CorrectionEvidenceKind",
     "DurableGasThermochemistry",
     "DurableHarmonicThermochemistry",
     "DurableReferenceThermochemistry",
+    "ElectrodePotentialReference",
     "ElectronicEnergyKind",
     "ElectronicEntropyPolicy",
     "GasAtomicMass",
@@ -128,4 +145,7 @@ __all__ = [
     "materialize_harmonic_thermochemistry",
     "materialize_ideal_gas_thermochemistry",
     "materialize_reference_thermochemistry",
+    "proton_electron_chemical_potential",
+    "rhe_to_she_potential_v",
+    "she_to_rhe_potential_v",
 ]
