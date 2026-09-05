@@ -160,13 +160,13 @@ class BandCenterResult:
     def __post_init__(self) -> None:
         if self.contract_version != CANONICAL_BAND_CENTER_VERSION:
             raise BandCenterError("unsupported canonical band-center contract version")
-        for value, name in (
+        for value, field_name in (
             (self.center_ev, "center_ev"),
             (self.zeroth_moment_states, "zeroth_moment_states"),
             (self.first_moment_ev_states, "first_moment_ev_states"),
         ):
             if not isfinite(value):
-                raise BandCenterError(f"{name} must be finite")
+                raise BandCenterError(f"{field_name} must be finite")
         if self.zeroth_moment_states <= 0.0:
             raise BandCenterError("zeroth DOS moment must be strictly positive")
         if self.quadrature_point_count < 2:
@@ -210,7 +210,10 @@ def calculate_band_center(
 ) -> BandCenterResult:
     """Calculate one parameterized band center from immutable canonical DOS facts."""
 
-    artifact_hash = _normalized_sha256(source_artifact_sha256, "source_artifact_sha256")
+    artifact_hash = _normalized_sha256(
+        source_artifact_sha256,
+        "source_artifact_sha256",
+    )
     energies = _energy_axis(source, parameters.energy_reference)
     density, contribution_count = _selected_density(source, parameters)
     window_energies, window_density = _clip_window(
@@ -227,7 +230,8 @@ def calculate_band_center(
     first = _trapezoid(window_energies, first_values)
     if not isfinite(zeroth) or zeroth <= 0.0:
         raise BandCenterError(
-            "selected DOS has a non-positive zeroth moment; values are not clipped or absolutized"
+            "selected DOS has a non-positive zeroth moment; "
+            "values are not clipped or absolutized"
         )
     if not isfinite(first):
         raise BandCenterError("selected DOS first moment is not finite")
@@ -256,7 +260,10 @@ def materialize_band_center_analysis(
 ) -> DurableBandCenter:
     """Derive and persist one BAND_CENTER Analysis from a durable canonical DOS artifact."""
 
-    _validate_source_contract(source_analysis=source_analysis, source_artifact=source_artifact)
+    _validate_source_contract(
+        source_analysis=source_analysis,
+        source_artifact=source_artifact,
+    )
     root = Path(project_root).resolve()
     if not root.is_dir():
         raise BandCenterError("project_root must be an existing directory")
@@ -301,7 +308,11 @@ def materialize_band_center_analysis(
         "result_content_hash": result.content_hash,
         "result": result,
     }
-    artifact = _write_result_artifact(root=root, analysis=analysis, payload=payload)
+    artifact = _write_result_artifact(
+        root=root,
+        analysis=analysis,
+        payload=payload,
+    )
     provenance_records = (
         ProvenanceRecord(
             subject_id=analysis.id,
@@ -351,14 +362,22 @@ def load_band_center_artifact(
 ) -> BandCenterResult:
     """Reopen a descriptor and verify its exact canonical-DOS scientific parent."""
 
-    _validate_source_contract(source_analysis=source_analysis, source_artifact=source_artifact)
+    _validate_source_contract(
+        source_analysis=source_analysis,
+        source_artifact=source_artifact,
+    )
     if analysis.analysis_type is not AnalysisType.BAND_CENTER:
         raise BandCenterError("band-center artifact requires AnalysisType.BAND_CENTER")
     if analysis.status is not AnalysisStatus.COMPLETED:
         raise BandCenterError("band-center Analysis must be completed")
     if analysis.input_artifact_ids != (source_artifact.id,):
-        raise BandCenterError("band-center Analysis input differs from source canonical DOS Artifact")
-    if analysis.tool != BAND_CENTER_TOOL_NAME or analysis.tool_version != BAND_CENTER_TOOL_VERSION:
+        raise BandCenterError(
+            "band-center Analysis input differs from source canonical DOS Artifact"
+        )
+    if (
+        analysis.tool != BAND_CENTER_TOOL_NAME
+        or analysis.tool_version != BAND_CENTER_TOOL_VERSION
+    ):
         raise BandCenterError("band-center Analysis tool/version is unsupported")
     _validate_output_artifact(analysis=analysis, artifact=artifact)
 
@@ -376,7 +395,10 @@ def load_band_center_artifact(
     if payload.get("analysis_id") != str(analysis.id):
         raise BandCenterError("canonical band-center Artifact belongs to another Analysis")
     receipt = _mapping(payload.get("source_receipt"), "source_receipt")
-    receipt_hash = _string(payload.get("source_receipt_hash"), "source_receipt_hash")
+    receipt_hash = _string(
+        payload.get("source_receipt_hash"),
+        "source_receipt_hash",
+    )
     if receipt_hash != analysis.parameters_hash or canonical_sha256(receipt) != receipt_hash:
         raise BandCenterError("canonical band-center source receipt differs from Analysis")
     if _uuid(receipt.get("source_analysis_id"), "source_analysis_id") != source_analysis.id:
@@ -410,17 +432,26 @@ def _selected_density(
     source: CanonicalDosResult,
     parameters: BandCenterParameters,
 ) -> tuple[tuple[float, ...], int]:
-    system = tuple(item for item in source.series if item.scope is ProjectionScope.SYSTEM)
+    system = tuple(
+        item for item in source.series if item.scope is ProjectionScope.SYSTEM
+    )
     available_spins = frozenset(item.spin for item in system)
     selected_spins = _resolve_spins(parameters.selector.spin, available_spins)
 
     if parameters.selector.scope is ProjectionScope.SYSTEM:
         if parameters.kind is not BandCenterKind.BAND:
-            raise BandCenterError("system DOS does not provide orbital-resolved p/d projections")
+            raise BandCenterError(
+                "system DOS does not provide orbital-resolved p/d projections"
+            )
         selected = tuple(item for item in system if item.spin in selected_spins)
-        return _sum_series(selected, expected_length=len(source.energy_axis.energies_ev))
+        return _sum_series(
+            selected,
+            expected_length=len(source.energy_axis.energies_ev),
+        )
 
-    projected = tuple(item for item in source.series if item.scope is ProjectionScope.ATOM)
+    projected = tuple(
+        item for item in source.series if item.scope is ProjectionScope.ATOM
+    )
     if parameters.selector.scope is ProjectionScope.ATOM:
         projected = tuple(
             item
@@ -445,15 +476,17 @@ def _selected_density(
         )
         if not projected:
             raise BandCenterError("requested p/d projection is absent from canonical DOS")
-    else:
-        if any(item.orbital is None for item in projected):
-            if any(item.orbital is not None for item in projected):
-                raise BandCenterError(
-                    "atom-total and orbital-resolved projections coexist; generic band aggregation is ambiguous"
-                )
-            # A pure atom-total representation is unambiguous and may be summed across selected atoms.
-        # Otherwise all lm-resolved channels are summed exactly once.
-    return _sum_series(projected, expected_length=len(source.energy_axis.energies_ev))
+    elif any(item.orbital is None for item in projected) and any(
+        item.orbital is not None for item in projected
+    ):
+        raise BandCenterError(
+            "atom-total and orbital-resolved projections coexist; "
+            "generic band aggregation is ambiguous"
+        )
+    return _sum_series(
+        projected,
+        expected_length=len(source.energy_axis.energies_ev),
+    )
 
 
 def _resolve_spins(
@@ -462,11 +495,15 @@ def _resolve_spins(
 ) -> frozenset[SpinChannel]:
     if available == frozenset({SpinChannel.TOTAL}):
         if mode is not BandCenterSpinMode.TOTAL:
-            raise BandCenterError("unpolarized DOS supports only explicit TOTAL spin selection")
+            raise BandCenterError(
+                "unpolarized DOS supports only explicit TOTAL spin selection"
+            )
         return frozenset({SpinChannel.TOTAL})
     if available == frozenset({SpinChannel.UP, SpinChannel.DOWN}):
         if mode is BandCenterSpinMode.TOTAL:
-            raise BandCenterError("spin-polarized DOS has no TOTAL channel; use UP, DOWN, or SUM")
+            raise BandCenterError(
+                "spin-polarized DOS has no TOTAL channel; use UP, DOWN, or SUM"
+            )
         if mode is BandCenterSpinMode.UP:
             return frozenset({SpinChannel.UP})
         if mode is BandCenterSpinMode.DOWN:
@@ -494,7 +531,9 @@ def _sum_series(
     values = [0.0] * expected_length
     for item in series:
         if len(item.values) != expected_length:
-            raise BandCenterError("selected DOS series does not use the canonical energy grid")
+            raise BandCenterError(
+                "selected DOS series does not use the canonical energy grid"
+            )
         for index, value in enumerate(item.values):
             values[index] += value
     if not all(isfinite(value) for value in values):
@@ -523,10 +562,15 @@ def _clip_window(
     if len(energies) != len(values):
         raise BandCenterError("DOS energy/value lengths differ")
     if lower < energies[0] or upper > energies[-1]:
-        raise BandCenterError("band-center integration window must lie inside the DOS energy range")
+        raise BandCenterError(
+            "band-center integration window must lie inside the DOS energy range"
+        )
     interior = tuple(value for value in energies if lower < value < upper)
     points = (lower, *interior, upper)
-    densities = tuple(_linear_value(energies, values, point) for point in points)
+    densities = tuple(
+        _linear_value(energies, values, point)
+        for point in points
+    )
     return points, densities
 
 
@@ -539,14 +583,19 @@ def _linear_value(
     if index < len(energies) and energies[index] == target:
         return values[index]
     if index == 0 or index == len(energies):
-        raise BandCenterError("descriptor endpoint interpolation would require extrapolation")
+        raise BandCenterError(
+            "descriptor endpoint interpolation would require extrapolation"
+        )
     left_x = energies[index - 1]
     right_x = energies[index]
     fraction = (target - left_x) / (right_x - left_x)
     return values[index - 1] + fraction * (values[index] - values[index - 1])
 
 
-def _trapezoid(energies: tuple[float, ...], values: tuple[float, ...]) -> float:
+def _trapezoid(
+    energies: tuple[float, ...],
+    values: tuple[float, ...],
+) -> float:
     total = 0.0
     for index in range(len(energies) - 1):
         width = energies[index + 1] - energies[index]
@@ -554,23 +603,36 @@ def _trapezoid(energies: tuple[float, ...], values: tuple[float, ...]) -> float:
     return total
 
 
-def _validate_source_contract(*, source_analysis: Analysis, source_artifact: Artifact) -> None:
+def _validate_source_contract(
+    *,
+    source_analysis: Analysis,
+    source_artifact: Artifact,
+) -> None:
     if source_analysis.analysis_type is not AnalysisType.DOS:
-        raise BandCenterError("electronic descriptor requires canonical AnalysisType.DOS source")
+        raise BandCenterError(
+            "electronic descriptor requires canonical AnalysisType.DOS source"
+        )
     if source_analysis.status is not AnalysisStatus.COMPLETED:
         raise BandCenterError("source canonical DOS Analysis must be completed")
     if (
         not isinstance(source_artifact.producer, AnalysisProducerRef)
         or source_artifact.producer.id != source_analysis.id
     ):
-        raise BandCenterError("source canonical DOS Artifact producer differs from source Analysis")
+        raise BandCenterError(
+            "source canonical DOS Artifact producer differs from source Analysis"
+        )
     if source_artifact.artifact_type is not ArtifactType.DERIVED_DATASET:
         raise BandCenterError("source canonical DOS Artifact must be DERIVED_DATASET")
     if source_artifact.sha256 is None:
         raise BandCenterError("source canonical DOS Artifact requires SHA-256")
 
 
-def _write_result_artifact(*, root: Path, analysis: Analysis, payload: object) -> Artifact:
+def _write_result_artifact(
+    *,
+    root: Path,
+    analysis: Analysis,
+    payload: object,
+) -> Artifact:
     relative = Path("analyses") / str(analysis.id) / "canonical-band-center.json"
     absolute = (root / relative).resolve()
     if not absolute.is_relative_to(root):
@@ -581,7 +643,9 @@ def _write_result_artifact(*, root: Path, analysis: Analysis, payload: object) -
         if not absolute.is_file():
             raise BandCenterError("canonical band-center path is not a regular file")
         if absolute.read_text(encoding="utf-8") != text:
-            raise BandCenterError("canonical band-center path already has different content")
+            raise BandCenterError(
+                "canonical band-center path already has different content"
+            )
     else:
         temporary = absolute.with_name(f".{absolute.name}.tmp")
         try:
@@ -602,35 +666,65 @@ def _write_result_artifact(*, root: Path, analysis: Analysis, payload: object) -
     )
 
 
-def _validate_output_artifact(*, analysis: Analysis, artifact: Artifact) -> None:
+def _validate_output_artifact(
+    *,
+    analysis: Analysis,
+    artifact: Artifact,
+) -> None:
     if (
         not isinstance(artifact.producer, AnalysisProducerRef)
         or artifact.producer.id != analysis.id
     ):
-        raise BandCenterError("canonical band-center Artifact producer differs from Analysis")
+        raise BandCenterError(
+            "canonical band-center Artifact producer differs from Analysis"
+        )
     if artifact.artifact_type is not ArtifactType.DERIVED_DATASET:
         raise BandCenterError("canonical band-center Artifact must be DERIVED_DATASET")
-    if artifact.availability not in {ArtifactAvailability.LOCAL, ArtifactAvailability.BOTH}:
-        raise BandCenterError("canonical band-center Artifact must be locally available")
-    if artifact.local_path is None or PurePosixPath(artifact.local_path).name != "canonical-band-center.json":
-        raise BandCenterError("canonical band-center Artifact has unexpected local filename")
+    if artifact.availability not in {
+        ArtifactAvailability.LOCAL,
+        ArtifactAvailability.BOTH,
+    }:
+        raise BandCenterError(
+            "canonical band-center Artifact must be locally available"
+        )
+    if (
+        artifact.local_path is None
+        or PurePosixPath(artifact.local_path).name != "canonical-band-center.json"
+    ):
+        raise BandCenterError(
+            "canonical band-center Artifact has unexpected local filename"
+        )
     if artifact.sha256 is None or artifact.size_bytes is None:
-        raise BandCenterError("canonical band-center Artifact requires hash and byte size")
+        raise BandCenterError(
+            "canonical band-center Artifact requires hash and byte size"
+        )
 
 
-def _read_output_payload(*, root: Path, artifact: Artifact) -> dict[str, object]:
+def _read_output_payload(
+    *,
+    root: Path,
+    artifact: Artifact,
+) -> dict[str, object]:
     if artifact.local_path is None:
         raise BandCenterError("canonical band-center Artifact requires local_path")
     relative = PurePosixPath(artifact.local_path)
-    if relative.is_absolute() or ".." in relative.parts or artifact.local_path != relative.as_posix():
-        raise BandCenterError("canonical band-center local_path must be normalized and relative")
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or artifact.local_path != relative.as_posix()
+    ):
+        raise BandCenterError(
+            "canonical band-center local_path must be normalized and relative"
+        )
     path = (root / Path(*relative.parts)).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise BandCenterError("canonical band-center local file is missing")
     try:
         body = path.read_bytes()
     except OSError as error:
-        raise BandCenterError("canonical band-center Artifact cannot be read") from error
+        raise BandCenterError(
+            "canonical band-center Artifact cannot be read"
+        ) from error
     if len(body) != artifact.size_bytes:
         raise BandCenterError("canonical band-center Artifact byte size changed")
     if hashlib.sha256(body).hexdigest() != artifact.sha256:
@@ -638,55 +732,76 @@ def _read_output_payload(*, root: Path, artifact: Artifact) -> dict[str, object]
     try:
         raw = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise BandCenterError("canonical band-center Artifact is not valid UTF-8 JSON") from error
+        raise BandCenterError(
+            "canonical band-center Artifact is not valid UTF-8 JSON"
+        ) from error
     return _mapping(raw, "canonical band-center Artifact")
 
 
 def _decode_result(raw: object) -> BandCenterResult:
     mapping = _mapping(raw, "band-center result")
     try:
+        snapshot_id = StructureSnapshotId(
+            UUID(
+                _string(
+                    mapping.get("structure_snapshot_id"),
+                    "structure_snapshot_id",
+                )
+            )
+        )
         return BandCenterResult(
-            structure_snapshot_id=StructureSnapshotId(
-                UUID(_string(mapping.get("structure_snapshot_id"), "structure_snapshot_id"))
-            ),
+            structure_snapshot_id=snapshot_id,
             parameters=_decode_parameters(mapping.get("parameters")),
             center_ev=_number(mapping.get("center_ev"), "center_ev"),
             zeroth_moment_states=_number(
-                mapping.get("zeroth_moment_states"), "zeroth_moment_states"
+                mapping.get("zeroth_moment_states"),
+                "zeroth_moment_states",
             ),
             first_moment_ev_states=_number(
-                mapping.get("first_moment_ev_states"), "first_moment_ev_states"
+                mapping.get("first_moment_ev_states"),
+                "first_moment_ev_states",
             ),
             quadrature_point_count=_integer(
-                mapping.get("quadrature_point_count"), "quadrature_point_count"
+                mapping.get("quadrature_point_count"),
+                "quadrature_point_count",
             ),
             contributing_series_count=_integer(
-                mapping.get("contributing_series_count"), "contributing_series_count"
+                mapping.get("contributing_series_count"),
+                "contributing_series_count",
             ),
             source_dos_content_hash=_string(
-                mapping.get("source_dos_content_hash"), "source_dos_content_hash"
+                mapping.get("source_dos_content_hash"),
+                "source_dos_content_hash",
             ),
             source_artifact_sha256=_string(
-                mapping.get("source_artifact_sha256"), "source_artifact_sha256"
+                mapping.get("source_artifact_sha256"),
+                "source_artifact_sha256",
             ),
-            contract_version=_integer(mapping.get("contract_version"), "contract_version"),
+            contract_version=_integer(
+                mapping.get("contract_version"),
+                "contract_version",
+            ),
         )
     except ValueError as error:
         if isinstance(error, BandCenterError):
             raise
-        raise BandCenterError("canonical band-center result contains invalid fields") from error
+        raise BandCenterError(
+            "canonical band-center result contains invalid fields"
+        ) from error
 
 
 def _decode_parameters(raw: object) -> BandCenterParameters:
     mapping = _mapping(raw, "band-center parameters")
     selector_raw = _mapping(mapping.get("selector"), "band-center selector")
-    raw_uid = selector_raw.get("atom_uid")
-    atom_uid = None
-    if raw_uid is not None:
-        atom_uid = AtomUid(UUID(_string(raw_uid, "atom_uid")))
-    raw_element = selector_raw.get("element")
-    element = None if raw_element is None else _string(raw_element, "element")
     try:
+        raw_uid = selector_raw.get("atom_uid")
+        atom_uid = None
+        if raw_uid is not None:
+            atom_uid = AtomUid(UUID(_string(raw_uid, "atom_uid")))
+        raw_element = selector_raw.get("element")
+        element = None
+        if raw_element is not None:
+            element = _string(raw_element, "element")
         selector = BandCenterSelector(
             scope=ProjectionScope(_string(selector_raw.get("scope"), "scope")),
             spin=BandCenterSpinMode(_string(selector_raw.get("spin"), "spin")),
@@ -699,8 +814,14 @@ def _decode_parameters(raw: object) -> BandCenterParameters:
             energy_reference=BandCenterEnergyReference(
                 _string(mapping.get("energy_reference"), "energy_reference")
             ),
-            window_lower_ev=_number(mapping.get("window_lower_ev"), "window_lower_ev"),
-            window_upper_ev=_number(mapping.get("window_upper_ev"), "window_upper_ev"),
+            window_lower_ev=_number(
+                mapping.get("window_lower_ev"),
+                "window_lower_ev",
+            ),
+            window_upper_ev=_number(
+                mapping.get("window_upper_ev"),
+                "window_upper_ev",
+            ),
             integration_rule=BandCenterIntegrationRule(
                 _string(mapping.get("integration_rule"), "integration_rule")
             ),
@@ -711,11 +832,15 @@ def _decode_parameters(raw: object) -> BandCenterParameters:
     except ValueError as error:
         if isinstance(error, BandCenterError):
             raise
-        raise BandCenterError("band-center parameters contain unsupported enum values") from error
+        raise BandCenterError(
+            "band-center parameters contain invalid UUID or enum values"
+        ) from error
 
 
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ):
         raise BandCenterError(f"{field_name} must be an object")
     return cast(dict[str, object], value)
 
@@ -750,6 +875,12 @@ def _uuid(value: object, field_name: str) -> UUID:
 
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
-        raise BandCenterError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
+    invalid_hex = any(
+        character not in "0123456789abcdef"
+        for character in normalized
+    )
+    if len(normalized) != 64 or invalid_hex:
+        raise BandCenterError(
+            f"{field_name} must be a 64-character hexadecimal SHA-256 digest"
+        )
     return normalized
