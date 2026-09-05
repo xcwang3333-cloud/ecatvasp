@@ -358,36 +358,39 @@ def test_v07_descriptor_runtime_enums_fail_closed() -> None:
         atom_uid=atom_uid,
         element="C",
     )
-    common = {
-        "selector": selector,
-        "window_lower_ev": -1.0,
-        "window_upper_ev": 1.0,
-    }
     with pytest.raises(BandCenterError, match="kind"):
         BandCenterParameters(
             kind=cast(BandCenterKind, "invented-kind"),
+            selector=selector,
             energy_reference=BandCenterEnergyReference.VASP_NATIVE,
-            **common,
+            window_lower_ev=-1.0,
+            window_upper_ev=1.0,
         )
     with pytest.raises(BandCenterError, match="energy reference"):
         BandCenterParameters(
             kind=BandCenterKind.D_BAND,
+            selector=selector,
             energy_reference=cast(BandCenterEnergyReference, "vacuum"),
-            **common,
+            window_lower_ev=-1.0,
+            window_upper_ev=1.0,
         )
     with pytest.raises(BandCenterError, match="integration rule"):
         BandCenterParameters(
             kind=BandCenterKind.D_BAND,
+            selector=selector,
             energy_reference=BandCenterEnergyReference.VASP_NATIVE,
+            window_lower_ev=-1.0,
+            window_upper_ev=1.0,
             integration_rule=cast(BandCenterIntegrationRule, "simpson"),
-            **common,
         )
     with pytest.raises(BandCenterError, match="normalization"):
         BandCenterParameters(
             kind=BandCenterKind.D_BAND,
+            selector=selector,
             energy_reference=BandCenterEnergyReference.VASP_NATIVE,
+            window_lower_ev=-1.0,
+            window_upper_ev=1.0,
             normalization=cast(BandCenterNormalization, "absolute-weight"),
-            **common,
         )
 
 
