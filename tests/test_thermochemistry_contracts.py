@@ -2,11 +2,13 @@ from dataclasses import replace
 
 import pytest
 
+from ecatvasp.domain import new_atom_uid
 from ecatvasp.thermo import (
     ONE_ATM_PA,
     ONE_BAR_PA,
     ElectronicEnergyKind,
     ElectronicEntropyPolicy,
+    GasAtomicMass,
     GasGeometryKind,
     GasMoleculeModel,
     ImaginaryModePolicy,
@@ -49,6 +51,18 @@ def _correction(value_ev: float = -0.10) -> ThermochemistryCorrection:
     )
 
 
+def _gas_model() -> GasMoleculeModel:
+    return GasMoleculeModel(
+        geometry_kind=GasGeometryKind.LINEAR,
+        symmetry_number=2,
+        spin_multiplicity=1,
+        atomic_masses=(
+            GasAtomicMass(atom_uid=new_atom_uid(), mass_amu=1.00784),
+            GasAtomicMass(atom_uid=new_atom_uid(), mass_amu=1.00784),
+        ),
+    )
+
+
 def _gas_identity() -> ThermochemistryIdentity:
     return ThermochemistryIdentity(
         subject_kind=ThermochemistrySubjectKind.GAS,
@@ -60,11 +74,7 @@ def _gas_identity() -> ThermochemistryIdentity:
         electronic_energy_kind=ElectronicEnergyKind.SIGMA_ZERO,
         electronic_entropy_policy=ElectronicEntropyPolicy.SPIN_DEGENERACY,
         vibrational_policy=_policy(),
-        gas_model=GasMoleculeModel(
-            geometry_kind=GasGeometryKind.LINEAR,
-            symmetry_number=2,
-            spin_multiplicity=1,
-        ),
+        gas_model=_gas_model(),
     )
 
 
@@ -100,6 +110,20 @@ def test_gas_identity_requires_explicit_molecular_metadata() -> None:
         )
 
 
+def test_gas_model_requires_explicit_unique_atomic_masses() -> None:
+    atom_uid = new_atom_uid()
+    with pytest.raises(ThermochemistryContractError, match="unique atom_uids"):
+        GasMoleculeModel(
+            geometry_kind=GasGeometryKind.LINEAR,
+            symmetry_number=2,
+            spin_multiplicity=1,
+            atomic_masses=(
+                GasAtomicMass(atom_uid=atom_uid, mass_amu=1.00784),
+                GasAtomicMass(atom_uid=atom_uid, mass_amu=2.01410, isotopologue_label="2H"),
+            ),
+        )
+
+
 def test_adsorbate_rejects_gas_standard_state() -> None:
     with pytest.raises(ThermochemistryContractError, match="SURFACE_FIXED_CELL"):
         ThermochemistryIdentity(
@@ -127,6 +151,7 @@ def test_reject_any_policy_cannot_hide_imaginary_exclusion() -> None:
 
 def test_parameters_hash_changes_for_scientifically_relevant_policy() -> None:
     baseline = _gas_identity()
+    assert baseline.gas_model is not None
     changed_temperature = replace(
         baseline,
         conditions=replace(baseline.conditions, temperature_k=350.0),
@@ -139,10 +164,22 @@ def test_parameters_hash_changes_for_scientifically_relevant_policy() -> None:
         ),
     )
     changed_correction = replace(baseline, corrections=(_correction(-0.20),))
+    first_mass, second_mass = baseline.gas_model.atomic_masses
+    changed_mass = replace(
+        baseline,
+        gas_model=replace(
+            baseline.gas_model,
+            atomic_masses=(
+                replace(first_mass, mass_amu=2.01410, isotopologue_label="2H"),
+                second_mass,
+            ),
+        ),
+    )
 
     assert baseline.parameters_hash != changed_temperature.parameters_hash
     assert baseline.parameters_hash != changed_cutoff.parameters_hash
     assert baseline.parameters_hash != changed_correction.parameters_hash
+    assert baseline.parameters_hash != changed_mass.parameters_hash
 
 
 def test_mode_selection_cannot_accept_and_exclude_same_mode() -> None:
