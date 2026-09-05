@@ -222,7 +222,10 @@ def load_canonical_dos_artifact(
         raise DosMaterializationError("canonical DOS artifact requires AnalysisType.DOS")
     if analysis.status is not AnalysisStatus.COMPLETED:
         raise DosMaterializationError("canonical DOS Analysis must be completed")
-    if not isinstance(artifact.producer, AnalysisProducerRef) or artifact.producer.id != analysis.id:
+    if (
+        not isinstance(artifact.producer, AnalysisProducerRef)
+        or artifact.producer.id != analysis.id
+    ):
         raise DosMaterializationError("canonical DOS Artifact producer does not match Analysis")
     if artifact.artifact_type is not ArtifactType.DERIVED_DATASET:
         raise DosMaterializationError("canonical DOS Artifact must be DERIVED_DATASET")
@@ -236,7 +239,11 @@ def load_canonical_dos_artifact(
         expected_basename="canonical-dos.json",
         label="canonical DOS Artifact",
     )
-    path = _resolve_local_path(root=root, artifact=verified.artifact, label="canonical DOS Artifact")
+    path = _resolve_local_path(
+        root=root,
+        artifact=verified.artifact,
+        label="canonical DOS Artifact",
+    )
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
