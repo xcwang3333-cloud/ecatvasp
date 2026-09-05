@@ -19,6 +19,17 @@ from ecatvasp.workflow.durability import (
     persist_workflow_dispatch_wave,
     reopen_workflow_resume_state,
 )
+from ecatvasp.workflow.electronic_analysis import (
+    ELECTRONIC_ANALYSIS_TYPES,
+    ElectronicAnalysisProjection,
+    ElectronicAnalysisReconciliationError,
+    ElectronicAnalysisReconciliationReport,
+    ElectronicAnalysisRequirement,
+    ElectronicAnalysisScientificState,
+    ElectronicWorkflowAnchor,
+    reconcile_electronic_analyses,
+    reconcile_electronic_analyses_from_store,
+)
 from ecatvasp.workflow.gates import (
     WorkflowBindingSelection,
     WorkflowEdgeGate,
@@ -81,6 +92,7 @@ from ecatvasp.workflow.recovery import (
 )
 
 __all__ = [
+    "ELECTRONIC_ANALYSIS_TYPES",
     "WORKFLOW_ACCEPTED_STRUCTURE_REASON",
     "WORKFLOW_EDGE_ACCEPTED_STRUCTURE",
     "WORKFLOW_PLANNER_CONTRACT_VERSION",
@@ -93,6 +105,12 @@ __all__ = [
     "WORKFLOW_ROOT_STRUCTURE_REASON",
     "WORKFLOW_UPSTREAM_SUPERSESSION_REASON",
     "AcceptedStructureSource",
+    "ElectronicAnalysisProjection",
+    "ElectronicAnalysisReconciliationError",
+    "ElectronicAnalysisReconciliationReport",
+    "ElectronicAnalysisRequirement",
+    "ElectronicAnalysisScientificState",
+    "ElectronicWorkflowAnchor",
     "WorkflowAcceptanceError",
     "WorkflowAcceptanceReport",
     "WorkflowAcceptanceState",
@@ -139,6 +157,8 @@ __all__ = [
     "persist_or_reuse_workflow_plan",
     "persist_workflow_dispatch_wave",
     "plan_scientific_workflow",
+    "reconcile_electronic_analyses",
+    "reconcile_electronic_analyses_from_store",
     "reconcile_workflow_orchestration",
     "reopen_workflow_resume_state",
     "resolve_workflow_binding_generations",
