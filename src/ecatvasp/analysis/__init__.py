@@ -1,5 +1,22 @@
 """Scientific analysis contracts and derived-result boundaries for ECatVASP."""
 
+from ecatvasp.analysis.bader import (
+    BADER_ACF_PARSER_NAME,
+    BADER_ACF_PARSER_VERSION,
+    BADER_MATERIALIZER_NAME,
+    BADER_MATERIALIZER_VERSION,
+    CANONICAL_BADER_FORMAT,
+    CANONICAL_BADER_VERSION,
+    BaderAnalysisError,
+    BaderReferenceMode,
+    BaderSiteResult,
+    CanonicalBaderIntake,
+    CanonicalBaderResult,
+    DurableBaderMaterialization,
+    load_canonical_bader_artifact,
+    materialize_bader_analysis,
+    parse_bader_acf,
+)
 from ecatvasp.analysis.dos_materialization import (
     CANONICAL_DOS_ARTIFACT_FORMAT,
     CANONICAL_DOS_ARTIFACT_VERSION,
@@ -30,17 +47,29 @@ from ecatvasp.analysis.electronic import (
 )
 
 __all__ = [
+    "BADER_ACF_PARSER_NAME",
+    "BADER_ACF_PARSER_VERSION",
+    "BADER_MATERIALIZER_NAME",
+    "BADER_MATERIALIZER_VERSION",
+    "CANONICAL_BADER_FORMAT",
+    "CANONICAL_BADER_VERSION",
     "CANONICAL_DOS_ARTIFACT_FORMAT",
     "CANONICAL_DOS_ARTIFACT_VERSION",
     "DOSCAR_PARSER_NAME",
     "DOSCAR_PARSER_VERSION",
     "DOS_MATERIALIZER_NAME",
     "DOS_MATERIALIZER_VERSION",
+    "BaderAnalysisError",
+    "BaderReferenceMode",
+    "BaderSiteResult",
+    "CanonicalBaderIntake",
+    "CanonicalBaderResult",
     "CanonicalDosIntake",
     "CanonicalDosResult",
     "DosMaterializationError",
     "DosSeries",
     "DoscarParseError",
+    "DurableBaderMaterialization",
     "DurableDosMaterialization",
     "ElectronicEnergyAxis",
     "ElectronicEnergyReference",
@@ -49,7 +78,10 @@ __all__ = [
     "OrbitalChannel",
     "ProjectionScope",
     "SpinChannel",
+    "load_canonical_bader_artifact",
     "load_canonical_dos_artifact",
+    "materialize_bader_analysis",
     "materialize_canonical_dos_analysis",
+    "parse_bader_acf",
     "parse_vasp_doscar",
 ]
