@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ecatvasp.analysis import parse_vasp_doscar
+from ecatvasp.analysis import CanonicalDosIntake, parse_vasp_doscar
 from ecatvasp.analysis.dos_materialization import (
     CANONICAL_DOS_ARTIFACT_FORMAT,
     DOS_MATERIALIZER_NAME,
@@ -59,7 +59,7 @@ class _Case:
     attempt: ExecutionAttempt
     doscar_artifact: Artifact
     atom_map_artifact: Artifact
-    intake: object
+    intake: CanonicalDosIntake
 
 
 def _write(path: Path, body: bytes) -> tuple[int, str]:
@@ -128,7 +128,13 @@ def _case(tmp_path: Path) -> _Case:
     atom_map_bytes = (
         json.dumps(atom_map_payload, sort_keys=True, separators=(",", ":")) + "\n"
     ).encode()
-    atom_map_path = tmp_path / "calculations" / str(calculation.id) / "input" / "atom-index-map.json"
+    atom_map_path = (
+        tmp_path
+        / "calculations"
+        / str(calculation.id)
+        / "input"
+        / "atom-index-map.json"
+    )
     atom_map_size, atom_map_hash = _write(atom_map_path, atom_map_bytes)
     atom_map_artifact = Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
@@ -157,7 +163,9 @@ def _case(tmp_path: Path) -> _Case:
         )
     )
     doscar_bytes = doscar_text.encode()
-    doscar_path = tmp_path / "calculations" / str(calculation.id) / "attempt-1" / "DOSCAR"
+    doscar_path = (
+        tmp_path / "calculations" / str(calculation.id) / "attempt-1" / "DOSCAR"
+    )
     doscar_size, doscar_hash = _write(doscar_path, doscar_bytes)
     doscar_artifact = Artifact(
         artifact_type=ArtifactType.DOSCAR,
@@ -193,7 +201,7 @@ def _materialize(tmp_path: Path, case: _Case) -> DurableDosMaterialization:
         execution_attempt=case.attempt,
         doscar_artifact=case.doscar_artifact,
         atom_index_map_artifact=case.atom_map_artifact,
-        intake=case.intake,  # type: ignore[arg-type]
+        intake=case.intake,
     )
 
 
@@ -207,19 +215,21 @@ def test_durable_dos_materialization_builds_analysis_artifact_chain(tmp_path: Pa
         case.doscar_artifact.id,
         case.atom_map_artifact.id,
     )
-    assert materialized.analysis.tool == case.intake.parser_name  # type: ignore[attr-defined]
+    assert materialized.analysis.tool == case.intake.parser_name
     assert materialized.artifact.artifact_type is ArtifactType.DERIVED_DATASET
     assert isinstance(materialized.artifact.producer, AnalysisProducerRef)
     assert materialized.artifact.producer.id == materialized.analysis.id
     assert materialized.provenance_records[1].tool == DOS_MATERIALIZER_NAME
 
-    text = (tmp_path / (materialized.artifact.local_path or "")).read_text(encoding="utf-8")
+    text = (tmp_path / (materialized.artifact.local_path or "")).read_text(
+        encoding="utf-8"
+    )
     assert CANONICAL_DOS_ARTIFACT_FORMAT in text
     assert load_canonical_dos_artifact(
         project_root=tmp_path,
         analysis=materialized.analysis,
         artifact=materialized.artifact,
-    ) == case.intake.result  # type: ignore[attr-defined]
+    ) == case.intake.result
 
     scientific_upstreams = {
         item.upstream_id
@@ -266,7 +276,7 @@ def test_project_store_reopen_preserves_durable_dos_chain(tmp_path: Path) -> Non
         project_root=tmp_path,
         analysis=reopened_analysis,
         artifact=reopened_artifact,
-    ) == case.intake.result  # type: ignore[attr-defined]
+    ) == case.intake.result
 
 
 def test_doscar_hash_drift_stales_analysis_and_dataset(tmp_path: Path) -> None:
@@ -307,7 +317,7 @@ def test_materialization_requires_scientifically_converged_dos_static(tmp_path: 
             execution_attempt=case.attempt,
             doscar_artifact=case.doscar_artifact,
             atom_index_map_artifact=case.atom_map_artifact,
-            intake=case.intake,  # type: ignore[arg-type]
+            intake=case.intake,
         )
 
 
@@ -325,7 +335,7 @@ def test_execution_attempt_is_validated_but_not_scientific_identity(tmp_path: Pa
             execution_attempt=other_attempt,
             doscar_artifact=case.doscar_artifact,
             atom_index_map_artifact=case.atom_map_artifact,
-            intake=case.intake,  # type: ignore[arg-type]
+            intake=case.intake,
         )
 
 
