@@ -119,7 +119,7 @@ def _require_text(value: str, field_name: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ModeExclusion:
-    """Explicit mode-level policy decision; mode indices are the raw VASP one-based indices."""
+    """Explicit mode-level policy decision; mode indices are raw VASP one-based indices."""
 
     mode_index: int
     reason: ModeExclusionReason
@@ -143,7 +143,12 @@ class VibrationalModePolicy:
 
     def __post_init__(self) -> None:
         _require_positive(self.frequency_cutoff_cm_inverse, "frequency_cutoff_cm_inverse")
-        ordered = tuple(sorted(self.exclusions, key=lambda item: (item.mode_index, item.reason.value)))
+        ordered = tuple(
+            sorted(
+                self.exclusions,
+                key=lambda item: (item.mode_index, item.reason.value),
+            )
+        )
         indices = tuple(item.mode_index for item in ordered)
         if len(indices) != len(set(indices)):
             raise ThermochemistryContractError("a vibrational mode may be excluded only once")
@@ -202,7 +207,7 @@ class ThermochemicalConditions:
 
 @dataclass(frozen=True, slots=True)
 class GasMoleculeModel:
-    """Explicit rigid-rotor/electronic metadata that must never be guessed from a filename."""
+    """Explicit rigid-rotor/electronic metadata that is never guessed from a filename."""
 
     geometry_kind: GasGeometryKind
     symmetry_number: int
@@ -216,6 +221,23 @@ class GasMoleculeModel:
 
 
 @dataclass(frozen=True, slots=True)
+class ThermochemistryCorrection:
+    """One visible additive correction with a versioned policy identity."""
+
+    kind: ThermochemistryCorrectionKind
+    label: str
+    value_ev: float
+    policy_id: str
+    policy_version: str
+
+    def __post_init__(self) -> None:
+        _require_text(self.label, "label")
+        _require_text(self.policy_id, "policy_id")
+        _require_text(self.policy_version, "policy_version")
+        _require_finite(self.value_ev, "value_ev")
+
+
+@dataclass(frozen=True, slots=True)
 class ThermochemistryIdentity:
     """Deterministic method identity for one thermochemistry Analysis."""
 
@@ -225,6 +247,7 @@ class ThermochemistryIdentity:
     electronic_entropy_policy: ElectronicEntropyPolicy
     vibrational_policy: VibrationalModePolicy | None
     gas_model: GasMoleculeModel | None = None
+    corrections: tuple[ThermochemistryCorrection, ...] = ()
 
     def __post_init__(self) -> None:
         gas_state = self.conditions.standard_state in {
@@ -233,7 +256,9 @@ class ThermochemistryIdentity:
         }
         if self.subject_kind is ThermochemistrySubjectKind.GAS:
             if not gas_state:
-                raise ThermochemistryContractError("gas subject requires an ideal-gas standard state")
+                raise ThermochemistryContractError(
+                    "gas subject requires an ideal-gas standard state"
+                )
             if self.gas_model is None:
                 raise ThermochemistryContractError("gas subject requires an explicit gas_model")
             if self.vibrational_policy is None:
@@ -261,6 +286,24 @@ class ThermochemistryIdentity:
             raise ThermochemistryContractError(
                 "spin-degeneracy electronic entropy requires explicit gas molecular metadata"
             )
+        corrections = tuple(
+            sorted(
+                self.corrections,
+                key=lambda item: (
+                    item.kind.value,
+                    item.policy_id,
+                    item.policy_version,
+                    item.label,
+                ),
+            )
+        )
+        correction_keys = tuple(
+            (item.kind, item.policy_id, item.policy_version, item.label)
+            for item in corrections
+        )
+        if len(correction_keys) != len(set(correction_keys)):
+            raise ThermochemistryContractError("thermochemistry correction identities must be unique")
+        object.__setattr__(self, "corrections", corrections)
 
     @property
     def parameters_hash(self) -> str:
@@ -285,7 +328,10 @@ class ThermochemistryModeSelection:
         if len(accepted) != len(set(accepted)):
             raise ThermochemistryContractError("accepted mode indices must be unique")
         excluded = tuple(
-            sorted(self.excluded_modes, key=lambda item: (item.mode_index, item.reason.value))
+            sorted(
+                self.excluded_modes,
+                key=lambda item: (item.mode_index, item.reason.value),
+            )
         )
         excluded_indices = tuple(item.mode_index for item in excluded)
         if len(excluded_indices) != len(set(excluded_indices)):
@@ -294,23 +340,6 @@ class ThermochemistryModeSelection:
             raise ThermochemistryContractError("a mode cannot be both accepted and excluded")
         object.__setattr__(self, "accepted_mode_indices", accepted)
         object.__setattr__(self, "excluded_modes", excluded)
-
-
-@dataclass(frozen=True, slots=True)
-class ThermochemistryCorrection:
-    """One visible additive correction with a versioned policy identity."""
-
-    kind: ThermochemistryCorrectionKind
-    label: str
-    value_ev: float
-    policy_id: str
-    policy_version: str
-
-    def __post_init__(self) -> None:
-        _require_text(self.label, "label")
-        _require_text(self.policy_id, "policy_id")
-        _require_text(self.policy_version, "policy_version")
-        _require_finite(self.value_ev, "value_ev")
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,18 +360,31 @@ class ThermochemistryComponents:
 
     def __post_init__(self) -> None:
         _require_finite(self.electronic_energy_ev, "electronic_energy_ev")
-        for field_name in (
-            "zpe_ev",
-            "vibrational_thermal_energy_ev",
-            "translational_thermal_energy_ev",
-            "rotational_thermal_energy_ev",
-            "pv_ev",
-            "vibrational_entropy_ev_per_k",
-            "translational_entropy_ev_per_k",
-            "rotational_entropy_ev_per_k",
-            "electronic_entropy_ev_per_k",
-        ):
-            _require_nonnegative(getattr(self, field_name), field_name)
+        nonnegative_values = (
+            (self.zpe_ev, "zpe_ev"),
+            (self.vibrational_thermal_energy_ev, "vibrational_thermal_energy_ev"),
+            (self.translational_thermal_energy_ev, "translational_thermal_energy_ev"),
+            (self.rotational_thermal_energy_ev, "rotational_thermal_energy_ev"),
+            (self.pv_ev, "pv_ev"),
+            (self.vibrational_entropy_ev_per_k, "vibrational_entropy_ev_per_k"),
+            (self.translational_entropy_ev_per_k, "translational_entropy_ev_per_k"),
+            (self.rotational_entropy_ev_per_k, "rotational_entropy_ev_per_k"),
+            (self.electronic_entropy_ev_per_k, "electronic_entropy_ev_per_k"),
+        )
+        for value, field_name in nonnegative_values:
+            _require_nonnegative(value, field_name)
+        corrections = tuple(
+            sorted(
+                self.corrections,
+                key=lambda item: (
+                    item.kind.value,
+                    item.policy_id,
+                    item.policy_version,
+                    item.label,
+                ),
+            )
+        )
+        object.__setattr__(self, "corrections", corrections)
 
     @property
     def total_entropy_ev_per_k(self) -> float:
@@ -372,13 +414,24 @@ class ThermochemistryResult:
     result_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
-        if self.identity.vibrational_policy is None and self.mode_selection is not None:
+        policy = self.identity.vibrational_policy
+        selection = self.mode_selection
+        if policy is None and selection is not None:
             raise ThermochemistryContractError(
                 "mode selection requires a vibrational policy in the thermochemistry identity"
             )
-        if self.identity.vibrational_policy is not None and self.mode_selection is None:
+        if policy is not None and selection is None:
             raise ThermochemistryContractError(
                 "vibrational thermochemistry requires an explicit concrete mode selection"
+            )
+        if policy is not None and selection is not None:
+            if selection.excluded_modes != policy.exclusions:
+                raise ThermochemistryContractError(
+                    "result mode exclusions must exactly match the identity policy"
+                )
+        if self.components.corrections != self.identity.corrections:
+            raise ThermochemistryContractError(
+                "result correction terms must exactly match the identity corrections"
             )
         object.__setattr__(
             self,
