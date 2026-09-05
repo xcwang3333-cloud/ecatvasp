@@ -56,3 +56,4 @@ Frozen ADR set and accepted extensions:
 50. v0.7 Durable DOS/PDOS Analysis Materialization Boundary
 51. v0.7 Bader Analysis Intake and Provenance Boundary
 52. v0.7 Charge-Density Difference Analysis Boundary
+53. v0.7 LOBSTER / COHP / ICOHP Result-Intake Boundary

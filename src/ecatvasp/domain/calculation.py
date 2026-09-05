@@ -137,6 +137,7 @@ class ArtifactType(StrEnum):
     DOSCAR = "doscar"
     ACF_DAT = "acf_dat"
     COHPCAR_LOBSTER = "cohpcar_lobster"
+    ICOHPLIST_LOBSTER = "icohplist_lobster"
     EXECUTION_PLAN = "execution_plan"
     JOB_SCRIPT = "job_script"
     STDOUT = "stdout"
