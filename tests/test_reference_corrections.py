@@ -25,6 +25,7 @@ from ecatvasp.thermo import (
     CANONICAL_IDEAL_GAS_THERMOCHEMISTRY_VERSION,
     IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME,
     IDEAL_GAS_THERMOCHEMISTRY_TOOL_VERSION,
+    BoundGasReferenceThermochemistry,
     CorrectionEvidence,
     CorrectionEvidenceKind,
     ElectronicEnergyKind,
@@ -50,7 +51,7 @@ from ecatvasp.thermo import (
     ThermochemistryResult,
     ThermochemistrySubjectKind,
     VibrationalModePolicy,
-    apply_reference_corrections,
+    apply_bound_reference_corrections,
     materialize_reference_thermochemistry,
 )
 
@@ -148,7 +149,12 @@ def _policy(
 
 
 def test_o2_dft_reference_correction_is_explicit_and_additive() -> None:
-    source = _raw_gas_result(GasReferenceSpecies.O2)
+    source_result = _raw_gas_result(GasReferenceSpecies.O2)
+    reference = GasReferenceDefinition(GasReferenceSpecies.O2)
+    source = BoundGasReferenceThermochemistry(
+        reference=reference,
+        result=source_result,
+    )
     policy = _policy(
         kind=ThermochemistryCorrectionKind.DFT_REFERENCE,
         label="synthetic O2 DFT reference correction",
@@ -156,22 +162,22 @@ def test_o2_dft_reference_correction_is_explicit_and_additive() -> None:
         policy_id="synthetic.o2.dft",
     )
     adjustment = GasReferenceAdjustmentIdentity(
-        reference=GasReferenceDefinition(GasReferenceSpecies.O2),
+        reference=reference,
         target_phase=ReferencePhase.IDEAL_GAS,
         policies=(policy,),
     )
 
-    corrected = apply_reference_corrections(
-        source_result=source,
+    corrected = apply_bound_reference_corrections(
+        source=source,
         adjustment=adjustment,
     )
 
-    assert corrected.source_gibbs_free_energy_ev == source.gibbs_free_energy_ev
+    assert corrected.source_gibbs_free_energy_ev == source_result.gibbs_free_energy_ev
     assert corrected.corrected_gibbs_free_energy_ev == pytest.approx(
-        source.gibbs_free_energy_ev + 0.25
+        source_result.gibbs_free_energy_ev + 0.25
     )
-    assert source.identity.corrections == ()
-    assert source.components.corrections == ()
+    assert source_result.identity.corrections == ()
+    assert source_result.components.corrections == ()
 
 
 def test_o2_has_no_implicit_default_correction() -> None:
@@ -248,8 +254,11 @@ def test_liquid_water_requires_one_explicit_phase_change_correction() -> None:
         target_phase=ReferencePhase.LIQUID_WATER,
         policies=(phase_policy,),
     )
-    corrected = apply_reference_corrections(
-        source_result=_raw_gas_result(GasReferenceSpecies.H2O),
+    corrected = apply_bound_reference_corrections(
+        source=BoundGasReferenceThermochemistry(
+            reference=reference,
+            result=_raw_gas_result(GasReferenceSpecies.H2O),
+        ),
         adjustment=liquid,
     )
     assert corrected.corrected_gibbs_free_energy_ev == pytest.approx(
@@ -300,26 +309,14 @@ def test_reference_layer_rejects_already_corrected_parent() -> None:
         components=replace(source.components, corrections=(correction,)),
         mode_selection=source.mode_selection,
     )
-    adjustment = GasReferenceAdjustmentIdentity(
-        reference=GasReferenceDefinition(GasReferenceSpecies.O2),
-        target_phase=ReferencePhase.IDEAL_GAS,
-        policies=(
-            _policy(
-                kind=ThermochemistryCorrectionKind.DFT_REFERENCE,
-                label="second synthetic correction",
-                value_ev=0.2,
-                policy_id="synthetic.second",
-            ),
-        ),
-    )
 
     with pytest.raises(
         ReferenceCorrectionError,
-        match="only uncorrected raw thermochemistry",
+        match="uncorrected raw thermochemistry",
     ):
-        apply_reference_corrections(
-            source_result=already_corrected,
-            adjustment=adjustment,
+        BoundGasReferenceThermochemistry(
+            reference=GasReferenceDefinition(GasReferenceSpecies.O2),
+            result=already_corrected,
         )
 
 
