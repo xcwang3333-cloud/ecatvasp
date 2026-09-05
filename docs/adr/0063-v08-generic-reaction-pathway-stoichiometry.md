@@ -79,6 +79,11 @@ needed.
 `ReactionPathwayDefinition` stores an ordered state-key sequence and exactly one explicit step between
 each adjacent pair. Every step must declare matching `initial_state_key` and `final_state_key`.
 
+State keys are ordered positions, not globally unique node identifiers. A non-adjacent state key may
+repeat so that a catalytic pathway can explicitly return to its initial clean catalyst state after
+product release. An individual step still cannot connect a state to itself, so consecutive identical
+states remain invalid.
+
 Reverse chemistry is another explicit pathway/step definition. OER is not represented by string
 reversal of an ORR pathway, and no step direction is inferred from a label.
 
@@ -112,7 +117,10 @@ engine.
 - every source hash and signed contribution;
 - final `Delta G` and deterministic result hash.
 
-`ReactionPathwayResult` verifies that cumulative state energies are the ordered sum of step energies.
+`ReactionPathwayResult` verifies that cumulative state energies are the ordered sum of step energies,
+that all step temperatures are identical, and that all non-null CHE condition hashes are identical.
+This preserves the evaluator's condition-coherence guarantees even if a result object is constructed
+directly rather than through the pathway evaluator.
 
 ### 9. Persistence and descriptors remain downstream
 
@@ -138,6 +146,7 @@ Block 6 rejects:
 - mixed temperatures;
 - multiple CHE sources with different exact electrochemical conditions;
 - pathway steps that do not match adjacent directed state keys;
+- directly constructed pathway results with mixed step temperatures or CHE conditions;
 - adsorption requests without explicit reference terms.
 
 Block 6 does not infer reaction balancing, atom balance, charge balance, reaction direction,
