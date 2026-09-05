@@ -11,9 +11,9 @@ from math import isfinite
 from pathlib import Path, PurePosixPath
 from typing import cast
 
-import ase  # type: ignore[import-untyped]
+import ase
 import numpy as np
-from ase.calculators.vasp import VaspChargeDensity  # type: ignore[import-untyped]
+from ase.calculators.vasp import VaspChargeDensity
 from numpy.typing import NDArray
 
 from ecatvasp.domain import (
