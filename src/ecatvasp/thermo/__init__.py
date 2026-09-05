@@ -1,8 +1,8 @@
 """Thermochemistry scientific contracts and materialization adapters."""
 
 from ecatvasp.thermo.che import (
-    CHEError,
     CHEConditions,
+    CHEError,
     CHEHydrogenReference,
     CHEPhSemantics,
     CHEProtonElectronChemicalPotential,
@@ -88,11 +88,6 @@ __all__ = [
     "CANONICAL_IDEAL_GAS_THERMOCHEMISTRY_VERSION",
     "CANONICAL_REFERENCE_THERMOCHEMISTRY_FORMAT",
     "CANONICAL_REFERENCE_THERMOCHEMISTRY_VERSION",
-    "CHEConditions",
-    "CHEError",
-    "CHEHydrogenReference",
-    "CHEPhSemantics",
-    "CHEProtonElectronChemicalPotential",
     "HARMONIC_THERMOCHEMISTRY_TOOL_NAME",
     "HARMONIC_THERMOCHEMISTRY_TOOL_VERSION",
     "IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME",
@@ -103,6 +98,11 @@ __all__ = [
     "REFERENCE_CORRECTION_TOOL_NAME",
     "REFERENCE_CORRECTION_TOOL_VERSION",
     "BoundGasReferenceThermochemistry",
+    "CHEConditions",
+    "CHEError",
+    "CHEHydrogenReference",
+    "CHEPhSemantics",
+    "CHEProtonElectronChemicalPotential",
     "CorrectionEvidence",
     "CorrectionEvidenceKind",
     "DurableGasThermochemistry",
