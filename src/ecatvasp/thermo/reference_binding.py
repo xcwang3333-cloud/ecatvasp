@@ -19,6 +19,8 @@ from ecatvasp.thermo.references import (
     GasReferenceAdjustmentIdentity,
     ReferenceCorrectionError,
     ReferenceThermochemistryResult,
+)
+from ecatvasp.thermo.references import (
     apply_reference_corrections as _apply_reference_corrections,
 )
 
