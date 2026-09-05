@@ -264,88 +264,6 @@ def materialize_harmonic_thermochemistry(
     )
 
 
-def load_harmonic_thermochemistry_artifact(
-    *,
-    project_root: Path | str,
-    calculation: Calculation,
-    method_fingerprint: MethodFingerprint,
-    structure_snapshot: StructureSnapshot,
-    source_analysis: Analysis,
-    source_artifact: Artifact,
-    source_result: VaspResultDocument,
-    analysis: Analysis,
-    artifact: Artifact,
-) -> ThermochemistryResult:
-    """Reopen, validate, and recompute one durable harmonic thermochemistry dataset."""
-
-    _validate_source_contract(
-        calculation=calculation,
-        method_fingerprint=method_fingerprint,
-        structure_snapshot=structure_snapshot,
-        source_analysis=source_analysis,
-        source_artifact=source_artifact,
-        source_result=source_result,
-    )
-    if analysis.analysis_type is not AnalysisType.THERMOCHEMISTRY:
-        raise HarmonicThermochemistryError(
-            "harmonic thermochemistry Artifact requires AnalysisType.THERMOCHEMISTRY"
-        )
-    if analysis.status is not AnalysisStatus.COMPLETED:
-        raise HarmonicThermochemistryError("harmonic thermochemistry Analysis must be completed")
-    if analysis.input_artifact_ids != (source_artifact.id,):
-        raise HarmonicThermochemistryError(
-            "thermochemistry Analysis input differs from parsed-result Artifact"
-        )
-    if (
-        analysis.tool != HARMONIC_THERMOCHEMISTRY_TOOL_NAME
-        or analysis.tool_version != HARMONIC_THERMOCHEMISTRY_TOOL_VERSION
-    ):
-        raise HarmonicThermochemistryError("harmonic thermochemistry tool/version is unsupported")
-    _validate_output_artifact(analysis=analysis, artifact=artifact)
-
-    root = Path(project_root).resolve()
-    _verify_parsed_result_artifact(
-        root=root,
-        calculation=calculation,
-        source_analysis=source_analysis,
-        source_artifact=source_artifact,
-        source_result=source_result,
-    )
-    _validate_frequency_snapshot(source_result=source_result, snapshot=structure_snapshot)
-    payload = _read_output_payload(root=root, artifact=artifact)
-    if payload.get("format") != CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT:
-        raise HarmonicThermochemistryError("canonical harmonic thermochemistry format is unsupported")
-    if payload.get("version") != CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION:
-        raise HarmonicThermochemistryError("canonical harmonic thermochemistry version is unsupported")
-    if payload.get("analysis_id") != str(analysis.id):
-        raise HarmonicThermochemistryError("thermochemistry Artifact belongs to another Analysis")
-    receipt = _mapping(payload.get("source_receipt"), "source_receipt")
-    receipt_hash = _string(payload.get("source_receipt_hash"), "source_receipt_hash")
-    if receipt_hash != analysis.parameters_hash or canonical_sha256(receipt) != receipt_hash:
-        raise HarmonicThermochemistryError("thermochemistry source receipt differs from Analysis")
-    _validate_receipt(
-        receipt=receipt,
-        calculation=calculation,
-        method_fingerprint=method_fingerprint,
-        structure_snapshot=structure_snapshot,
-        source_analysis=source_analysis,
-        source_artifact=source_artifact,
-        source_result=source_result,
-    )
-    identity = _decode_identity(receipt.get("thermochemistry_identity"))
-    if receipt.get("thermochemistry_parameters_hash") != identity.parameters_hash:
-        raise HarmonicThermochemistryError("thermochemistry identity hash is inconsistent")
-    expected = calculate_harmonic_thermochemistry(
-        source_result=source_result,
-        identity=identity,
-    )
-    if payload.get("result_hash") != expected.result_hash:
-        raise HarmonicThermochemistryError("thermochemistry result hash differs from recomputation")
-    if canonical_sha256(payload.get("result")) != canonical_sha256(expected):
-        raise HarmonicThermochemistryError("thermochemistry result differs from recomputed source facts")
-    return expected
-
-
 def _validate_block2_identity(identity: ThermochemistryIdentity) -> None:
     if identity.subject_kind not in {
         ThermochemistrySubjectKind.SURFACE,
@@ -405,7 +323,8 @@ def _select_modes(
             ModeExclusionReason.ROTATIONAL,
         }:
             raise HarmonicThermochemistryError(
-                "surface/adsorbate harmonic thermochemistry forbids gas translation/rotation exclusions"
+                "surface/adsorbate harmonic thermochemistry forbids gas "
+                "translation/rotation exclusions"
             )
         if (
             exclusion.reason is ModeExclusionReason.IMAGINARY
@@ -423,7 +342,7 @@ def _select_modes(
             )
 
     imaginary = tuple(mode for mode in modes if mode.kind is VaspFrequencyModeKind.IMAGINARY)
-    if identity.vibrational_policy.imaginary_mode_policy is ImaginaryModePolicy.REJECT_ANY:
+    if policy.imaginary_mode_policy is ImaginaryModePolicy.REJECT_ANY:
         if imaginary:
             raise HarmonicThermochemistryError("imaginary VASP modes violate REJECT_ANY policy")
     else:
@@ -473,25 +392,33 @@ def _select_modes(
     )
 
 
-def _harmonic_mode_terms(*, energy_ev: float, temperature_k: float) -> tuple[float, float, float]:
+def _harmonic_mode_terms(
+    *,
+    energy_ev: float,
+    temperature_k: float,
+) -> tuple[float, float, float]:
     if not isfinite(energy_ev) or energy_ev <= 0.0:
         raise HarmonicThermochemistryError("harmonic mode energy must be finite and positive")
     if not isfinite(temperature_k) or temperature_k <= 0.0:
-        raise HarmonicThermochemistryError("thermochemistry temperature must be finite and positive")
+        raise HarmonicThermochemistryError(
+            "thermochemistry temperature must be finite and positive"
+        )
     x = energy_ev / (BOLTZMANN_EV_PER_K * temperature_k)
     if not isfinite(x) or x <= 0.0:
-        raise HarmonicThermochemistryError("dimensionless harmonic frequency must be positive")
+        raise HarmonicThermochemistryError(
+            "dimensionless harmonic frequency must be positive"
+        )
     zpe = 0.5 * energy_ev
     if x > 700.0:
         return zpe, 0.0, 0.0
     denominator = expm1(x)
     thermal = energy_ev / denominator
     exp_minus_x = exp(-x)
-    entropy = BOLTZMANN_EV_PER_K * (
-        x / denominator - log1p(-exp_minus_x)
-    )
+    entropy = BOLTZMANN_EV_PER_K * (x / denominator - log1p(-exp_minus_x))
     if not all(isfinite(value) and value >= 0.0 for value in (zpe, thermal, entropy)):
-        raise HarmonicThermochemistryError("harmonic thermochemistry produced invalid components")
+        raise HarmonicThermochemistryError(
+            "harmonic thermochemistry produced invalid components"
+        )
     return zpe, thermal, entropy
 
 
@@ -505,15 +432,29 @@ def _validate_source_contract(
     source_result: VaspResultDocument,
 ) -> None:
     if calculation.calculation_type is not CalculationType.FREQUENCY:
-        raise HarmonicThermochemistryError("Block 2 requires a surface/adsorbate FREQUENCY Calculation")
+        raise HarmonicThermochemistryError(
+            "Block 2 requires a surface/adsorbate FREQUENCY Calculation"
+        )
     if calculation.status is not CalculationScientificStatus.CONVERGED:
-        raise HarmonicThermochemistryError("frequency Calculation must be scientifically CONVERGED")
+        raise HarmonicThermochemistryError(
+            "frequency Calculation must be scientifically CONVERGED"
+        )
     if method_fingerprint.id != calculation.method_fingerprint_id:
-        raise HarmonicThermochemistryError("MethodFingerprint differs from Calculation identity")
+        raise HarmonicThermochemistryError(
+            "MethodFingerprint differs from Calculation identity"
+        )
+    if method_fingerprint.recipe.recipe_id != calculation.recipe_id:
+        raise HarmonicThermochemistryError(
+            "MethodFingerprint recipe differs from Calculation recipe"
+        )
     if structure_snapshot.id != calculation.input_structure_snapshot_id:
-        raise HarmonicThermochemistryError("StructureSnapshot differs from Calculation input")
+        raise HarmonicThermochemistryError(
+            "StructureSnapshot differs from Calculation input"
+        )
     if source_analysis.project_id != calculation.project_id:
-        raise HarmonicThermochemistryError("parsed-result Analysis belongs to another project")
+        raise HarmonicThermochemistryError(
+            "parsed-result Analysis belongs to another project"
+        )
     if source_analysis.analysis_type is not AnalysisType.RESULT_PARSE:
         raise HarmonicThermochemistryError("source Analysis must be RESULT_PARSE")
     if source_analysis.status is not AnalysisStatus.COMPLETED:
@@ -524,24 +465,38 @@ def _validate_source_contract(
         not isinstance(source_artifact.producer, AnalysisProducerRef)
         or source_artifact.producer.id != source_analysis.id
     ):
-        raise HarmonicThermochemistryError("parsed-result Artifact producer differs from Analysis")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact producer differs from Analysis"
+        )
     if source_artifact.availability not in {
         ArtifactAvailability.LOCAL,
         ArtifactAvailability.BOTH,
     }:
-        raise HarmonicThermochemistryError("parsed-result Artifact must be locally available")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact must be locally available"
+        )
     if source_artifact.local_path is None:
         raise HarmonicThermochemistryError("parsed-result Artifact requires local_path")
     if source_artifact.sha256 is None or source_artifact.size_bytes is None:
-        raise HarmonicThermochemistryError("parsed-result Artifact requires hash and byte size")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact requires hash and byte size"
+        )
     if source_result.calculation_type is not calculation.calculation_type:
-        raise HarmonicThermochemistryError("parsed VASP result CalculationType differs")
+        raise HarmonicThermochemistryError(
+            "parsed VASP result CalculationType differs"
+        )
 
 
-def _validate_frequency_snapshot(*, source_result: VaspResultDocument, snapshot: StructureSnapshot) -> None:
+def _validate_frequency_snapshot(
+    *,
+    source_result: VaspResultDocument,
+    snapshot: StructureSnapshot,
+) -> None:
     frequencies = source_result.frequencies
     if frequencies is None:
-        raise HarmonicThermochemistryError("parsed VASP result has no frequency dataset")
+        raise HarmonicThermochemistryError(
+            "parsed VASP result has no frequency dataset"
+        )
     snapshot_uids = tuple(site.atom_uid for site in snapshot.sites)
     if set(frequencies.atom_uids) != set(snapshot_uids):
         raise HarmonicThermochemistryError(
@@ -561,44 +516,75 @@ def _verify_parsed_result_artifact(
         raise HarmonicThermochemistryError("parsed-result Artifact requires local_path")
     relative = PurePosixPath(source_artifact.local_path)
     if relative.is_absolute() or ".." in relative.parts:
-        raise HarmonicThermochemistryError("parsed-result Artifact path must be project-relative")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact path must be project-relative"
+        )
     absolute = (root / Path(*relative.parts)).resolve()
     if not absolute.is_relative_to(root) or not absolute.is_file():
-        raise HarmonicThermochemistryError("parsed-result Artifact file is unavailable")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact file is unavailable"
+        )
     body = absolute.read_bytes()
     if source_artifact.size_bytes != len(body):
-        raise HarmonicThermochemistryError("parsed-result Artifact byte size differs")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact byte size differs"
+        )
     if source_artifact.sha256 != hashlib.sha256(body).hexdigest():
-        raise HarmonicThermochemistryError("parsed-result Artifact SHA-256 differs")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact SHA-256 differs"
+        )
     try:
         payload_raw = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise HarmonicThermochemistryError("parsed-result Artifact is not valid UTF-8 JSON") from error
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact is not valid UTF-8 JSON"
+        ) from error
     payload = _mapping(payload_raw, "parsed-result payload")
     if payload.get("format") != VASP_RESULT_DOCUMENT_FORMAT:
-        raise HarmonicThermochemistryError("parsed-result Artifact format is unsupported")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact format is unsupported"
+        )
     if payload.get("version") != VASP_RESULT_DOCUMENT_VERSION:
-        raise HarmonicThermochemistryError("parsed-result Artifact version is unsupported")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact version is unsupported"
+        )
     if payload.get("calculation_id") != str(calculation.id):
-        raise HarmonicThermochemistryError("parsed-result Artifact belongs to another Calculation")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact belongs to another Calculation"
+        )
     if payload.get("analysis_id") != str(source_analysis.id):
-        raise HarmonicThermochemistryError("parsed-result Artifact belongs to another Analysis")
+        raise HarmonicThermochemistryError(
+            "parsed-result Artifact belongs to another Analysis"
+        )
     if canonical_sha256(payload.get("result")) != canonical_sha256(source_result):
         raise HarmonicThermochemistryError(
             "in-memory VASP result differs from durable parsed-result Artifact"
         )
 
 
-def _write_result_artifact(*, root: Path, analysis: Analysis, payload: object) -> Artifact:
-    relative = Path("analyses") / str(analysis.id) / "canonical-harmonic-thermochemistry.json"
+def _write_result_artifact(
+    *,
+    root: Path,
+    analysis: Analysis,
+    payload: object,
+) -> Artifact:
+    relative = (
+        Path("analyses")
+        / str(analysis.id)
+        / "canonical-harmonic-thermochemistry.json"
+    )
     absolute = (root / relative).resolve()
     if not absolute.is_relative_to(root):
-        raise HarmonicThermochemistryError("thermochemistry output path resolves outside project_root")
+        raise HarmonicThermochemistryError(
+            "thermochemistry output path resolves outside project_root"
+        )
     text = canonical_json(payload) + "\n"
     absolute.parent.mkdir(parents=True, exist_ok=True)
     if absolute.exists():
         if not absolute.is_file():
-            raise HarmonicThermochemistryError("thermochemistry output path is not a regular file")
+            raise HarmonicThermochemistryError(
+                "thermochemistry output path is not a regular file"
+            )
         if absolute.read_text(encoding="utf-8") != text:
             raise HarmonicThermochemistryError(
                 "thermochemistry output path already has different content"
@@ -623,97 +609,11 @@ def _write_result_artifact(*, root: Path, analysis: Analysis, payload: object) -
     )
 
 
-def _validate_output_artifact(*, analysis: Analysis, artifact: Artifact) -> None:
-    if (
-        not isinstance(artifact.producer, AnalysisProducerRef)
-        or artifact.producer.id != analysis.id
-    ):
-        raise HarmonicThermochemistryError("thermochemistry Artifact producer differs from Analysis")
-    if artifact.artifact_type is not ArtifactType.DERIVED_DATASET:
-        raise HarmonicThermochemistryError("thermochemistry Artifact must be DERIVED_DATASET")
-    if artifact.availability not in {ArtifactAvailability.LOCAL, ArtifactAvailability.BOTH}:
-        raise HarmonicThermochemistryError("thermochemistry Artifact must be locally available")
-    if (
-        artifact.local_path is None
-        or PurePosixPath(artifact.local_path).name != "canonical-harmonic-thermochemistry.json"
-    ):
-        raise HarmonicThermochemistryError("thermochemistry Artifact has unexpected filename")
-    if artifact.sha256 is None or artifact.size_bytes is None:
-        raise HarmonicThermochemistryError("thermochemistry Artifact requires hash and byte size")
-
-
-def _read_output_payload(*, root: Path, artifact: Artifact) -> dict[str, object]:
-    if artifact.local_path is None:
-        raise HarmonicThermochemistryError("thermochemistry Artifact requires local_path")
-    relative = PurePosixPath(artifact.local_path)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise HarmonicThermochemistryError("thermochemistry Artifact path must be project-relative")
-    absolute = (root / Path(*relative.parts)).resolve()
-    if not absolute.is_relative_to(root) or not absolute.is_file():
-        raise HarmonicThermochemistryError("thermochemistry Artifact file is unavailable")
-    body = absolute.read_bytes()
-    if artifact.size_bytes != len(body):
-        raise HarmonicThermochemistryError("thermochemistry Artifact byte size differs")
-    if artifact.sha256 != hashlib.sha256(body).hexdigest():
-        raise HarmonicThermochemistryError("thermochemistry Artifact SHA-256 differs")
-    try:
-        raw = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise HarmonicThermochemistryError("thermochemistry Artifact is not valid UTF-8 JSON") from error
-    return _mapping(raw, "thermochemistry payload")
-
-
-def _validate_receipt(
-    *,
-    receipt: dict[str, object],
-    calculation: Calculation,
-    method_fingerprint: MethodFingerprint,
-    structure_snapshot: StructureSnapshot,
-    source_analysis: Analysis,
-    source_artifact: Artifact,
-    source_result: VaspResultDocument,
-) -> None:
-    expected = {
-        "calculation_id": str(calculation.id),
-        "structure_snapshot_id": str(structure_snapshot.id),
-        "method_fingerprint_id": str(method_fingerprint.id),
-        "source_analysis_id": str(source_analysis.id),
-        "source_artifact_id": str(source_artifact.id),
-        "source_artifact_sha256": source_artifact.sha256,
-        "source_result_hash": canonical_sha256(source_result),
-    }
-    for field_name, value in expected.items():
-        if receipt.get(field_name) != value:
-            raise HarmonicThermochemistryError(
-                f"thermochemistry source receipt differs for {field_name}"
-            )
-    if receipt.get("format") != CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT:
-        raise HarmonicThermochemistryError("thermochemistry source receipt format is unsupported")
-    if receipt.get("version") != CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION:
-        raise HarmonicThermochemistryError("thermochemistry source receipt version is unsupported")
-
-
-def _decode_identity(value: object) -> ThermochemistryIdentity:
-    """Decode an identity by round-tripping through existing storage codec semantics later.
-
-    Block 2 artifacts already preserve the canonical identity payload. Reopen currently accepts the
-    exact identity representation only through the caller-side Analysis receipt comparison; full
-    schema-generic dataclass decoding remains ProjectStore's responsibility.
-    """
-
-    raise HarmonicThermochemistryError(
-        "direct thermochemistry identity decoding is not yet supported; "
-        "reopen through ProjectStore will be added with reconciliation"
-    )
-
-
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
-        raise HarmonicThermochemistryError(f"{field_name} must be a JSON object")
-    return value
-
-
-def _string(value: object, field_name: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise HarmonicThermochemistryError(f"{field_name} must be a non-empty string")
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ):
+        raise HarmonicThermochemistryError(
+            f"{field_name} must be a JSON object"
+        )
     return value
