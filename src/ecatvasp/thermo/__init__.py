@@ -49,6 +49,10 @@ from ecatvasp.thermo.harmonic import (
     calculate_harmonic_thermochemistry,
     materialize_harmonic_thermochemistry,
 )
+from ecatvasp.thermo.reference_binding import (
+    BoundGasReferenceThermochemistry,
+    apply_bound_reference_corrections,
+)
 from ecatvasp.thermo.references import (
     CANONICAL_REFERENCE_THERMOCHEMISTRY_FORMAT,
     CANONICAL_REFERENCE_THERMOCHEMISTRY_VERSION,
@@ -83,6 +87,7 @@ __all__ = [
     "ONE_BAR_PA",
     "REFERENCE_CORRECTION_TOOL_NAME",
     "REFERENCE_CORRECTION_TOOL_VERSION",
+    "BoundGasReferenceThermochemistry",
     "CorrectionEvidence",
     "CorrectionEvidenceKind",
     "DurableGasThermochemistry",
@@ -118,6 +123,7 @@ __all__ = [
     "ThermochemistryResult",
     "ThermochemistrySubjectKind",
     "VibrationalModePolicy",
+    "apply_bound_reference_corrections",
     "apply_reference_corrections",
     "calculate_harmonic_thermochemistry",
     "calculate_ideal_gas_thermochemistry",
