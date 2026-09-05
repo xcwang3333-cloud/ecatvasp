@@ -8,36 +8,34 @@ from uuid import UUID
 
 import pytest
 
-from ecatvasp.analysis.descriptors import (
+from ecatvasp.analysis import (
     BandCenterEnergyReference,
     BandCenterError,
     BandCenterKind,
     BandCenterParameters,
     BandCenterSelector,
     BandCenterSpinMode,
-    DurableBandCenter,
-    calculate_band_center,
-    load_band_center_artifact,
-    materialize_band_center_analysis,
-)
-from ecatvasp.analysis.dos_materialization import (
-    DurableDosMaterialization,
-    materialize_canonical_dos_analysis,
-)
-from ecatvasp.analysis.doscar import CanonicalDosIntake, parse_vasp_doscar
-from ecatvasp.analysis.electronic import (
+    CanonicalDosIntake,
     CanonicalDosResult,
     DosSeries,
+    DurableBandCenter,
+    DurableDosMaterialization,
     ElectronicEnergyAxis,
     OrbitalChannel,
     ProjectionScope,
     SpinChannel,
+    calculate_band_center,
+    load_band_center_artifact,
+    materialize_band_center_analysis,
+    materialize_canonical_dos_analysis,
+    parse_vasp_doscar,
 )
 from ecatvasp.domain import (
     AnalysisProducerRef,
     Artifact,
     ArtifactAvailability,
     ArtifactType,
+    AtomUid,
     Calculation,
     CalculationProducerRef,
     CalculationScientificStatus,
@@ -58,9 +56,9 @@ from ecatvasp.domain import (
     SpinTreatment,
     StructureSite,
     StructureSnapshot,
+    StructureSnapshotId,
     new_atom_uid,
 )
-from ecatvasp.domain.ids import AtomUid, StructureSnapshotId
 from ecatvasp.provenance import FreshnessEngine, FreshnessState, scientific_hash
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
