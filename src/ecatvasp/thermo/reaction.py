@@ -337,7 +337,9 @@ class ReactionStepResult:
             raise ReactionFreeEnergyError("reaction result requires explicit contributions")
         keys = tuple(item.species_key for item in self.contributions)
         if len(keys) != len(set(keys)):
-            raise ReactionFreeEnergyError("reaction result contribution species_keys must be unique")
+            raise ReactionFreeEnergyError(
+                "reaction result contribution species_keys must be unique"
+            )
         expected = sum(item.contribution_ev for item in self.contributions)
         if not isfinite(self.delta_g_ev) or self.delta_g_ev != expected:
             raise ReactionFreeEnergyError(
