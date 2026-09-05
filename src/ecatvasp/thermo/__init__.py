@@ -1,4 +1,4 @@
-"""Thermochemistry scientific contracts and later materialization adapters."""
+"""Thermochemistry scientific contracts and materialization adapters."""
 
 from ecatvasp.thermo.contracts import (
     ONE_ATM_PA,
@@ -24,15 +24,33 @@ from ecatvasp.thermo.contracts import (
     ThermochemistrySubjectKind,
     VibrationalModePolicy,
 )
+from ecatvasp.thermo.harmonic import (
+    BOLTZMANN_EV_PER_K,
+    CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT,
+    CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION,
+    HARMONIC_THERMOCHEMISTRY_TOOL_NAME,
+    HARMONIC_THERMOCHEMISTRY_TOOL_VERSION,
+    DurableHarmonicThermochemistry,
+    HarmonicThermochemistryError,
+    calculate_harmonic_thermochemistry,
+    materialize_harmonic_thermochemistry,
+)
 
 __all__ = [
+    "BOLTZMANN_EV_PER_K",
+    "CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT",
+    "CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION",
+    "HARMONIC_THERMOCHEMISTRY_TOOL_NAME",
+    "HARMONIC_THERMOCHEMISTRY_TOOL_VERSION",
     "ONE_ATM_PA",
     "ONE_BAR_PA",
+    "DurableHarmonicThermochemistry",
     "ElectronicEnergyKind",
     "ElectronicEntropyPolicy",
     "GasAtomicMass",
     "GasGeometryKind",
     "GasMoleculeModel",
+    "HarmonicThermochemistryError",
     "ImaginaryModePolicy",
     "LowFrequencyPolicy",
     "ModeExclusion",
@@ -48,4 +66,6 @@ __all__ = [
     "ThermochemistryResult",
     "ThermochemistrySubjectKind",
     "VibrationalModePolicy",
+    "calculate_harmonic_thermochemistry",
+    "materialize_harmonic_thermochemistry",
 ]
