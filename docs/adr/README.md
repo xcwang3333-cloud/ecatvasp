@@ -52,3 +52,4 @@ Frozen ADR set and accepted extensions:
 46. v0.6 Durable Workflow Reopen, Resume, and Idempotency Boundary
 47. v0.6 Final Workflow Acceptance and Hardening Boundary
 48. v0.7 Electronic Structure and Analysis Architecture Boundary
+49. v0.7 DOS/PDOS Canonical Intake Boundary
