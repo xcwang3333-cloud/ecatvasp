@@ -39,6 +39,16 @@ def _policy() -> VibrationalModePolicy:
     )
 
 
+def _correction(value_ev: float = -0.10) -> ThermochemistryCorrection:
+    return ThermochemistryCorrection(
+        kind=ThermochemistryCorrectionKind.DFT_REFERENCE,
+        label="explicit reference correction",
+        value_ev=value_ev,
+        policy_id="test.reference",
+        policy_version="1",
+    )
+
+
 def _gas_identity() -> ThermochemistryIdentity:
     return ThermochemistryIdentity(
         subject_kind=ThermochemistrySubjectKind.GAS,
@@ -128,9 +138,11 @@ def test_parameters_hash_changes_for_scientifically_relevant_policy() -> None:
             frequency_cutoff_cm_inverse=75.0,
         ),
     )
+    changed_correction = replace(baseline, corrections=(_correction(-0.20),))
 
     assert baseline.parameters_hash != changed_temperature.parameters_hash
     assert baseline.parameters_hash != changed_cutoff.parameters_hash
+    assert baseline.parameters_hash != changed_correction.parameters_hash
 
 
 def test_mode_selection_cannot_accept_and_exclude_same_mode() -> None:
@@ -141,8 +153,22 @@ def test_mode_selection_cannot_accept_and_exclude_same_mode() -> None:
         )
 
 
-def test_result_preserves_components_and_assembles_gibbs_energy() -> None:
+def test_result_mode_exclusions_must_match_identity() -> None:
     identity = _gas_identity()
+    with pytest.raises(ThermochemistryContractError, match="exactly match"):
+        ThermochemistryResult(
+            identity=identity,
+            components=ThermochemistryComponents(electronic_energy_ev=-10.0),
+            mode_selection=ThermochemistryModeSelection(
+                accepted_mode_indices=(1, 3, 4),
+                excluded_modes=(ModeExclusion(2, ModeExclusionReason.ROTATIONAL),),
+            ),
+        )
+
+
+def test_result_preserves_components_and_assembles_gibbs_energy() -> None:
+    correction = _correction()
+    identity = replace(_gas_identity(), corrections=(correction,))
     components = ThermochemistryComponents(
         electronic_energy_ev=-10.0,
         zpe_ev=0.2,
@@ -154,15 +180,7 @@ def test_result_preserves_components_and_assembles_gibbs_energy() -> None:
         translational_entropy_ev_per_k=0.00020,
         rotational_entropy_ev_per_k=0.00005,
         electronic_entropy_ev_per_k=0.0,
-        corrections=(
-            ThermochemistryCorrection(
-                kind=ThermochemistryCorrectionKind.DFT_REFERENCE,
-                label="explicit reference correction",
-                value_ev=-0.10,
-                policy_id="test.reference",
-                policy_version="1",
-            ),
-        ),
+        corrections=(correction,),
     )
     result = ThermochemistryResult(
         identity=identity,
@@ -179,6 +197,19 @@ def test_result_preserves_components_and_assembles_gibbs_energy() -> None:
     assert result.gibbs_free_energy_ev == pytest.approx(expected)
     assert result.components.total_correction_ev == pytest.approx(-0.10)
     assert len(result.result_hash) == 64
+
+
+def test_result_corrections_must_match_identity() -> None:
+    identity = replace(_gas_identity(), corrections=(_correction(),))
+    with pytest.raises(ThermochemistryContractError, match="correction terms"):
+        ThermochemistryResult(
+            identity=identity,
+            components=ThermochemistryComponents(electronic_energy_ev=-10.0),
+            mode_selection=ThermochemistryModeSelection(
+                accepted_mode_indices=(3, 4, 5),
+                excluded_modes=_policy().exclusions,
+            ),
+        )
 
 
 def test_surface_without_frequency_policy_cannot_carry_mode_selection() -> None:
