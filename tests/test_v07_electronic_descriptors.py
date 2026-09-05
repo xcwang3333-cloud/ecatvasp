@@ -60,22 +60,24 @@ from ecatvasp.domain import (
     StructureSnapshot,
     new_atom_uid,
 )
-from ecatvasp.domain.ids import StructureSnapshotId
+from ecatvasp.domain.ids import AtomUid, StructureSnapshotId
 from ecatvasp.provenance import FreshnessEngine, FreshnessState, scientific_hash
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
 
 
+_DXY = OrbitalChannel("dxy", 2)
+_PX = OrbitalChannel("px", 1)
 _PY = OrbitalChannel("py", 1)
 _PZ = OrbitalChannel("pz", 1)
-_PX = OrbitalChannel("px", 1)
-_DXY = OrbitalChannel("dxy", 2)
 
 
-def _pure_unpolarized() -> tuple[CanonicalDosResult, object, object]:
+def _pure_unpolarized() -> tuple[CanonicalDosResult, AtomUid, AtomUid]:
     atom_a = new_atom_uid()
     atom_b = new_atom_uid()
-    snapshot_id = StructureSnapshotId(UUID("00000000-0000-7000-8000-000000000701"))
+    snapshot_id = StructureSnapshotId(
+        UUID("00000000-0000-7000-8000-000000000701")
+    )
     energies = (0.0, 1.0, 2.0)
     series = [
         DosSeries(ProjectionScope.SYSTEM, SpinChannel.TOTAL, (2.0, 2.0, 2.0)),
@@ -133,15 +135,25 @@ def _pure_unpolarized() -> tuple[CanonicalDosResult, object, object]:
     )
 
 
-def _pure_spin_polarized() -> tuple[CanonicalDosResult, object]:
+def _pure_spin_polarized() -> tuple[CanonicalDosResult, AtomUid]:
     atom_uid = new_atom_uid()
-    snapshot_id = StructureSnapshotId(UUID("00000000-0000-7000-8000-000000000702"))
+    snapshot_id = StructureSnapshotId(
+        UUID("00000000-0000-7000-8000-000000000702")
+    )
     result = CanonicalDosResult(
         structure_snapshot_id=snapshot_id,
         energy_axis=ElectronicEnergyAxis((0.0, 1.0, 2.0), 1.0),
         series=(
-            DosSeries(ProjectionScope.SYSTEM, SpinChannel.UP, (1.0, 1.0, 1.0)),
-            DosSeries(ProjectionScope.SYSTEM, SpinChannel.DOWN, (3.0, 3.0, 3.0)),
+            DosSeries(
+                ProjectionScope.SYSTEM,
+                SpinChannel.UP,
+                (1.0, 1.0, 1.0),
+            ),
+            DosSeries(
+                ProjectionScope.SYSTEM,
+                SpinChannel.DOWN,
+                (3.0, 3.0, 3.0),
+            ),
             DosSeries(
                 ProjectionScope.ATOM,
                 SpinChannel.UP,
@@ -280,7 +292,10 @@ def test_spin_sum_is_explicit_and_total_is_rejected_for_collinear_dos() -> None:
             source_artifact_sha256="f" * 64,
             parameters=replace(
                 summed.parameters,
-                selector=replace(summed.parameters.selector, spin=BandCenterSpinMode.TOTAL),
+                selector=replace(
+                    summed.parameters.selector,
+                    spin=BandCenterSpinMode.TOTAL,
+                ),
             ),
         )
 
@@ -289,14 +304,23 @@ def test_window_endpoints_are_linearly_interpolated_without_resampling_source() 
     source, _, _ = _pure_unpolarized()
     custom = replace(
         source,
-        series=(DosSeries(ProjectionScope.SYSTEM, SpinChannel.TOTAL, (0.0, 1.0, 2.0)),),
+        series=(
+            DosSeries(
+                ProjectionScope.SYSTEM,
+                SpinChannel.TOTAL,
+                (0.0, 1.0, 2.0),
+            ),
+        ),
     )
     result = calculate_band_center(
         source=custom,
         source_artifact_sha256="1" * 64,
         parameters=BandCenterParameters(
             kind=BandCenterKind.BAND,
-            selector=BandCenterSelector(ProjectionScope.SYSTEM, BandCenterSpinMode.TOTAL),
+            selector=BandCenterSelector(
+                ProjectionScope.SYSTEM,
+                BandCenterSpinMode.TOTAL,
+            ),
             energy_reference=BandCenterEnergyReference.VASP_NATIVE,
             window_lower_ev=0.5,
             window_upper_ev=1.5,
@@ -339,7 +363,13 @@ def test_descriptor_fails_closed_for_missing_projection_window_and_nonpositive_w
         )
     negative = replace(
         source,
-        series=(DosSeries(ProjectionScope.SYSTEM, SpinChannel.TOTAL, (-1.0, -1.0, -1.0)),),
+        series=(
+            DosSeries(
+                ProjectionScope.SYSTEM,
+                SpinChannel.TOTAL,
+                (-1.0, -1.0, -1.0),
+            ),
+        ),
     )
     with pytest.raises(BandCenterError, match="non-positive zeroth moment"):
         calculate_band_center(
@@ -435,7 +465,13 @@ def _durable_case(tmp_path: Path) -> _DurableCase:
     atom_map_bytes = (
         json.dumps(atom_map_payload, sort_keys=True, separators=(",", ":")) + "\n"
     ).encode()
-    atom_map_path = tmp_path / "calculations" / str(calculation.id) / "input" / "atom-index-map.json"
+    atom_map_path = (
+        tmp_path
+        / "calculations"
+        / str(calculation.id)
+        / "input"
+        / "atom-index-map.json"
+    )
     atom_map_size, atom_map_hash = _write(atom_map_path, atom_map_bytes)
     atom_map_artifact = Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
@@ -447,19 +483,25 @@ def _durable_case(tmp_path: Path) -> _DurableCase:
         sha256=atom_map_hash,
     )
     doscar_bytes = (
-        "1 1 1 0\n"
-        "header 2\n"
-        "header 3\n"
-        "header 4\n"
-        "header 5\n"
-        "1.0 -1.0 2 0.2\n"
-        "-1.0 1.0 0.0\n"
-        "1.0 2.0 1.0\n"
-        "1.0 -1.0 2 0.2\n"
-        "-1.0 1 2 3 4 5 6 7 8 9\n"
-        "1.0 2 3 4 5 6 7 8 9 10\n"
-    ).encode()
-    doscar_path = tmp_path / "calculations" / str(calculation.id) / "attempt-1" / "DOSCAR"
+        b"1 1 1 0\n"
+        b"header 2\n"
+        b"header 3\n"
+        b"header 4\n"
+        b"header 5\n"
+        b"1.0 -1.0 2 0.2\n"
+        b"-1.0 1.0 0.0\n"
+        b"1.0 2.0 1.0\n"
+        b"1.0 -1.0 2 0.2\n"
+        b"-1.0 1 2 3 4 5 6 7 8 9\n"
+        b"1.0 2 3 4 5 6 7 8 9 10\n"
+    )
+    doscar_path = (
+        tmp_path
+        / "calculations"
+        / str(calculation.id)
+        / "attempt-1"
+        / "DOSCAR"
+    )
     doscar_size, doscar_hash = _write(doscar_path, doscar_bytes)
     doscar_artifact = Artifact(
         artifact_type=ArtifactType.DOSCAR,
@@ -488,7 +530,10 @@ def _durable_case(tmp_path: Path) -> _DurableCase:
     )
 
 
-def _durable_source(tmp_path: Path, case: _DurableCase) -> DurableDosMaterialization:
+def _durable_source(
+    tmp_path: Path,
+    case: _DurableCase,
+) -> DurableDosMaterialization:
     return materialize_canonical_dos_analysis(
         project_root=tmp_path,
         calculation=case.calculation,
@@ -523,7 +568,9 @@ def _durable_descriptor(
     )
 
 
-def test_durable_band_center_reopens_and_project_store_preserves_chain(tmp_path: Path) -> None:
+def test_durable_band_center_reopens_and_project_store_preserves_chain(
+    tmp_path: Path,
+) -> None:
     case = _durable_case(tmp_path)
     source = _durable_source(tmp_path, case)
     descriptor = _durable_descriptor(tmp_path, case, source)
@@ -552,8 +599,14 @@ def test_durable_band_center_reopens_and_project_store_preserves_chain(tmp_path:
             descriptor.artifact,
         ),
         analyses=(source.analysis, descriptor.analysis),
-        provenance_records=(*source.provenance_records, *descriptor.provenance_records),
-        dependency_records=(*source.dependency_records, *descriptor.dependency_records),
+        provenance_records=(
+            *source.provenance_records,
+            *descriptor.provenance_records,
+        ),
+        dependency_records=(
+            *source.dependency_records,
+            *descriptor.dependency_records,
+        ),
     )
     bundle.validate()
     ProjectStore(tmp_path).save(bundle)
@@ -561,7 +614,9 @@ def test_durable_band_center_reopens_and_project_store_preserves_chain(tmp_path:
     assert SCHEMA_VERSION == 3
 
 
-def test_band_center_freshness_propagates_from_exact_canonical_dos_artifact(tmp_path: Path) -> None:
+def test_band_center_freshness_propagates_from_exact_canonical_dos_artifact(
+    tmp_path: Path,
+) -> None:
     case = _durable_case(tmp_path)
     source = _durable_source(tmp_path, case)
     descriptor = _durable_descriptor(tmp_path, case, source)
@@ -591,7 +646,9 @@ def test_band_center_freshness_propagates_from_exact_canonical_dos_artifact(tmp_
     assert freshness[descriptor.artifact.id].state is FreshnessState.STALE
 
 
-def test_band_center_identity_changes_with_selector_window_and_energy_reference(tmp_path: Path) -> None:
+def test_band_center_identity_changes_with_selector_window_and_energy_reference(
+    tmp_path: Path,
+) -> None:
     case = _durable_case(tmp_path)
     source = _durable_source(tmp_path, case)
     first = _durable_descriptor(tmp_path, case, source)
@@ -610,11 +667,16 @@ def test_band_center_identity_changes_with_selector_window_and_energy_reference(
     assert first.result.content_hash != second.result.content_hash
 
 
-def test_band_center_loader_rejects_analysis_input_drift_and_output_tamper(tmp_path: Path) -> None:
+def test_band_center_loader_rejects_analysis_input_drift_and_output_tamper(
+    tmp_path: Path,
+) -> None:
     case = _durable_case(tmp_path)
     source = _durable_source(tmp_path, case)
     descriptor = _durable_descriptor(tmp_path, case, source)
-    drifted = replace(descriptor.analysis, input_artifact_ids=(case.doscar_artifact.id,))
+    drifted = replace(
+        descriptor.analysis,
+        input_artifact_ids=(case.doscar_artifact.id,),
+    )
     with pytest.raises(BandCenterError, match="input differs"):
         load_band_center_artifact(
             project_root=tmp_path,
