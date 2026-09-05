@@ -18,16 +18,11 @@ from ecatvasp.domain import (
     AnalysisType,
     Artifact,
     ArtifactAvailability,
-    ArtifactType,
     canonical_sha256,
 )
-from ecatvasp.domain.ids import (
-    AnalysisId,
-    ArtifactId,
-    CalculationId,
-    ProjectId,
-)
+from ecatvasp.domain.ids import AnalysisId, ArtifactId, CalculationId, ProjectId
 from ecatvasp.provenance import (
+    DependencyKind,
     DependencyRecord,
     FreshnessEngine,
     FreshnessReason,
@@ -42,7 +37,6 @@ from ecatvasp.workflow.gates import (
     WorkflowStepReadiness,
     WorkflowStepScientificState,
 )
-
 
 ELECTRONIC_ANALYSIS_TYPES = frozenset(
     {
@@ -209,8 +203,8 @@ def reconcile_electronic_analyses(
     """Derive exact electronic-analysis readiness without mutating persisted state."""
 
     _validate_requirement_keys(requirements)
-    analysis_by_id = _unique_index(analyses, "Analysis")
-    artifact_by_id = _unique_index(artifacts, "Artifact")
+    analysis_by_id = _analysis_index(analyses)
+    artifact_by_id = _artifact_index(artifacts)
     _validate_requirement_inputs(requirements, artifact_by_id)
 
     output_by_analysis: dict[AnalysisId, list[Artifact]] = {}
@@ -227,12 +221,12 @@ def reconcile_electronic_analyses(
         requirement.key: _exact_analysis_match(requirement, analyses)
         for requirement in requirements
     }
-    relevant_ids: set[UUID] = {
+    node_ids = {
         node_id
         for dependency in dependencies
         for node_id in (dependency.upstream_id, dependency.downstream_id)
     }
-    relevant_ids.update(
+    node_ids.update(
         artifact_id
         for requirement in requirements
         for artifact_id in requirement.input_artifact_ids
@@ -240,8 +234,8 @@ def reconcile_electronic_analyses(
     for analysis in matching.values():
         if analysis is None:
             continue
-        relevant_ids.add(analysis.id)
-        relevant_ids.update(item.id for item in output_by_analysis.get(analysis.id, ()))
+        node_ids.add(analysis.id)
+        node_ids.update(item.id for item in output_by_analysis.get(analysis.id, ()))
 
     hashes = _current_hashes(
         analyses=analyses,
@@ -250,7 +244,7 @@ def reconcile_electronic_analyses(
     )
     try:
         freshness = FreshnessEngine(dependencies).evaluate(
-            node_ids=relevant_ids,
+            node_ids=node_ids,
             current_hashes=hashes,
             invalid_ids=set() if invalid_ids is None else set(invalid_ids),
             superseded_ids=set() if superseded_ids is None else set(superseded_ids),
@@ -258,28 +252,29 @@ def reconcile_electronic_analyses(
     except ProvenanceIntegrityError as error:
         raise ElectronicAnalysisReconciliationError(str(error)) from error
 
-    projections = tuple(
-        _project_requirement(
-            requirement=requirement,
-            analysis=matching[requirement.key],
-            artifact_by_id=artifact_by_id,
-            outputs=tuple(
+    projections: list[ElectronicAnalysisProjection] = []
+    for requirement in requirements:
+        analysis = matching[requirement.key]
+        outputs: tuple[Artifact, ...] = ()
+        if analysis is not None:
+            outputs = tuple(
                 sorted(
-                    output_by_analysis.get(
-                        matching[requirement.key].id
-                        if matching[requirement.key] is not None
-                        else _null_analysis_id(),
-                        (),
-                    ),
+                    output_by_analysis.get(analysis.id, ()),
                     key=lambda item: str(item.id),
                 )
-            ),
-            freshness=freshness,
-            workflow_gates=workflow_gates,
+            )
+        projections.append(
+            _project_requirement(
+                requirement=requirement,
+                analysis=analysis,
+                artifact_by_id=artifact_by_id,
+                outputs=outputs,
+                dependencies=dependencies,
+                freshness=freshness,
+                workflow_gates=workflow_gates,
+            )
         )
-        for requirement in requirements
-    )
-    return ElectronicAnalysisReconciliationReport(projections=projections)
+    return ElectronicAnalysisReconciliationReport(projections=tuple(projections))
 
 
 def reconcile_electronic_analyses_from_store(
@@ -296,7 +291,7 @@ def reconcile_electronic_analyses_from_store(
     bundle = store.open()
     hashes = _bundle_scientific_hashes(bundle)
     if current_hash_overrides is not None:
-        hashes.update(current_hash_overrides)
+        hashes.update(_normalized_hash_mapping(current_hash_overrides))
     return reconcile_electronic_analyses(
         requirements=requirements,
         analyses=bundle.analyses,
@@ -315,6 +310,7 @@ def _project_requirement(
     analysis: Analysis | None,
     artifact_by_id: dict[ArtifactId, Artifact],
     outputs: tuple[Artifact, ...],
+    dependencies: tuple[DependencyRecord, ...],
     freshness: dict[UUID, FreshnessResult],
     workflow_gates: WorkflowScientificGateEvaluation | None,
 ) -> ElectronicAnalysisProjection:
@@ -349,15 +345,29 @@ def _project_requirement(
             reason_codes=input_reasons,
         )
 
+    wait_reasons = (
+        workflow_reasons
+        if workflow_readiness is WorkflowStepReadiness.WAITING
+        else ()
+    ) + (
+        input_reasons
+        if input_readiness is WorkflowStepReadiness.WAITING
+        else ()
+    )
+
     if analysis is None:
         return _projection(
             requirement=requirement,
             state=ElectronicAnalysisScientificState.UNMATERIALIZED,
-            readiness=WorkflowStepReadiness.READY,
+            readiness=(
+                WorkflowStepReadiness.WAITING
+                if wait_reasons
+                else WorkflowStepReadiness.READY
+            ),
             analysis=None,
             outputs=(),
             freshness_state=None,
-            reason_codes=("exact_analysis_absent",),
+            reason_codes=("exact_analysis_absent", *wait_reasons),
         )
 
     analysis_freshness = freshness[analysis.id]
@@ -400,6 +410,23 @@ def _project_requirement(
             reason_codes=("completed_analysis_has_no_output_artifact",),
         )
 
+    provenance_issue = _completed_provenance_issue(
+        requirement=requirement,
+        analysis=analysis,
+        outputs=outputs,
+        dependencies=dependencies,
+    )
+    if provenance_issue is not None:
+        return _projection(
+            requirement=requirement,
+            state=ElectronicAnalysisScientificState.INVALID,
+            readiness=WorkflowStepReadiness.BLOCKED,
+            analysis=analysis,
+            outputs=outputs,
+            freshness_state=analysis_freshness.state,
+            reason_codes=(provenance_issue,),
+        )
+
     output_state, output_readiness, output_reasons = _output_gate_state(
         outputs=outputs,
         freshness=freshness,
@@ -413,6 +440,26 @@ def _project_requirement(
             outputs=outputs,
             freshness_state=analysis_freshness.state,
             reason_codes=output_reasons,
+        )
+    if output_readiness is WorkflowStepReadiness.WAITING:
+        return _projection(
+            requirement=requirement,
+            state=ElectronicAnalysisScientificState.COMPLETED,
+            readiness=WorkflowStepReadiness.WAITING,
+            analysis=analysis,
+            outputs=outputs,
+            freshness_state=analysis_freshness.state,
+            reason_codes=output_reasons,
+        )
+    if wait_reasons:
+        return _projection(
+            requirement=requirement,
+            state=ElectronicAnalysisScientificState.COMPLETED,
+            readiness=WorkflowStepReadiness.WAITING,
+            analysis=analysis,
+            outputs=outputs,
+            freshness_state=analysis_freshness.state,
+            reason_codes=wait_reasons,
         )
 
     return _projection(
@@ -456,16 +503,24 @@ def _workflow_gate_state(
     gate = gates[0]
     current = selection.current_calculation
     if current is None:
-        return (
-            ElectronicAnalysisScientificState.UNMATERIALIZED,
-            WorkflowStepReadiness.WAITING,
-            ("workflow_step_unmaterialized",),
+        return None, WorkflowStepReadiness.WAITING, ("workflow_step_unmaterialized",)
+    if current.project_id != requirement.project_id:
+        raise ElectronicAnalysisReconciliationError(
+            "workflow anchor current Calculation belongs to another Project"
         )
     if current.id != anchor.calculation_id:
         return (
             ElectronicAnalysisScientificState.SUPERSEDED,
             WorkflowStepReadiness.BLOCKED,
             ("workflow_anchor_not_current_generation",),
+        )
+    if selection.current_binding is None:
+        raise ElectronicAnalysisReconciliationError(
+            "workflow anchor current Calculation has no current binding"
+        )
+    if gate.current_binding_id != selection.current_binding.id:
+        raise ElectronicAnalysisReconciliationError(
+            "workflow step gate does not reference its current binding"
         )
     if gate.calculation_id != current.id:
         raise ElectronicAnalysisReconciliationError(
@@ -496,11 +551,7 @@ def _workflow_gate_state(
             ("workflow_step_blocked",),
         )
     if gate.readiness is not WorkflowStepReadiness.SATISFIED:
-        return (
-            ElectronicAnalysisScientificState.UNMATERIALIZED,
-            WorkflowStepReadiness.WAITING,
-            ("workflow_step_not_satisfied",),
-        )
+        return None, WorkflowStepReadiness.WAITING, ("workflow_step_not_satisfied",)
     return None, WorkflowStepReadiness.READY, ()
 
 
@@ -514,7 +565,6 @@ def _input_gate_state(
     WorkflowStepReadiness,
     tuple[str, ...],
 ]:
-    reasons: list[str] = []
     retrieval_wait = False
     for artifact_id in requirement.input_artifact_ids:
         artifact = artifact_by_id[artifact_id]
@@ -546,13 +596,8 @@ def _input_gate_state(
             ArtifactAvailability.ARCHIVED,
         }:
             retrieval_wait = True
-            reasons.append("input_artifact_retrieval_required")
     if retrieval_wait:
-        return (
-            ElectronicAnalysisScientificState.UNMATERIALIZED,
-            WorkflowStepReadiness.WAITING,
-            tuple(dict.fromkeys(reasons)),
-        )
+        return None, WorkflowStepReadiness.WAITING, ("input_artifact_retrieval_required",)
     return None, WorkflowStepReadiness.READY, ()
 
 
@@ -566,7 +611,6 @@ def _output_gate_state(
     tuple[str, ...],
 ]:
     retrieval_wait = False
-    reasons: list[str] = []
     for artifact in outputs:
         result = freshness[artifact.id]
         nonfresh = _nonfresh_projection_state(result.state)
@@ -596,14 +640,35 @@ def _output_gate_state(
             ArtifactAvailability.ARCHIVED,
         }:
             retrieval_wait = True
-            reasons.append("output_artifact_retrieval_required")
     if retrieval_wait:
-        return (
-            ElectronicAnalysisScientificState.COMPLETED,
-            WorkflowStepReadiness.WAITING,
-            tuple(dict.fromkeys(reasons)),
-        )
+        return None, WorkflowStepReadiness.WAITING, ("output_artifact_retrieval_required",)
     return None, WorkflowStepReadiness.SATISFIED, ()
+
+
+def _completed_provenance_issue(
+    *,
+    requirement: ElectronicAnalysisRequirement,
+    analysis: Analysis,
+    outputs: tuple[Artifact, ...],
+    dependencies: tuple[DependencyRecord, ...],
+) -> str | None:
+    for artifact_id in requirement.input_artifact_ids:
+        if not any(
+            dependency.kind is DependencyKind.SCIENTIFIC
+            and dependency.upstream_id == artifact_id
+            and dependency.downstream_id == analysis.id
+            for dependency in dependencies
+        ):
+            return "completed_analysis_missing_input_scientific_dependency"
+    for artifact in outputs:
+        if not any(
+            dependency.kind is DependencyKind.SCIENTIFIC
+            and dependency.upstream_id == analysis.id
+            and dependency.downstream_id == artifact.id
+            for dependency in dependencies
+        ):
+            return "completed_analysis_missing_output_scientific_dependency"
+    return None
 
 
 def _analysis_status_projection(
@@ -699,25 +764,25 @@ def _current_hashes(
     artifacts: tuple[Artifact, ...],
     overrides: Mapping[UUID, str] | None,
 ) -> dict[UUID, str]:
-    result = {item.id: scientific_hash(item) for item in (*artifacts, *analyses)}
+    result = {item.id: scientific_hash(item) for item in artifacts}
+    result.update({item.id: scientific_hash(item) for item in analyses})
     if overrides is not None:
-        result.update(overrides)
+        result.update(_normalized_hash_mapping(overrides))
     return result
 
 
 def _bundle_scientific_hashes(bundle: ProjectBundle) -> dict[UUID, str]:
-    supported = (
-        *bundle.structure_variants,
-        *bundle.structure_snapshots,
-        *bundle.active_sites,
-        *bundle.adsorption_states,
-        *bundle.state_conformers,
-        *bundle.method_fingerprints,
-        *bundle.calculations,
-        *bundle.artifacts,
-        *bundle.analyses,
-    )
-    return {item.id: scientific_hash(item) for item in supported}
+    result: dict[UUID, str] = {}
+    result.update({item.id: scientific_hash(item) for item in bundle.structure_variants})
+    result.update({item.id: scientific_hash(item) for item in bundle.structure_snapshots})
+    result.update({item.id: scientific_hash(item) for item in bundle.active_sites})
+    result.update({item.id: scientific_hash(item) for item in bundle.adsorption_states})
+    result.update({item.id: scientific_hash(item) for item in bundle.state_conformers})
+    result.update({item.id: scientific_hash(item) for item in bundle.method_fingerprints})
+    result.update({item.id: scientific_hash(item) for item in bundle.calculations})
+    result.update({item.id: scientific_hash(item) for item in bundle.artifacts})
+    result.update({item.id: scientific_hash(item) for item in bundle.analyses})
+    return result
 
 
 def _nonfresh_projection_state(
@@ -764,13 +829,29 @@ def _validate_requirement_inputs(
         )
 
 
-def _unique_index(items: tuple[Analysis, ...] | tuple[Artifact, ...], label: str) -> dict:
-    result = {}
-    for item in items:
-        if item.id in result:
-            raise ElectronicAnalysisReconciliationError(f"{label} ids must be unique")
-        result[item.id] = item
+def _analysis_index(analyses: tuple[Analysis, ...]) -> dict[AnalysisId, Analysis]:
+    result: dict[AnalysisId, Analysis] = {}
+    for analysis in analyses:
+        if analysis.id in result:
+            raise ElectronicAnalysisReconciliationError("Analysis ids must be unique")
+        result[analysis.id] = analysis
     return result
+
+
+def _artifact_index(artifacts: tuple[Artifact, ...]) -> dict[ArtifactId, Artifact]:
+    result: dict[ArtifactId, Artifact] = {}
+    for artifact in artifacts:
+        if artifact.id in result:
+            raise ElectronicAnalysisReconciliationError("Artifact ids must be unique")
+        result[artifact.id] = artifact
+    return result
+
+
+def _normalized_hash_mapping(values: Mapping[UUID, str]) -> dict[UUID, str]:
+    return {
+        subject_id: _normalized_sha256(value, "current scientific hash")
+        for subject_id, value in values.items()
+    }
 
 
 def _normalized_sha256(value: str, field_name: str) -> str:
@@ -786,9 +867,3 @@ def _normalized_sha256(value: str, field_name: str) -> str:
             f"{field_name} must contain only hexadecimal characters"
         ) from error
     return normalized
-
-
-def _null_analysis_id() -> AnalysisId:
-    """Return an impossible lookup key without introducing optional dictionary branches."""
-
-    return AnalysisId(UUID(int=0))
