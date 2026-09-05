@@ -107,7 +107,9 @@ class CHEHydrogenReference:
         if corrected.adjustment.target_phase is not ReferencePhase.IDEAL_GAS:
             raise CHEError("CHE H2 reference must retain the ideal-gas molecular reference phase")
         if corrected.source_result_hash != self.raw.result.result_hash:
-            raise CHEError("corrected CHE H2 reference does not derive from the exact raw H2 result")
+            raise CHEError(
+                "corrected CHE H2 reference does not derive from the exact raw H2 result"
+            )
         if corrected.source_gibbs_free_energy_ev != self.raw.result.gibbs_free_energy_ev:
             raise CHEError("corrected CHE H2 source Gibbs energy differs from the raw H2 result")
 
