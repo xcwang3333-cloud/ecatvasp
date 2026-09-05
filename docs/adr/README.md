@@ -57,3 +57,4 @@ This directory records durable product and implementation decisions for ECatVASP
 53. v0.7 LOBSTER / COHP / ICOHP Result-Intake Boundary
 54. v0.7 Electronic Descriptor Boundary
 55. v0.7 Electronic Analysis Reconciliation and Workflow Integration Boundary
+56. v0.7 Final Electronic Analysis Acceptance and Hardening Boundary
