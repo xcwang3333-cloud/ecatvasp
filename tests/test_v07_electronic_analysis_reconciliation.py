@@ -372,4 +372,7 @@ def test_project_store_reopen_recomputes_identical_reconciliation_report(tmp_pat
     )
     assert reopened == direct
     assert reopened.report_hash == direct.report_hash
-    assert reopened.requirement("d-band-center").readiness is workflow.WorkflowStepReadiness.SATISFIED
+    assert (
+        reopened.requirement("d-band-center").readiness
+        is workflow.WorkflowStepReadiness.SATISFIED
+    )
