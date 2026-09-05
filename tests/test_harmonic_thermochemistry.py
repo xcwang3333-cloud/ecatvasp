@@ -273,7 +273,7 @@ def test_harmonic_terms_use_explicit_energy_semantic_and_mode_policy() -> None:
     assert result.components.vibrational_thermal_energy_ev > 0.0
     assert result.components.vibrational_entropy_ev_per_k > 0.0
     assert result.gibbs_free_energy_ev < result.components.electronic_energy_ev + 0.2
-    assert BOLTZMANN_EV_PER_K == pytest.approx(8.617333262145e-5)
+    assert pytest.approx(8.617333262145e-5) == BOLTZMANN_EV_PER_K
 
 
 def test_harmonic_policy_rejects_unacknowledged_imaginary_mode() -> None:
@@ -420,7 +420,7 @@ def test_materialization_rejects_unconverged_or_tampered_source(tmp_path: Path) 
 
     assert source_artifact.local_path is not None
     (tmp_path / source_artifact.local_path).write_text("tampered\n")
-    with pytest.raises(HarmonicThermochemistryError, match="byte size differs|SHA-256 differs"):
+    with pytest.raises(HarmonicThermochemistryError, match=r"byte size differs|SHA-256 differs"):
         materialize_harmonic_thermochemistry(
             project_root=tmp_path,
             calculation=calculation,
