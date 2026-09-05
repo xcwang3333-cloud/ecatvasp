@@ -119,7 +119,10 @@ def _gas_result(
             wavenumber=wavenumber,
             energy_mev=wavenumber * 0.1239841984,
         )
-        for offset, wavenumber in enumerate(vibrational_wavenumbers, start=1)
+        for offset, wavenumber in enumerate(
+            vibrational_wavenumbers,
+            start=1,
+        )
     )
     return VaspResultDocument(
         calculation_type=CalculationType.GAS_FREQUENCY,
@@ -145,30 +148,48 @@ def _gas_result(
 
 
 def _linear_snapshot(
-    elements: tuple[str, ...], atom_uids: tuple[object, ...]
+    elements: tuple[str, ...],
+    atom_uids: tuple[object, ...],
 ) -> StructureSnapshot:
     fractions = (
         (0.46, 0.5, 0.5),
         (0.50, 0.5, 0.5),
         (0.54, 0.5, 0.5),
     )
+    sites = tuple(
+        StructureSite(
+            atom_uid=atom_uid,
+            element=element,
+            fractional_coords=fractions[index],
+        )
+        for index, (element, atom_uid) in enumerate(
+            zip(elements, atom_uids, strict=True)
+        )
+    )
     return StructureSnapshot(
-        lattice=Lattice(((20.0, 0.0, 0.0), (0.0, 20.0, 0.0), (0.0, 0.0, 20.0))),
-        sites=tuple(
-            StructureSite(
-                atom_uid=atom_uid,
-                element=element,
-                fractional_coords=fractions[index],
+        lattice=Lattice(
+            (
+                (20.0, 0.0, 0.0),
+                (0.0, 20.0, 0.0),
+                (0.0, 0.0, 20.0),
             )
-            for index, (element, atom_uid) in enumerate(zip(elements, atom_uids, strict=True))
         ),
+        sites=sites,
         periodic=(True, True, True),
     )
 
 
-def _water_snapshot(atom_uids: tuple[object, object, object]) -> StructureSnapshot:
+def _water_snapshot(
+    atom_uids: tuple[object, object, object],
+) -> StructureSnapshot:
     return StructureSnapshot(
-        lattice=Lattice(((20.0, 0.0, 0.0), (0.0, 20.0, 0.0), (0.0, 0.0, 20.0))),
+        lattice=Lattice(
+            (
+                (20.0, 0.0, 0.0),
+                (0.0, 20.0, 0.0),
+                (0.0, 0.0, 20.0),
+            )
+        ),
         sites=(
             StructureSite(atom_uids[0], "O", (0.5, 0.5, 0.5)),
             StructureSite(atom_uids[1], "H", (0.5478, 0.5, 0.5)),
@@ -187,8 +208,12 @@ def _identity(
     translational_indices: tuple[int, int, int],
     rotational_indices: tuple[int, ...],
     pressure_pa: float = ONE_BAR_PA,
-    standard_state: ThermochemicalStandardState = ThermochemicalStandardState.IDEAL_GAS_1_BAR,
-    electronic_entropy_policy: ElectronicEntropyPolicy = ElectronicEntropyPolicy.NEGLECTED,
+    standard_state: ThermochemicalStandardState = (
+        ThermochemicalStandardState.IDEAL_GAS_1_BAR
+    ),
+    electronic_entropy_policy: ElectronicEntropyPolicy = (
+        ElectronicEntropyPolicy.NEGLECTED
+    ),
 ) -> ThermochemistryIdentity:
     exclusions = tuple(
         ModeExclusion(index, ModeExclusionReason.TRANSLATIONAL)
@@ -241,7 +266,12 @@ def _h2_case() -> tuple[
         translational_indices=(1, 2, 3),
         rotational_indices=(4, 5),
     )
-    return GasReferenceDefinition(GasReferenceSpecies.H2), snapshot, result, identity
+    return (
+        GasReferenceDefinition(GasReferenceSpecies.H2),
+        snapshot,
+        result,
+        identity,
+    )
 
 
 def test_h2_ideal_gas_components_are_explicit_and_positive() -> None:
@@ -255,18 +285,24 @@ def test_h2_ideal_gas_components_are_explicit_and_positive() -> None:
 
     components = result.components
     assert components.electronic_energy_ev == -6.8
-    assert components.zpe_ev == pytest.approx(0.5 * 0.4400 * 0.1239841984)
+    expected_zpe = 0.5 * 4400.0 * 0.1239841984 / 1000.0
+    assert components.zpe_ev == pytest.approx(expected_zpe)
     assert components.translational_thermal_energy_ev == pytest.approx(
         1.5 * BOLTZMANN_EV_PER_K * 298.15
     )
     assert components.rotational_thermal_energy_ev == pytest.approx(
         BOLTZMANN_EV_PER_K * 298.15
     )
-    assert components.pv_ev == pytest.approx(BOLTZMANN_EV_PER_K * 298.15)
+    assert components.pv_ev == pytest.approx(
+        BOLTZMANN_EV_PER_K * 298.15
+    )
     assert components.translational_entropy_ev_per_k > 0.0
     assert components.rotational_entropy_ev_per_k > 0.0
     assert rotor.geometry_kind is GasGeometryKind.LINEAR
-    assert rotor.principal_moments_kg_m2[0] == pytest.approx(0.0, abs=1.0e-50)
+    assert rotor.principal_moments_kg_m2[0] == pytest.approx(
+        0.0,
+        abs=1.0e-50,
+    )
     assert result.mode_selection is not None
     assert result.mode_selection.accepted_mode_indices == (6,)
 
@@ -281,7 +317,10 @@ def test_pressure_and_standard_state_are_not_silently_collapsed() -> None:
     )
     two_bar_identity = replace(
         identity,
-        conditions=replace(identity.conditions, pressure_pa=2.0 * ONE_BAR_PA),
+        conditions=replace(
+            identity.conditions,
+            pressure_pa=2.0 * ONE_BAR_PA,
+        ),
     )
     two_bar, _ = calculate_ideal_gas_thermochemistry(
         reference=reference,
@@ -290,9 +329,8 @@ def test_pressure_and_standard_state_are_not_silently_collapsed() -> None:
         identity=two_bar_identity,
     )
     expected_shift = BOLTZMANN_EV_PER_K * 298.15 * log(2.0)
-    assert two_bar.gibbs_free_energy_ev - one_bar.gibbs_free_energy_ev == pytest.approx(
-        expected_shift
-    )
+    observed_shift = two_bar.gibbs_free_energy_ev - one_bar.gibbs_free_energy_ev
+    assert observed_shift == pytest.approx(expected_shift)
 
     one_atm_identity = replace(
         identity,
@@ -315,7 +353,10 @@ def test_pressure_and_standard_state_are_not_silently_collapsed() -> None:
 def test_water_nonlinear_rotor_has_three_positive_moments() -> None:
     atom_uids = (new_atom_uid(), new_atom_uid(), new_atom_uid())
     snapshot = _water_snapshot(atom_uids)
-    source = _gas_result(atom_uids, vibrational_wavenumbers=(1595.0, 3657.0, 3756.0))
+    source = _gas_result(
+        atom_uids,
+        vibrational_wavenumbers=(1595.0, 3657.0, 3756.0),
+    )
     identity = _identity(
         atom_masses=(
             GasAtomicMass(atom_uids[0], 15.999, "16O"),
@@ -346,7 +387,11 @@ def test_water_nonlinear_rotor_has_three_positive_moments() -> None:
 def test_o2_triplet_spin_degeneracy_is_explicit_entropy() -> None:
     atom_uids = (new_atom_uid(), new_atom_uid())
     snapshot = _linear_snapshot(("O", "O"), atom_uids)
-    source = _gas_result(atom_uids, vibrational_wavenumbers=(1580.0,), electronic_energy_ev=-9.9)
+    source = _gas_result(
+        atom_uids,
+        vibrational_wavenumbers=(1580.0,),
+        electronic_energy_ev=-9.9,
+    )
     identity = _identity(
         atom_masses=(
             GasAtomicMass(atom_uids[0], 15.999, "16O"),
@@ -366,8 +411,9 @@ def test_o2_triplet_spin_degeneracy_is_explicit_entropy() -> None:
         identity=identity,
     )
 
+    expected_entropy = BOLTZMANN_EV_PER_K * log(3.0)
     assert result.components.electronic_entropy_ev_per_k == pytest.approx(
-        BOLTZMANN_EV_PER_K * log(3.0)
+        expected_entropy
     )
 
 
@@ -382,21 +428,28 @@ def test_registry_fails_closed_on_composition_mass_and_geometry_mismatch() -> No
         )
 
     atom_uids = tuple(site.atom_uid for site in snapshot.sites)
-    incomplete_identity = replace(
+    foreign_uid = new_atom_uid()
+    wrong_mass_identity = replace(
         identity,
         gas_model=GasMoleculeModel(
             geometry_kind=GasGeometryKind.LINEAR,
             symmetry_number=2,
             spin_multiplicity=1,
-            atomic_masses=(GasAtomicMass(atom_uids[0], 1.00784),),
+            atomic_masses=(
+                GasAtomicMass(atom_uids[0], 1.00784),
+                GasAtomicMass(foreign_uid, 1.00784),
+            ),
         ),
     )
-    with pytest.raises(GasThermochemistryError, match="atomic masses must cover exactly"):
+    with pytest.raises(
+        GasThermochemistryError,
+        match="atomic masses must cover exactly",
+    ):
         calculate_ideal_gas_thermochemistry(
             reference=reference,
             structure_snapshot=snapshot,
             source_result=source,
-            identity=incomplete_identity,
+            identity=wrong_mass_identity,
         )
 
     water_uids = (new_atom_uid(), new_atom_uid(), new_atom_uid())
@@ -417,7 +470,10 @@ def test_registry_fails_closed_on_composition_mass_and_geometry_mismatch() -> No
         translational_indices=(1, 2, 3),
         rotational_indices=(4, 5),
     )
-    with pytest.raises(GasThermochemistryError, match="LINEAR gas model disagrees"):
+    with pytest.raises(
+        GasThermochemistryError,
+        match="LINEAR gas model disagrees",
+    ):
         calculate_ideal_gas_thermochemistry(
             reference=GasReferenceDefinition(GasReferenceSpecies.H2O),
             structure_snapshot=water_snapshot,
@@ -458,7 +514,12 @@ def _parsed_source(
         tool_version="1",
         parameters_hash="c" * 64,
     )
-    relative = Path("calculations") / str(calculation.id) / "scientific" / "parsed-result.json"
+    relative = (
+        Path("calculations")
+        / str(calculation.id)
+        / "scientific"
+        / "parsed-result.json"
+    )
     payload = {
         "format": VASP_RESULT_DOCUMENT_FORMAT,
         "version": VASP_RESULT_DOCUMENT_VERSION,
@@ -471,7 +532,7 @@ def _parsed_source(
     absolute = root / relative
     absolute.parent.mkdir(parents=True)
     absolute.write_bytes(body)
-    return analysis, Artifact(
+    artifact = Artifact(
         artifact_type=ArtifactType.PARSED_RESULT,
         producer=AnalysisProducerRef(analysis.id),
         availability=ArtifactAvailability.LOCAL,
@@ -480,9 +541,12 @@ def _parsed_source(
         size_bytes=len(body),
         sha256=hashlib.sha256(body).hexdigest(),
     )
+    return analysis, artifact
 
 
-def test_gas_materialization_builds_existing_scientific_dag(tmp_path: Path) -> None:
+def test_gas_materialization_builds_existing_scientific_dag(
+    tmp_path: Path,
+) -> None:
     reference, snapshot, source, identity = _h2_case()
     project = Project(name="gas", slug="gas")
     method = _method("WXC.VASP.GasFrequency")
