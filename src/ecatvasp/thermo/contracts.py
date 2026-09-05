@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
 
-from ecatvasp.domain import canonical_sha256
+from ecatvasp.domain import AtomUid, canonical_sha256
 
 ONE_BAR_PA = 100_000.0
 ONE_ATM_PA = 101_325.0
@@ -206,18 +206,46 @@ class ThermochemicalConditions:
 
 
 @dataclass(frozen=True, slots=True)
+class GasAtomicMass:
+    """Exact atom-UID-bound mass used for gas translation and rotation."""
+
+    atom_uid: AtomUid
+    mass_amu: float
+    isotopologue_label: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_positive(self.mass_amu, "mass_amu")
+        if self.isotopologue_label is not None:
+            _require_text(self.isotopologue_label, "isotopologue_label")
+
+
+@dataclass(frozen=True, slots=True)
 class GasMoleculeModel:
-    """Explicit rigid-rotor/electronic metadata that is never guessed from a filename."""
+    """Explicit rigid-rotor/electronic/mass metadata never guessed from a filename."""
 
     geometry_kind: GasGeometryKind
     symmetry_number: int
     spin_multiplicity: int
+    atomic_masses: tuple[GasAtomicMass, ...]
 
     def __post_init__(self) -> None:
         if self.symmetry_number < 1:
             raise ThermochemistryContractError("symmetry_number must be positive")
         if self.spin_multiplicity < 1:
             raise ThermochemistryContractError("spin_multiplicity must be positive")
+        if not self.atomic_masses:
+            raise ThermochemistryContractError("gas model requires explicit atomic masses")
+        masses = tuple(sorted(self.atomic_masses, key=lambda item: str(item.atom_uid)))
+        atom_uids = tuple(item.atom_uid for item in masses)
+        if len(atom_uids) != len(set(atom_uids)):
+            raise ThermochemistryContractError("gas atomic masses require unique atom_uids")
+        if self.geometry_kind is GasGeometryKind.MONATOMIC and len(masses) != 1:
+            raise ThermochemistryContractError("monatomic gas model requires exactly one atom")
+        if self.geometry_kind is GasGeometryKind.LINEAR and len(masses) < 2:
+            raise ThermochemistryContractError("linear gas model requires at least two atoms")
+        if self.geometry_kind is GasGeometryKind.NONLINEAR and len(masses) < 3:
+            raise ThermochemistryContractError("nonlinear gas model requires at least three atoms")
+        object.__setattr__(self, "atomic_masses", masses)
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,7 +330,9 @@ class ThermochemistryIdentity:
             for item in corrections
         )
         if len(correction_keys) != len(set(correction_keys)):
-            raise ThermochemistryContractError("thermochemistry correction identities must be unique")
+            raise ThermochemistryContractError(
+                "thermochemistry correction identities must be unique"
+            )
         object.__setattr__(self, "corrections", corrections)
 
     @property
@@ -321,7 +351,9 @@ class ThermochemistryModeSelection:
 
     def __post_init__(self) -> None:
         if not self.accepted_mode_indices:
-            raise ThermochemistryContractError("thermochemistry requires at least one accepted mode")
+            raise ThermochemistryContractError(
+                "thermochemistry requires at least one accepted mode"
+            )
         if any(index < 1 for index in self.accepted_mode_indices):
             raise ThermochemistryContractError("accepted mode indices must be positive")
         accepted = tuple(sorted(self.accepted_mode_indices))
@@ -424,11 +456,14 @@ class ThermochemistryResult:
             raise ThermochemistryContractError(
                 "vibrational thermochemistry requires an explicit concrete mode selection"
             )
-        if policy is not None and selection is not None:
-            if selection.excluded_modes != policy.exclusions:
-                raise ThermochemistryContractError(
-                    "result mode exclusions must exactly match the identity policy"
-                )
+        if (
+            policy is not None
+            and selection is not None
+            and selection.excluded_modes != policy.exclusions
+        ):
+            raise ThermochemistryContractError(
+                "result mode exclusions must exactly match the identity policy"
+            )
         if self.components.corrections != self.identity.corrections:
             raise ThermochemistryContractError(
                 "result correction terms must exactly match the identity corrections"
