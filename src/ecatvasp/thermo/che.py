@@ -154,6 +154,11 @@ class CHEProtonElectronChemicalPotential:
     result_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "hydrogen_reference_hash",
+            _normalized_sha256(self.hydrogen_reference_hash, "hydrogen_reference_hash"),
+        )
         values = (
             self.hydrogen_gibbs_free_energy_ev,
             self.half_h2_term_ev,
@@ -163,7 +168,16 @@ class CHEProtonElectronChemicalPotential:
         )
         if not all(isfinite(value) for value in values):
             raise CHEError("CHE chemical-potential components must be finite")
-        expected = self.half_h2_term_ev + self.potential_term_ev + self.ph_term_ev
+        expected_half_h2 = 0.5 * self.hydrogen_gibbs_free_energy_ev
+        if self.half_h2_term_ev != expected_half_h2:
+            raise CHEError("CHE half-H2 term differs from 1/2 of the bound H2 Gibbs energy")
+        expected_potential = -self.conditions.potential_v
+        if self.potential_term_ev != expected_potential:
+            raise CHEError("CHE potential term differs from the declared electrode potential")
+        expected_ph = _ph_term_ev(self.conditions)
+        if self.ph_term_ev != expected_ph:
+            raise CHEError("CHE pH term differs from the declared potential-reference semantics")
+        expected = expected_half_h2 + expected_potential + expected_ph
         if self.chemical_potential_ev != expected:
             raise CHEError("CHE chemical potential does not equal its explicit component sum")
         object.__setattr__(
@@ -183,14 +197,24 @@ class CHEProtonElectronChemicalPotential:
         )
 
 
-def rhe_to_she_potential_v(*, potential_rhe_v: float, ph: float, temperature_k: float) -> float:
+def rhe_to_she_potential_v(
+    *,
+    potential_rhe_v: float,
+    ph: float,
+    temperature_k: float,
+) -> float:
     """Convert U_RHE to U_SHE using the same T and proton activity convention."""
 
     _validate_transform_inputs(potential_rhe_v, ph, temperature_k)
     return potential_rhe_v - BOLTZMANN_EV_PER_K * temperature_k * LN10 * ph
 
 
-def she_to_rhe_potential_v(*, potential_she_v: float, ph: float, temperature_k: float) -> float:
+def she_to_rhe_potential_v(
+    *,
+    potential_she_v: float,
+    ph: float,
+    temperature_k: float,
+) -> float:
     """Convert U_SHE to U_RHE using the same T and proton activity convention."""
 
     _validate_transform_inputs(potential_she_v, ph, temperature_k)
@@ -211,12 +235,7 @@ def proton_electron_chemical_potential(
     hydrogen_g = hydrogen_reference.gibbs_free_energy_ev
     half_h2 = 0.5 * hydrogen_g
     potential_term = -conditions.potential_v
-    if conditions.potential_reference is ElectrodePotentialReference.SHE:
-        ph_term = -BOLTZMANN_EV_PER_K * conditions.temperature_k * LN10 * conditions.ph
-    elif conditions.potential_reference is ElectrodePotentialReference.RHE:
-        ph_term = 0.0
-    else:
-        raise CHEError("unsupported electrode potential reference")
+    ph_term = _ph_term_ev(conditions)
     chemical_potential = half_h2 + potential_term + ph_term
     return CHEProtonElectronChemicalPotential(
         conditions=conditions,
@@ -229,6 +248,14 @@ def proton_electron_chemical_potential(
     )
 
 
+def _ph_term_ev(conditions: CHEConditions) -> float:
+    if conditions.potential_reference is ElectrodePotentialReference.SHE:
+        return -BOLTZMANN_EV_PER_K * conditions.temperature_k * LN10 * conditions.ph
+    if conditions.potential_reference is ElectrodePotentialReference.RHE:
+        return 0.0
+    raise CHEError("unsupported electrode potential reference")
+
+
 def _validate_transform_inputs(potential_v: float, ph: float, temperature_k: float) -> None:
     if not isfinite(potential_v):
         raise CHEError("electrode potential must be finite")
@@ -236,3 +263,11 @@ def _validate_transform_inputs(potential_v: float, ph: float, temperature_k: flo
         raise CHEError("pH must be finite")
     if not isfinite(temperature_k) or temperature_k <= 0.0:
         raise CHEError("temperature_k must be finite and positive")
+
+
+def _normalized_sha256(value: str, field_name: str) -> str:
+    normalized = value.lower()
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
+        raise CHEError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
+    return normalized
