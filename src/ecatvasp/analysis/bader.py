@@ -55,7 +55,7 @@ class BaderAnalysisError(ValueError):
 
 
 class BaderReferenceMode(StrEnum):
-    """Explicit density used to define Bader basin partitioning."""
+    """Density policy used by the external Bader basin partitioning."""
 
     CHGCAR_ONLY = "chgcar_only"
     EXPLICIT_REFERENCE = "explicit_reference"
@@ -78,7 +78,7 @@ class BaderSiteResult:
 
 @dataclass(frozen=True, slots=True)
 class CanonicalBaderResult:
-    """Normalized Bader facts without charge-transfer or oxidation-state interpretation."""
+    """Normalized Bader facts without oxidation-state or charge-transfer interpretation."""
 
     structure_snapshot_id: StructureSnapshotId
     sites: tuple[BaderSiteResult, ...]
@@ -92,12 +92,12 @@ class CanonicalBaderResult:
 
     def __post_init__(self) -> None:
         if self.contract_version != CANONICAL_BADER_VERSION:
-            raise ValueError("unsupported canonical Bader contract version")
+            raise BaderAnalysisError("unsupported canonical Bader contract version")
         if not self.sites:
-            raise ValueError("canonical Bader result requires at least one atom")
+            raise BaderAnalysisError("canonical Bader result requires at least one atom")
         atom_uids = tuple(item.atom_uid for item in self.sites)
         if len(atom_uids) != len(set(atom_uids)):
-            raise ValueError("canonical Bader atom_uids must be unique")
+            raise BaderAnalysisError("canonical Bader atom_uids must be unique")
         object.__setattr__(
             self,
             "atom_index_map_sha256",
@@ -120,7 +120,7 @@ class CanonicalBaderResult:
 
     @property
     def content_hash(self) -> str:
-        """Return deterministic scientific content identity for normalized Bader facts."""
+        """Return deterministic scientific content identity."""
 
         return canonical_sha256(self)
 
@@ -136,14 +136,18 @@ class CanonicalBaderIntake:
     parser_version: str = BADER_ACF_PARSER_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "acf_sha256", _normalized_sha256(self.acf_sha256, "acf_sha256"))
+        object.__setattr__(
+            self,
+            "acf_sha256",
+            _normalized_sha256(self.acf_sha256, "acf_sha256"),
+        )
         if self.result.external_provenance_hash != self.invocation.provenance_hash:
-            raise ValueError("Bader result provenance hash does not match invocation")
+            raise BaderAnalysisError("Bader result provenance hash does not match invocation")
 
 
 @dataclass(frozen=True, slots=True)
 class DurableBaderMaterialization:
-    """Analysis plus raw ACF and normalized dataset with provenance/freshness edges."""
+    """Bader Analysis plus raw ACF and normalized analysis-produced Artifacts."""
 
     analysis: Analysis
     acf_artifact: Artifact
@@ -166,6 +170,12 @@ class _AcfRow:
     basin_volume_angstrom3: float
 
 
+@dataclass(frozen=True, slots=True)
+class _VerifiedArtifact:
+    artifact: Artifact
+    sha256: str
+
+
 def parse_bader_acf(
     *,
     acf_bytes: bytes,
@@ -174,7 +184,7 @@ def parse_bader_acf(
     invocation: ExternalToolInvocation,
     reference_mode: BaderReferenceMode,
 ) -> CanonicalBaderIntake:
-    """Parse exact ACF.dat bytes and bind rows by VASP ordinal, never by coordinates."""
+    """Parse ACF.dat and bind rows by one-based VASP ordinal, never coordinates."""
 
     _validate_invocation(invocation=invocation, reference_mode=reference_mode)
     bindings = _parse_atom_index_map(
@@ -228,10 +238,13 @@ def materialize_bader_analysis(
     charge_density_artifact: Artifact,
     atom_index_map_artifact: Artifact,
     intake: CanonicalBaderIntake,
+    acf_bytes: bytes,
     reference_artifact: Artifact | None = None,
 ) -> DurableBaderMaterialization:
-    """Persist one externally executed Bader result with exact source provenance."""
+    """Persist one externally executed Bader result with exact input/output provenance."""
 
+    if hashlib.sha256(acf_bytes).hexdigest() != intake.acf_sha256:
+        raise BaderAnalysisError("ACF.dat bytes differ from parser receipt")
     _validate_materialization_identity(
         calculation=calculation,
         execution_attempt=execution_attempt,
@@ -258,7 +271,11 @@ def materialize_bader_analysis(
         expected_sha256=intake.result.atom_index_map_sha256,
         label="atom-index-map.json",
     )
-    reference: Artifact | None = None
+
+    artifact_roles: tuple[tuple[str, Artifact], ...] = (
+        ("charge_density", charge.artifact),
+        ("atom_index_map", atom_map.artifact),
+    )
     if intake.result.reference_mode is BaderReferenceMode.EXPLICIT_REFERENCE:
         if reference_artifact is None:
             raise BaderAnalysisError("explicit Bader reference mode requires reference Artifact")
@@ -267,12 +284,10 @@ def materialize_bader_analysis(
             artifact=reference_artifact,
             expected_sha256=_invocation_digest(intake.invocation, _REFERENCE_ROLE),
         )
+        artifact_roles = (*artifact_roles, ("reference_charge_density", reference))
     elif reference_artifact is not None:
         raise BaderAnalysisError("CHGCAR-only Bader mode forbids a reference Artifact")
 
-    input_artifacts = (charge.artifact, atom_map.artifact)
-    if reference is not None:
-        input_artifacts = (*input_artifacts, reference)
     source_receipt = {
         "format": CANONICAL_BADER_FORMAT,
         "version": CANONICAL_BADER_VERSION,
@@ -285,18 +300,19 @@ def materialize_bader_analysis(
         "invocation_hash": intake.invocation.provenance_hash,
         "inputs": tuple(
             {
-                "artifact_id": item.id,
-                "artifact_type": item.artifact_type,
-                "sha256": item.sha256,
+                "role": role,
+                "artifact_id": artifact.id,
+                "artifact_type": artifact.artifact_type,
+                "sha256": artifact.sha256,
             }
-            for item in input_artifacts
+            for role, artifact in artifact_roles
         ),
     }
     source_receipt_hash = canonical_sha256(source_receipt)
     analysis = Analysis(
         project_id=calculation.project_id,
         analysis_type=AnalysisType.BADER,
-        input_artifact_ids=tuple(item.id for item in input_artifacts),
+        input_artifact_ids=tuple(artifact.id for _, artifact in artifact_roles),
         status=AnalysisStatus.COMPLETED,
         tool=intake.invocation.tool,
         tool_version=intake.invocation.tool_version,
@@ -307,7 +323,7 @@ def materialize_bader_analysis(
         analysis=analysis,
         filename="ACF.dat",
         artifact_type=ArtifactType.ACF_DAT,
-        body=_require_acf_bytes(intake),
+        body=acf_bytes,
     )
     payload = {
         "format": CANONICAL_BADER_FORMAT,
@@ -320,12 +336,12 @@ def materialize_bader_analysis(
         "result_content_hash": intake.result.content_hash,
         "result": intake.result,
     }
-    result_artifact = _write_analysis_text(
+    result_artifact = _write_analysis_bytes(
         root=root,
         analysis=analysis,
         filename="canonical-bader.json",
         artifact_type=ArtifactType.DERIVED_DATASET,
-        text=canonical_json(payload) + "\n",
+        body=(canonical_json(payload) + "\n").encode("utf-8"),
     )
 
     provenance_records = (
@@ -360,8 +376,7 @@ def materialize_bader_analysis(
             recorded_hash=scientific_hash(calculation),
         )
     ]
-    roles = ("charge_density", "atom_index_map", "reference_charge_density")
-    for role, artifact in zip(roles, input_artifacts, strict=False):
+    for role, artifact in artifact_roles:
         dependency_records.append(
             DependencyRecord(
                 upstream_id=artifact.id,
@@ -405,7 +420,7 @@ def load_canonical_bader_artifact(
     acf_artifact: Artifact,
     result_artifact: Artifact,
 ) -> CanonicalBaderResult:
-    """Reopen one durable Bader result and revalidate sibling raw ACF content."""
+    """Reopen a durable Bader result and verify its sibling ACF.dat Artifact."""
 
     if analysis.analysis_type is not AnalysisType.BADER:
         raise BaderAnalysisError("canonical Bader result requires AnalysisType.BADER")
@@ -449,12 +464,15 @@ def load_canonical_bader_artifact(
         raise BaderAnalysisError("canonical Bader Artifact references another ACF.dat")
     receipt = _mapping(mapping.get("source_receipt"), "source_receipt")
     receipt_hash = mapping.get("source_receipt_hash")
-    if receipt_hash != analysis.parameters_hash or canonical_sha256(receipt) != receipt_hash:
-        raise BaderAnalysisError("canonical Bader source receipt is inconsistent")
+    if receipt_hash != analysis.parameters_hash:
+        raise BaderAnalysisError("canonical Bader source receipt differs from Analysis")
+    if canonical_sha256(receipt) != receipt_hash:
+        raise BaderAnalysisError("canonical Bader source receipt hash is inconsistent")
     if receipt.get("acf_sha256") != acf.sha256:
         raise BaderAnalysisError("canonical Bader source receipt ACF hash differs")
-    input_ids = _receipt_input_ids(receipt)
-    if input_ids != tuple(UUID(str(item)) for item in analysis.input_artifact_ids):
+    if _receipt_input_ids(receipt) != tuple(
+        UUID(str(item)) for item in analysis.input_artifact_ids
+    ):
         raise BaderAnalysisError("canonical Bader source inputs differ from Analysis")
     decoded = _decode_canonical_result(mapping.get("result"))
     if mapping.get("result_content_hash") != decoded.content_hash:
@@ -474,12 +492,13 @@ def _validate_invocation(
     if reference_mode is BaderReferenceMode.CHGCAR_ONLY:
         if roles != frozenset({_CHARGE_ROLE}) or has_ref_flag:
             raise BaderAnalysisError(
-                "CHGCAR-only Bader mode requires only charge_density and forbids -ref"
+                "CHGCAR-only mode requires only charge_density and forbids -ref"
             )
         return
-    if roles != frozenset({_CHARGE_ROLE, _REFERENCE_ROLE}) or not has_ref_flag:
+    expected_roles = frozenset({_CHARGE_ROLE, _REFERENCE_ROLE})
+    if roles != expected_roles or not has_ref_flag:
         raise BaderAnalysisError(
-            "explicit-reference Bader mode requires charge/reference inputs and -ref"
+            "explicit-reference mode requires charge/reference inputs and -ref"
         )
 
 
@@ -491,16 +510,16 @@ def _parse_acf_lines(lines: list[str]) -> tuple[tuple[_AcfRow, ...], dict[str, f
     if header_index is None:
         raise BaderAnalysisError("ACF.dat is missing its column header")
     header = " ".join(lines[header_index].strip().lstrip("#").upper().split())
-    required_header_tokens = ("X", "Y", "Z", "CHARGE", "MIN DIST", "ATOMIC VOL")
-    if any(token not in header for token in required_header_tokens):
-        raise BaderAnalysisError("ACF.dat column header is unsupported")
+    for token in ("X", "Y", "Z", "CHARGE", "MIN DIST", "ATOMIC VOL"):
+        if token not in header:
+            raise BaderAnalysisError("ACF.dat column header is unsupported")
 
     rows: list[_AcfRow] = []
     summaries: dict[str, float] = {}
     rows_finished = False
     for line in lines[header_index + 1 :]:
         stripped = line.strip()
-        if not stripped or set(stripped) == {"-"}:
+        if not stripped or (stripped and set(stripped) == {"-"}):
             if rows:
                 rows_finished = True
             continue
@@ -513,13 +532,16 @@ def _parse_acf_lines(lines: list[str]) -> tuple[tuple[_AcfRow, ...], dict[str, f
                 rows_finished = True
             else:
                 continue
-        if ":" in stripped:
-            name, raw_value = stripped.split(":", 1)
-            key = " ".join(name.upper().split())
-            if key in {"VACUUM CHARGE", "VACUUM VOLUME", "NUMBER OF ELECTRONS"}:
-                if key in summaries:
-                    raise BaderAnalysisError(f"ACF.dat repeats summary field {key}")
-                summaries[key] = _finite_float(raw_value.strip(), key)
+        if ":" not in stripped:
+            continue
+        name, raw_value = stripped.split(":", 1)
+        key = " ".join(name.upper().split())
+        accepted = {"VACUUM CHARGE", "VACUUM VOLUME", "NUMBER OF ELECTRONS"}
+        if key not in accepted:
+            continue
+        if key in summaries:
+            raise BaderAnalysisError(f"ACF.dat repeats summary field {key}")
+        summaries[key] = _finite_float(raw_value.strip(), key)
     if not rows:
         raise BaderAnalysisError("ACF.dat contains no atom rows")
     return tuple(rows), summaries
@@ -557,7 +579,8 @@ def _parse_atom_index_map(
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise BaderAnalysisError("atom-index-map.json must be valid UTF-8 JSON") from error
     mapping = _mapping(payload, "atom-index-map.json")
-    if mapping.get("format") != "ecatvasp-v03-atom-index-map" or mapping.get("version") != 1:
+    valid_format = mapping.get("format") == "ecatvasp-v03-atom-index-map"
+    if not valid_format or mapping.get("version") != 1:
         raise BaderAnalysisError("unsupported atom-index-map.json format/version")
     if mapping.get("structure_snapshot_id") != str(structure_snapshot_id):
         raise BaderAnalysisError("atom index map belongs to another StructureSnapshot")
@@ -566,6 +589,7 @@ def _parse_atom_index_map(
         if not isinstance(value, str):
             raise BaderAnalysisError(f"atom index map {field_name} must be a SHA-256 string")
         _normalized_sha256(value, field_name)
+
     raw_entries = mapping.get("entries")
     if not isinstance(raw_entries, list) or not raw_entries:
         raise BaderAnalysisError("atom index map requires non-empty entries")
@@ -580,8 +604,10 @@ def _parse_atom_index_map(
             raise BaderAnalysisError("atom index map indices/ordinals are not contiguous")
         raw_uid = entry.get("atom_uid")
         element = entry.get("element")
-        if not isinstance(raw_uid, str) or not isinstance(element, str) or not element.strip():
+        if not isinstance(raw_uid, str) or not isinstance(element, str):
             raise BaderAnalysisError("atom index map entry requires atom_uid and element")
+        if not element.strip():
+            raise BaderAnalysisError("atom index map element must not be blank")
         try:
             atom_uid = AtomUid(UUID(raw_uid))
         except ValueError as error:
@@ -590,6 +616,7 @@ def _parse_atom_index_map(
         elements.append(element)
     if len({item.atom_uid for item in bindings}) != len(bindings):
         raise BaderAnalysisError("atom index map atom_uids must be unique")
+
     species_order = mapping.get("species_order")
     species_counts = mapping.get("species_counts")
     if not isinstance(species_order, list) or not all(
@@ -625,7 +652,9 @@ def _validate_materialization_identity(
     if calculation.calculation_type is not CalculationType.CHARGE_STATIC:
         raise BaderAnalysisError("Bader materialization requires CHARGE_STATIC Calculation")
     if calculation.status is not CalculationScientificStatus.CONVERGED:
-        raise BaderAnalysisError("Bader materialization requires scientifically converged Calculation")
+        raise BaderAnalysisError(
+            "Bader materialization requires scientifically converged Calculation"
+        )
     if intake.result.structure_snapshot_id != calculation.input_structure_snapshot_id:
         raise BaderAnalysisError("Bader result targets another StructureSnapshot")
     if execution_attempt.calculation_id != calculation.id:
@@ -657,15 +686,16 @@ def _verify_reference_artifact(
 ) -> Artifact:
     allowed = {ArtifactType.CHGCAR, ArtifactType.DERIVED_DATASET}
     if artifact.artifact_type not in allowed:
-        raise BaderAnalysisError("Bader reference Artifact must be CHGCAR or DERIVED_DATASET")
-    verified = _verify_local_artifact(
+        raise BaderAnalysisError(
+            "Bader reference Artifact must be CHGCAR or DERIVED_DATASET"
+        )
+    return _verify_local_artifact(
         root=root,
         artifact=artifact,
         expected_type=artifact.artifact_type,
         expected_sha256=expected_sha256,
         label="Bader reference charge density",
-    )
-    return verified.artifact
+    ).artifact
 
 
 def _verify_local_artifact(
@@ -695,12 +725,6 @@ def _verify_local_artifact(
     if artifact.size_bytes is None or artifact.size_bytes != len(body):
         raise BaderAnalysisError(f"{label} local byte size changed")
     return _VerifiedArtifact(artifact=artifact, sha256=observed)
-
-
-@dataclass(frozen=True, slots=True)
-class _VerifiedArtifact:
-    artifact: Artifact
-    sha256: str
 
 
 def _resolve_local_path(root: Path, artifact: Artifact, label: str) -> Path:
@@ -757,30 +781,17 @@ def _write_analysis_bytes(
     )
 
 
-def _write_analysis_text(
-    *,
-    root: Path,
-    analysis: Analysis,
-    filename: str,
-    artifact_type: ArtifactType,
-    text: str,
-) -> Artifact:
-    return _write_analysis_bytes(
-        root=root,
-        analysis=analysis,
-        filename=filename,
-        artifact_type=artifact_type,
-        body=text.encode("utf-8"),
-    )
-
-
 def _validate_analysis_output(
     analysis: Analysis,
     artifact: Artifact,
     artifact_type: ArtifactType,
     filename: str,
 ) -> None:
-    if not isinstance(artifact.producer, AnalysisProducerRef) or artifact.producer.id != analysis.id:
+    valid_producer = (
+        isinstance(artifact.producer, AnalysisProducerRef)
+        and artifact.producer.id == analysis.id
+    )
+    if not valid_producer:
         raise BaderAnalysisError(f"{filename} producer does not match Bader Analysis")
     if artifact.artifact_type is not artifact_type:
         raise BaderAnalysisError(f"{filename} has incompatible ArtifactType")
@@ -793,13 +804,6 @@ def _invocation_digest(invocation: ExternalToolInvocation, role: str) -> str:
     if len(matches) != 1:
         raise BaderAnalysisError(f"Bader invocation requires exactly one {role} input")
     return matches[0]
-
-
-def _require_acf_bytes(intake: CanonicalBaderIntake) -> bytes:
-    raw = getattr(intake, "_acf_bytes", None)
-    if isinstance(raw, bytes):
-        return raw
-    raise BaderAnalysisError("Bader intake does not retain ACF.dat bytes")
 
 
 def _receipt_input_ids(receipt: dict[str, object]) -> tuple[UUID, ...]:
@@ -815,7 +819,9 @@ def _receipt_input_ids(receipt: dict[str, object]) -> tuple[UUID, ...]:
         try:
             ids.append(UUID(value))
         except ValueError as error:
-            raise BaderAnalysisError("canonical Bader source artifact_id is not a UUID") from error
+            raise BaderAnalysisError(
+                "canonical Bader source artifact_id is not a UUID"
+            ) from error
     return tuple(ids)
 
 
@@ -832,9 +838,17 @@ def _decode_canonical_result(raw: object) -> CanonicalBaderResult:
             sites=sites,
             atom_index_map_sha256=_string(mapping.get("atom_index_map_sha256")),
             reference_mode=BaderReferenceMode(_string(mapping.get("reference_mode"))),
-            external_provenance_hash=_string(mapping.get("external_provenance_hash")),
-            number_of_electrons=_number(mapping.get("number_of_electrons"), "number_of_electrons"),
-            vacuum_charge_e=_optional_number(mapping.get("vacuum_charge_e"), "vacuum_charge_e"),
+            external_provenance_hash=_string(
+                mapping.get("external_provenance_hash")
+            ),
+            number_of_electrons=_number(
+                mapping.get("number_of_electrons"),
+                "number_of_electrons",
+            ),
+            vacuum_charge_e=_optional_number(
+                mapping.get("vacuum_charge_e"),
+                "vacuum_charge_e",
+            ),
             vacuum_volume_angstrom3=_optional_number(
                 mapping.get("vacuum_volume_angstrom3"),
                 "vacuum_volume_angstrom3",
@@ -912,14 +926,19 @@ def _finite_float(value: str, field_name: str) -> float:
 
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
-        raise ValueError(f"{field_name} must be a 64-character hexadecimal SHA-256 digest")
+    valid = len(normalized) == 64 and all(
+        character in "0123456789abcdef" for character in normalized
+    )
+    if not valid:
+        raise BaderAnalysisError(
+            f"{field_name} must be a 64-character hexadecimal SHA-256 digest"
+        )
     return normalized
 
 
 def _require_nonnegative(value: float, field_name: str) -> None:
     if not isfinite(value) or value < 0:
-        raise ValueError(f"{field_name} must be finite and non-negative")
+        raise BaderAnalysisError(f"{field_name} must be finite and non-negative")
 
 
 def _require_optional_nonnegative(value: float | None, field_name: str) -> None:
