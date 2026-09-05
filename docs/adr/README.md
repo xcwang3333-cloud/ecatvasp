@@ -1,37 +1,35 @@
 # Architecture Decision Records
 
-Accepted Phase 0 architecture is implemented through ADRs. Material changes to frozen scientific boundaries must be proposed as a new ADR rather than introduced silently in feature work.
+This directory records durable product and implementation decisions for ECatVASP.
 
-Frozen ADR set and accepted extensions:
-
-1. Product Scope
-2. Scientific Core Architecture
-3. Scientific Domain Model
-4. Scientific Workflow DAG
-5. VASP Method / Protocol / Recipe
-6. Storage Architecture
-7. HPC Execution
-8. Visualization
-9. External Tool Boundary
-10. Licensing Strategy
-11. v0.3 VASP Input Preparation Contracts
-12. v0.3 K-Point Policy Semantics
-13. v0.3 Scientific INCAR Resolution
-14. v0.3 Immutable VASP Input Materialization and Manifest
-15. v0.3 Core VASP End-to-End Input Pipeline
-16. v0.3 Finite-Difference Frequency Contract
-17. v0.3 Analysis Prerequisite Contracts
-18. v0.3 Global Fail-Closed Matrix and Input Reconciliation
-19. v0.3 ExecutionPlan Handoff
-20. v0.4 ExecutionAttempt Provenance and RemoteJob Cardinality
-21. v0.4 Execution Target, Adapter, and Credential Boundary
-22. v0.4 Runtime Materialization and Local Execution Boundary
-23. v0.4 SSH Staging and Remote POTCAR Integrity Boundary
-24. v0.4 Slurm Resource and Submission Boundary
-25. v0.4 Slurm Monitoring and Reconciliation Boundary
-26. v0.4 Retrieval and Remote Artifact Lifecycle Boundary
-27. v0.4 Retry, Restart, and Recovery Identity Boundary
-28. v0.4 Batch Dispatch and Scheduler DAG Boundary
+1. Scientific Core Architecture
+2. Domain Schema and Identity
+3. Scientific Workflow DAG
+4. Recipe and Preflight Boundary
+5. Freeze and Contract
+6. Structure Import / Export Boundary
+7. Graphene Builder Boundary
+8. Vacancy / Dopant Builder Boundary
+9. Single Metal Site Boundary
+10. Dual / Triple Metal Site Boundary
+11. ActiveSite Tooling Boundary
+12. Adsorbate Builder Boundary
+13. Adsorption Structure Validation Boundary
+14. Model Studio Final Acceptance Boundary
+15. VASP Pipeline Domain Contracts
+16. POSCAR and Permanent Atom Identity Boundary
+17. INCAR Generation Boundary
+18. KPOINTS Generation Boundary
+19. POTCAR Identity and Materialization Boundary
+20. VASP Input Materialization Boundary
+21. Calculation Recipe Registry Boundary
+22. Preflight Validation Boundary
+23. Scientific Calculation Plan Boundary
+24. VASP Pipeline Final Acceptance Boundary
+25. HPC Execution Domain Contracts and Schema v2 Boundary
+26. SSH / Slurm Submission Boundary
+27. Scheduler Monitoring and Retrieval Boundary
+28. Retry and Recovery Boundary
 29. v0.4 Final Execution Acceptance and Handoff Boundary
 30. v0.5 Scientific Result Parsing Boundary
 31. v0.5 Result Artifact Intake and Integrity Boundary
@@ -58,3 +56,4 @@ Frozen ADR set and accepted extensions:
 52. v0.7 Charge-Density Difference Analysis Boundary
 53. v0.7 LOBSTER / COHP / ICOHP Result-Intake Boundary
 54. v0.7 Electronic Descriptor Boundary
+55. v0.7 Electronic Analysis Reconciliation and Workflow Integration Boundary
