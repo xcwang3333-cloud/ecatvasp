@@ -96,6 +96,8 @@ class BandCenterSelector:
     element: str | None = None
 
     def __post_init__(self) -> None:
+        if not isinstance(self.spin, BandCenterSpinMode):
+            raise BandCenterError("unsupported band-center spin mode")
         if self.scope is ProjectionScope.SYSTEM:
             if self.atom_uid is not None or self.element is not None:
                 raise BandCenterError("system selector forbids atom_uid and element")
@@ -128,6 +130,14 @@ class BandCenterParameters:
     )
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, BandCenterKind):
+            raise BandCenterError("unsupported band-center kind")
+        if not isinstance(self.energy_reference, BandCenterEnergyReference):
+            raise BandCenterError("unsupported band-center energy reference")
+        if not isinstance(self.integration_rule, BandCenterIntegrationRule):
+            raise BandCenterError("unsupported band-center integration rule")
+        if not isinstance(self.normalization, BandCenterNormalization):
+            raise BandCenterError("unsupported band-center normalization")
         if not isfinite(self.window_lower_ev) or not isfinite(self.window_upper_ev):
             raise BandCenterError("band-center integration window must be finite")
         if self.window_upper_ev <= self.window_lower_ev:
