@@ -114,10 +114,12 @@ class ChargeDifferenceMetadata:
             _normalized_sha256(self.density_sha256, "density_sha256"),
         )
         if len(self.grid_shape_xyz) != 3 or any(value < 1 for value in self.grid_shape_xyz):
-            raise ChargeDifferenceAnalysisError("grid_shape_xyz requires three positive integers")
+            raise ChargeDifferenceAnalysisError(
+                "grid_shape_xyz requires three positive integers"
+            )
         _require_positive(self.cell_volume_angstrom3, "cell_volume_angstrom3")
         _require_positive(self.voxel_volume_angstrom3, "voxel_volume_angstrom3")
-        for value, name in (
+        for value, field_name in (
             (self.combined_electron_integral, "combined_electron_integral"),
             (self.slab_electron_integral, "slab_electron_integral"),
             (self.adsorbate_electron_integral, "adsorbate_electron_integral"),
@@ -125,7 +127,7 @@ class ChargeDifferenceMetadata:
             (self.density_min, "density_min"),
             (self.density_max, "density_max"),
         ):
-            _require_finite(value, name)
+            _require_finite(value, field_name)
         if self.density_unit != DENSITY_UNIT:
             raise ChargeDifferenceAnalysisError("unsupported charge-density unit")
         if self.axis_order != DENSITY_AXIS_ORDER:
@@ -194,33 +196,16 @@ def materialize_charge_difference_analysis(
         for member, source in zip(members, sources, strict=True)
     )
     combined, slab, adsorbate = parsed
-    if slab.density.shape != combined.density.shape or (
-        adsorbate.density.shape != combined.density.shape
-    ):
-        raise ChargeDifferenceAnalysisError(
-            "charge-difference CHGCAR FFT grids must have identical dimensions"
-        )
-    if not np.isclose(
-        slab.cell_volume_angstrom3,
-        combined.cell_volume_angstrom3,
-        rtol=0.0,
-        atol=1.0e-9,
-    ) or not np.isclose(
-        adsorbate.cell_volume_angstrom3,
-        combined.cell_volume_angstrom3,
-        rtol=0.0,
-        atol=1.0e-9,
-    ):
-        raise ChargeDifferenceAnalysisError(
-            "charge-difference CHGCAR cells must have identical volume"
-        )
+    _validate_compatible_grids(combined=combined, slab=slab, adsorbate=adsorbate)
 
     delta = np.asarray(
         combined.density - slab.density - adsorbate.density,
         dtype=np.float64,
     )
     if not np.all(np.isfinite(delta)):
-        raise ChargeDifferenceAnalysisError("charge-difference density contains non-finite values")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density contains non-finite values"
+        )
     canonical_delta = np.ascontiguousarray(delta, dtype=np.dtype(DENSITY_DTYPE))
     density_body = canonical_delta.tobytes(order="C")
     density_hash = hashlib.sha256(density_body).hexdigest()
@@ -247,27 +232,12 @@ def materialize_charge_difference_analysis(
         density_max=float(np.max(delta)),
         ase_version=str(ase.__version__),
     )
-
-    source_receipt = {
-        "format": CANONICAL_CHARGE_DIFFERENCE_FORMAT,
-        "version": CANONICAL_CHARGE_DIFFERENCE_VERSION,
-        "triplet_contract_hash": triplet.contract_hash,
-        "ase_parser": "ase.calculators.vasp.VaspChargeDensity",
-        "ase_version": str(ase.__version__),
-        "density_scaling": "chgcar_grid_values_divided_by_real_cell_volume",
-        "delta_convention": DELTA_CONVENTION,
-        "sources": tuple(
-            {
-                "role": source.role,
-                "calculation_id": member.calculation.id,
-                "structure_snapshot_id": member.snapshot.id,
-                "method_fingerprint_id": member.fingerprint.id,
-                "chgcar_artifact_id": parsed_item.artifact.id,
-                "chgcar_sha256": parsed_item.sha256,
-            }
-            for member, source, parsed_item in zip(members, sources, parsed, strict=True)
-        ),
-    }
+    source_receipt = _source_receipt(
+        triplet=triplet,
+        members=members,
+        sources=sources,
+        parsed=parsed,
+    )
     source_receipt_hash = canonical_sha256(source_receipt)
     analysis = Analysis(
         project_id=triplet.combined.calculation.project_id,
@@ -284,42 +254,20 @@ def materialize_charge_difference_analysis(
         filename="charge-difference.f64",
         body=density_body,
     )
-    payload = {
-        "format": CANONICAL_CHARGE_DIFFERENCE_FORMAT,
-        "version": CANONICAL_CHARGE_DIFFERENCE_VERSION,
-        "analysis_id": analysis.id,
-        "density_artifact_id": density_artifact.id,
-        "source_receipt": source_receipt,
-        "source_receipt_hash": source_receipt_hash,
-        "metadata_content_hash": metadata.content_hash,
-        "metadata": metadata,
-    }
-    metadata_artifact = _write_analysis_bytes(
+    metadata_artifact = _write_metadata_artifact(
         root=root,
         analysis=analysis,
-        filename="canonical-charge-difference.json",
-        body=(canonical_json(payload) + "\n").encode("utf-8"),
+        density_artifact=density_artifact,
+        metadata=metadata,
+        source_receipt=source_receipt,
+        source_receipt_hash=source_receipt_hash,
     )
-
-    provenance_records = (
-        ProvenanceRecord(
-            subject_id=analysis.id,
-            tool=CHARGE_DIFFERENCE_TOOL_NAME,
-            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
-            parameters_hash=source_receipt_hash,
-        ),
-        ProvenanceRecord(
-            subject_id=density_artifact.id,
-            tool=CHARGE_DIFFERENCE_TOOL_NAME,
-            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
-            parameters_hash=density_hash,
-        ),
-        ProvenanceRecord(
-            subject_id=metadata_artifact.id,
-            tool=CHARGE_DIFFERENCE_TOOL_NAME,
-            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
-            parameters_hash=metadata_artifact.sha256,
-        ),
+    provenance_records = _provenance_records(
+        analysis=analysis,
+        density_artifact=density_artifact,
+        metadata_artifact=metadata_artifact,
+        density_hash=density_hash,
+        source_receipt_hash=source_receipt_hash,
     )
     dependency_records = _dependency_records(
         triplet=triplet,
@@ -347,21 +295,22 @@ def load_charge_difference_artifacts(
 ) -> LoadedChargeDifference:
     """Reopen and validate one durable charge-density-difference dataset."""
 
-    if analysis.analysis_type is not AnalysisType.CHARGE_DIFFERENCE:
-        raise ChargeDifferenceAnalysisError(
-            "charge-difference dataset requires AnalysisType.CHARGE_DIFFERENCE"
-        )
-    if analysis.status is not AnalysisStatus.COMPLETED:
-        raise ChargeDifferenceAnalysisError("charge-difference Analysis must be completed")
-    _validate_output(analysis, density_artifact, "charge-difference.f64")
-    _validate_output(
-        analysis,
-        metadata_artifact,
-        "canonical-charge-difference.json",
+    _validate_analysis_output_contract(
+        analysis=analysis,
+        density_artifact=density_artifact,
+        metadata_artifact=metadata_artifact,
     )
     root = Path(project_root).resolve()
-    density_body = _verified_local_bytes(root, density_artifact, "charge-difference density")
-    metadata_body = _verified_local_bytes(root, metadata_artifact, "charge-difference metadata")
+    density_body = _verified_local_bytes(
+        root,
+        density_artifact,
+        "charge-difference density",
+    )
+    metadata_body = _verified_local_bytes(
+        root,
+        metadata_artifact,
+        "charge-difference metadata",
+    )
     try:
         raw_payload = json.loads(metadata_body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -369,41 +318,236 @@ def load_charge_difference_artifacts(
             "canonical charge-difference metadata is not valid UTF-8 JSON"
         ) from error
     payload = _mapping(raw_payload, "canonical charge-difference metadata")
-    if payload.get("format") != CANONICAL_CHARGE_DIFFERENCE_FORMAT:
-        raise ChargeDifferenceAnalysisError("charge-difference metadata format is unsupported")
-    if payload.get("version") != CANONICAL_CHARGE_DIFFERENCE_VERSION:
-        raise ChargeDifferenceAnalysisError("charge-difference metadata version is unsupported")
-    if payload.get("analysis_id") != str(analysis.id):
-        raise ChargeDifferenceAnalysisError("charge-difference metadata belongs to another Analysis")
-    if payload.get("density_artifact_id") != str(density_artifact.id):
-        raise ChargeDifferenceAnalysisError("charge-difference metadata references another density")
+    _validate_payload_identity(
+        payload=payload,
+        analysis=analysis,
+        density_artifact=density_artifact,
+    )
     receipt = _mapping(payload.get("source_receipt"), "source_receipt")
     receipt_hash = payload.get("source_receipt_hash")
     if receipt_hash != analysis.parameters_hash or canonical_sha256(receipt) != receipt_hash:
-        raise ChargeDifferenceAnalysisError("charge-difference source receipt is inconsistent")
-    if _receipt_input_ids(receipt) != tuple(
-        str(item) for item in analysis.input_artifact_ids
-    ):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference source receipt is inconsistent"
+        )
+    expected_input_ids = tuple(str(item) for item in analysis.input_artifact_ids)
+    if _receipt_input_ids(receipt) != expected_input_ids:
         raise ChargeDifferenceAnalysisError(
             "charge-difference source receipt inputs differ from Analysis"
         )
+
     metadata = _decode_metadata(payload.get("metadata"))
     if payload.get("metadata_content_hash") != metadata.content_hash:
-        raise ChargeDifferenceAnalysisError("charge-difference metadata content hash is inconsistent")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference metadata content hash is inconsistent"
+        )
     if hashlib.sha256(density_body).hexdigest() != metadata.density_sha256:
-        raise ChargeDifferenceAnalysisError("charge-difference density hash differs from metadata")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density hash differs from metadata"
+        )
+    density = _decode_density(density_body=density_body, metadata=metadata)
+    return LoadedChargeDifference(metadata=metadata, density=density)
+
+
+def _validate_compatible_grids(
+    *,
+    combined: _ParsedDensity,
+    slab: _ParsedDensity,
+    adsorbate: _ParsedDensity,
+) -> None:
+    if slab.density.shape != combined.density.shape or (
+        adsorbate.density.shape != combined.density.shape
+    ):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference CHGCAR FFT grids must have identical dimensions"
+        )
+    if not np.isclose(
+        slab.cell_volume_angstrom3,
+        combined.cell_volume_angstrom3,
+        rtol=0.0,
+        atol=1.0e-9,
+    ) or not np.isclose(
+        adsorbate.cell_volume_angstrom3,
+        combined.cell_volume_angstrom3,
+        rtol=0.0,
+        atol=1.0e-9,
+    ):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference CHGCAR cells must have identical volume"
+        )
+
+
+def _source_receipt(
+    *,
+    triplet: ChargeDifferenceTriplet,
+    members: tuple[ChargeDifferenceTripletMember, ...],
+    sources: tuple[ChargeDifferenceSource, ...],
+    parsed: tuple[_ParsedDensity, ...],
+) -> dict[str, object]:
+    return {
+        "format": CANONICAL_CHARGE_DIFFERENCE_FORMAT,
+        "version": CANONICAL_CHARGE_DIFFERENCE_VERSION,
+        "triplet_contract_hash": triplet.contract_hash,
+        "ase_parser": "ase.calculators.vasp.VaspChargeDensity",
+        "ase_version": str(ase.__version__),
+        "density_scaling": "chgcar_grid_values_divided_by_real_cell_volume",
+        "delta_convention": DELTA_CONVENTION,
+        "sources": tuple(
+            {
+                "role": source.role,
+                "calculation_id": member.calculation.id,
+                "structure_snapshot_id": member.snapshot.id,
+                "method_fingerprint_id": member.fingerprint.id,
+                "chgcar_artifact_id": parsed_item.artifact.id,
+                "chgcar_sha256": parsed_item.sha256,
+            }
+            for member, source, parsed_item in zip(
+                members,
+                sources,
+                parsed,
+                strict=True,
+            )
+        ),
+    }
+
+
+def _write_metadata_artifact(
+    *,
+    root: Path,
+    analysis: Analysis,
+    density_artifact: Artifact,
+    metadata: ChargeDifferenceMetadata,
+    source_receipt: dict[str, object],
+    source_receipt_hash: str,
+) -> Artifact:
+    payload = {
+        "format": CANONICAL_CHARGE_DIFFERENCE_FORMAT,
+        "version": CANONICAL_CHARGE_DIFFERENCE_VERSION,
+        "analysis_id": analysis.id,
+        "density_artifact_id": density_artifact.id,
+        "source_receipt": source_receipt,
+        "source_receipt_hash": source_receipt_hash,
+        "metadata_content_hash": metadata.content_hash,
+        "metadata": metadata,
+    }
+    return _write_analysis_bytes(
+        root=root,
+        analysis=analysis,
+        filename="canonical-charge-difference.json",
+        body=(canonical_json(payload) + "\n").encode("utf-8"),
+    )
+
+
+def _provenance_records(
+    *,
+    analysis: Analysis,
+    density_artifact: Artifact,
+    metadata_artifact: Artifact,
+    density_hash: str,
+    source_receipt_hash: str,
+) -> tuple[ProvenanceRecord, ...]:
+    return (
+        ProvenanceRecord(
+            subject_id=analysis.id,
+            tool=CHARGE_DIFFERENCE_TOOL_NAME,
+            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
+            parameters_hash=source_receipt_hash,
+        ),
+        ProvenanceRecord(
+            subject_id=density_artifact.id,
+            tool=CHARGE_DIFFERENCE_TOOL_NAME,
+            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
+            parameters_hash=density_hash,
+        ),
+        ProvenanceRecord(
+            subject_id=metadata_artifact.id,
+            tool=CHARGE_DIFFERENCE_TOOL_NAME,
+            tool_version=CHARGE_DIFFERENCE_TOOL_VERSION,
+            parameters_hash=metadata_artifact.sha256,
+        ),
+    )
+
+
+def _validate_analysis_output_contract(
+    *,
+    analysis: Analysis,
+    density_artifact: Artifact,
+    metadata_artifact: Artifact,
+) -> None:
+    if analysis.analysis_type is not AnalysisType.CHARGE_DIFFERENCE:
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference dataset requires AnalysisType.CHARGE_DIFFERENCE"
+        )
+    if analysis.status is not AnalysisStatus.COMPLETED:
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference Analysis must be completed"
+        )
+    _validate_output(analysis, density_artifact, "charge-difference.f64")
+    _validate_output(
+        analysis,
+        metadata_artifact,
+        "canonical-charge-difference.json",
+    )
+
+
+def _validate_payload_identity(
+    *,
+    payload: dict[str, object],
+    analysis: Analysis,
+    density_artifact: Artifact,
+) -> None:
+    if payload.get("format") != CANONICAL_CHARGE_DIFFERENCE_FORMAT:
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference metadata format is unsupported"
+        )
+    if payload.get("version") != CANONICAL_CHARGE_DIFFERENCE_VERSION:
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference metadata version is unsupported"
+        )
+    if payload.get("analysis_id") != str(analysis.id):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference metadata belongs to another Analysis"
+        )
+    if payload.get("density_artifact_id") != str(density_artifact.id):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference metadata references another density"
+        )
+
+
+def _decode_density(
+    *,
+    density_body: bytes,
+    metadata: ChargeDifferenceMetadata,
+) -> NDArray[np.float64]:
     expected_size = int(np.prod(metadata.grid_shape_xyz, dtype=np.int64)) * 8
     if len(density_body) != expected_size:
-        raise ChargeDifferenceAnalysisError("charge-difference density byte size is inconsistent")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density byte size is inconsistent"
+        )
     density = np.frombuffer(density_body, dtype=np.dtype(DENSITY_DTYPE)).copy()
     density = density.reshape(metadata.grid_shape_xyz, order="C")
     if not np.all(np.isfinite(density)):
-        raise ChargeDifferenceAnalysisError("charge-difference density contains non-finite values")
-    if not np.isclose(float(np.min(density)), metadata.density_min, rtol=0.0, atol=1e-14):
-        raise ChargeDifferenceAnalysisError("charge-difference density minimum differs from metadata")
-    if not np.isclose(float(np.max(density)), metadata.density_max, rtol=0.0, atol=1e-14):
-        raise ChargeDifferenceAnalysisError("charge-difference density maximum differs from metadata")
-    return LoadedChargeDifference(metadata=metadata, density=density)
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density contains non-finite values"
+        )
+    if not np.isclose(
+        float(np.min(density)),
+        metadata.density_min,
+        rtol=0.0,
+        atol=1.0e-14,
+    ):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density minimum differs from metadata"
+        )
+    if not np.isclose(
+        float(np.max(density)),
+        metadata.density_max,
+        rtol=0.0,
+        atol=1.0e-14,
+    ):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference density maximum differs from metadata"
+        )
+    return density
 
 
 def _ordered_sources(
@@ -418,7 +562,9 @@ def _ordered_sources(
         ChargeDifferenceRole.ADSORBATE,
     )
     if tuple(item.role for item in sources) != expected:
-        raise ChargeDifferenceAnalysisError("charge-difference source roles are misordered")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference source roles are misordered"
+        )
     return sources
 
 
@@ -433,12 +579,16 @@ def _validate_sources(
     members: tuple[ChargeDifferenceTripletMember, ...],
     sources: tuple[ChargeDifferenceSource, ...],
 ) -> None:
-    attempts = tuple(item.execution_attempt.id for item in sources)
-    if len(attempts) != len(set(attempts)):
-        raise ChargeDifferenceAnalysisError("charge-difference ExecutionAttempts must be distinct")
-    artifacts = tuple(item.chgcar_artifact.id for item in sources)
-    if len(artifacts) != len(set(artifacts)):
-        raise ChargeDifferenceAnalysisError("charge-difference CHGCAR Artifacts must be distinct")
+    attempt_ids = tuple(item.execution_attempt.id for item in sources)
+    if len(attempt_ids) != len(set(attempt_ids)):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference ExecutionAttempts must be distinct"
+        )
+    artifact_ids = tuple(item.chgcar_artifact.id for item in sources)
+    if len(artifact_ids) != len(set(artifact_ids)):
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference CHGCAR Artifacts must be distinct"
+        )
     for member, source in zip(members, sources, strict=True):
         calculation = member.calculation
         if calculation.calculation_type is not CalculationType.CHARGE_STATIC:
@@ -504,7 +654,10 @@ def _parse_source_density(
         snapshot=member.snapshot,
         symbols=tuple(atoms.get_chemical_symbols()),
         cell=np.asarray(atoms.cell.array, dtype=np.float64),
-        scaled_positions=np.asarray(atoms.get_scaled_positions(wrap=False), dtype=np.float64),
+        scaled_positions=np.asarray(
+            atoms.get_scaled_positions(wrap=False),
+            dtype=np.float64,
+        ),
     )
     volume = float(atoms.get_volume())
     _require_positive(volume, f"{source.role.value} CHGCAR cell volume")
@@ -530,7 +683,8 @@ def _validate_parsed_structure(
 ) -> None:
     prepared = prepare_poscar(snapshot)
     expected_symbols = tuple(
-        snapshot.sites[item.snapshot_index].element for item in prepared.index_map.entries
+        snapshot.sites[item.snapshot_index].element
+        for item in prepared.index_map.entries
     )
     expected_positions = np.asarray(
         [
@@ -669,14 +823,21 @@ def _validate_output(analysis: Analysis, artifact: Artifact, filename: str) -> N
     if artifact.artifact_type is not ArtifactType.DERIVED_DATASET:
         raise ChargeDifferenceAnalysisError(f"{filename} must be DERIVED_DATASET")
     if PurePosixPath(artifact.local_path or "").name != filename:
-        raise ChargeDifferenceAnalysisError(f"{filename} Artifact has unexpected filename")
+        raise ChargeDifferenceAnalysisError(
+            f"{filename} Artifact has unexpected filename"
+        )
 
 
 def _verified_local_bytes(root: Path, artifact: Artifact, label: str) -> bytes:
-    if artifact.availability not in {ArtifactAvailability.LOCAL, ArtifactAvailability.BOTH}:
+    if artifact.availability not in {
+        ArtifactAvailability.LOCAL,
+        ArtifactAvailability.BOTH,
+    }:
         raise ChargeDifferenceAnalysisError(f"{label} must be locally available")
     if artifact.sha256 is None or artifact.size_bytes is None:
-        raise ChargeDifferenceAnalysisError(f"{label} requires exact size/SHA-256 metadata")
+        raise ChargeDifferenceAnalysisError(
+            f"{label} requires exact size/SHA-256 metadata"
+        )
     path = _resolve_local_path(root, artifact, label)
     try:
         body = path.read_bytes()
@@ -704,7 +865,9 @@ def _resolve_local_path(root: Path, artifact: Artifact, label: str) -> Path:
         )
     path = (root / Path(*relative.parts)).resolve()
     if not path.is_relative_to(root):
-        raise ChargeDifferenceAnalysisError(f"{label} local_path resolves outside project_root")
+        raise ChargeDifferenceAnalysisError(
+            f"{label} local_path resolves outside project_root"
+        )
     if not path.is_file():
         raise ChargeDifferenceAnalysisError(f"{label} local file is missing")
     return path
@@ -713,13 +876,17 @@ def _resolve_local_path(root: Path, artifact: Artifact, label: str) -> Path:
 def _receipt_input_ids(receipt: dict[str, object]) -> tuple[str, ...]:
     raw_sources = receipt.get("sources")
     if not isinstance(raw_sources, list):
-        raise ChargeDifferenceAnalysisError("charge-difference receipt sources must be an array")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference receipt sources must be an array"
+        )
     result: list[str] = []
     for raw in raw_sources:
         source = _mapping(raw, "charge-difference source")
         artifact_id = source.get("chgcar_artifact_id")
         if not isinstance(artifact_id, str) or not artifact_id.strip():
-            raise ChargeDifferenceAnalysisError("charge-difference source artifact id is invalid")
+            raise ChargeDifferenceAnalysisError(
+                "charge-difference source artifact id is invalid"
+            )
         result.append(artifact_id)
     return tuple(result)
 
@@ -728,7 +895,8 @@ def _decode_metadata(raw: object) -> ChargeDifferenceMetadata:
     mapping = _mapping(raw, "charge-difference metadata")
     shape_raw = mapping.get("grid_shape_xyz")
     if not isinstance(shape_raw, list) or len(shape_raw) != 3 or any(
-        isinstance(value, bool) or not isinstance(value, int) for value in shape_raw
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in shape_raw
     ):
         raise ChargeDifferenceAnalysisError("grid_shape_xyz is invalid")
     return ChargeDifferenceMetadata(
@@ -771,20 +939,26 @@ def _decode_metadata(raw: object) -> ChargeDifferenceMetadata:
 
 
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ):
         raise ChargeDifferenceAnalysisError(f"{field_name} must be an object")
     return cast(dict[str, object], value)
 
 
 def _string(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ChargeDifferenceAnalysisError("charge-difference string field is invalid")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference string field is invalid"
+        )
     return value
 
 
 def _integer(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ChargeDifferenceAnalysisError("charge-difference integer field is invalid")
+        raise ChargeDifferenceAnalysisError(
+            "charge-difference integer field is invalid"
+        )
     return value
 
 
@@ -815,4 +989,6 @@ def _require_finite(value: float, field_name: str) -> None:
 
 def _require_positive(value: float, field_name: str) -> None:
     if not isfinite(value) or value <= 0:
-        raise ChargeDifferenceAnalysisError(f"{field_name} must be finite and positive")
+        raise ChargeDifferenceAnalysisError(
+            f"{field_name} must be finite and positive"
+        )
