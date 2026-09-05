@@ -70,14 +70,14 @@ def _artifact(
 
 def _cohpcar_unpolarized() -> bytes:
     return (
-        "COHP# synthetic\n"
-        "2 1 3 -1.0 1.0 5.500000\n"
-        "Average\n"
-        "No.1:C1[0 0 0]->O2[0 0 0](1.500000)\n"
-        "-1.0 -0.10 -0.10 -0.20 -0.20\n"
-        "0.0 -0.30 -0.40 -0.50 -0.70\n"
-        "1.0 -0.20 -0.60 -0.10 -0.80\n"
-    ).encode()
+        b"COHP# synthetic\n"
+        b"2 1 3 -1.0 1.0 5.500000\n"
+        b"Average\n"
+        b"No.1:C1[0 0 0]->O2[0 0 0](1.500000)\n"
+        b"-1.0 -0.10 -0.10 -0.20 -0.20\n"
+        b"0.0 -0.30 -0.40 -0.50 -0.70\n"
+        b"1.0 -0.20 -0.60 -0.10 -0.80\n"
+    )
 
 
 def _icohplist_unpolarized(value: float = -0.7) -> bytes:
@@ -313,14 +313,14 @@ def test_lobster_parser_preserves_native_sign_and_atom_identity(tmp_path: Path) 
 def test_lobster_parser_supports_collinear_up_down(tmp_path: Path) -> None:
     case = _case(tmp_path)
     cohpcar = (
-        "COHP# synthetic spin\n"
-        "2 2 3 -1.0 1.0 5.500000\n"
-        "Average\n"
-        "No.1:C1->O2(1.500000)\n"
-        "-1.0 -0.10 -0.10 -0.20 -0.20 -0.11 -0.11 -0.21 -0.21\n"
-        "0.0 -0.30 -0.40 -0.50 -0.70 -0.31 -0.41 -0.51 -0.71\n"
-        "1.0 -0.20 -0.60 -0.10 -0.80 -0.22 -0.62 -0.12 -0.82\n"
-    ).encode()
+        b"COHP# synthetic spin\n"
+        b"2 2 3 -1.0 1.0 5.500000\n"
+        b"Average\n"
+        b"No.1:C1->O2(1.500000)\n"
+        b"-1.0 -0.10 -0.10 -0.20 -0.20 -0.11 -0.11 -0.21 -0.21\n"
+        b"0.0 -0.30 -0.40 -0.50 -0.70 -0.31 -0.41 -0.51 -0.71\n"
+        b"1.0 -0.20 -0.60 -0.10 -0.80 -0.22 -0.62 -0.12 -0.82\n"
+    )
     icohplist = b"1 C1 O2 1.500000 0 0 0 -0.700000 -0.710000\n"
     atom_map_bytes = (tmp_path / (case.atom_map.local_path or "")).read_bytes()
     intake = parse_lobster_cohp(
