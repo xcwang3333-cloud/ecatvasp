@@ -764,7 +764,9 @@ def _current_hashes(
     artifacts: tuple[Artifact, ...],
     overrides: Mapping[UUID, str] | None,
 ) -> dict[UUID, str]:
-    result = {item.id: scientific_hash(item) for item in artifacts}
+    result: dict[UUID, str] = {
+        item.id: scientific_hash(item) for item in artifacts
+    }
     result.update({item.id: scientific_hash(item) for item in analyses})
     if overrides is not None:
         result.update(_normalized_hash_mapping(overrides))
