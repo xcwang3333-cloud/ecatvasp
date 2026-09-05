@@ -396,7 +396,7 @@ def test_v07_descriptor_runtime_enums_fail_closed() -> None:
 
 def test_v07_final_scope_lock_keeps_schema_and_analysis_surface_frozen() -> None:
     assert SCHEMA_VERSION == 3
-    assert ELECTRONIC_ANALYSIS_TYPES == frozenset(
+    assert frozenset(
         {
             AnalysisType.DOS,
             AnalysisType.PDOS,
@@ -405,4 +405,4 @@ def test_v07_final_scope_lock_keeps_schema_and_analysis_surface_frozen() -> None
             AnalysisType.COHP,
             AnalysisType.BAND_CENTER,
         }
-    )
+    ) == ELECTRONIC_ANALYSIS_TYPES
