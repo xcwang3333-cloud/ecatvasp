@@ -8,61 +8,65 @@ from uuid import UUID
 
 import pytest
 
-from ecatvasp.analysis import (
-    BandCenterEnergyReference,
-    BandCenterError,
-    BandCenterKind,
-    BandCenterParameters,
-    BandCenterSelector,
-    BandCenterSpinMode,
-    CanonicalDosIntake,
-    CanonicalDosResult,
-    DosSeries,
-    DurableBandCenter,
-    DurableDosMaterialization,
-    ElectronicEnergyAxis,
-    OrbitalChannel,
-    ProjectionScope,
-    SpinChannel,
-    calculate_band_center,
-    load_band_center_artifact,
-    materialize_band_center_analysis,
-    materialize_canonical_dos_analysis,
-    parse_vasp_doscar,
-)
-from ecatvasp.domain import (
-    AnalysisProducerRef,
-    Artifact,
-    ArtifactAvailability,
-    ArtifactType,
-    AtomUid,
-    Calculation,
-    CalculationProducerRef,
-    CalculationScientificStatus,
-    CalculationType,
-    ExecutionAttempt,
-    ExecutionAttemptProducerRef,
-    ExecutionAttemptStatus,
-    KPointPolicy,
-    KPointPolicyKind,
-    Lattice,
-    MethodDefinition,
-    MethodFingerprint,
-    PotcarIdentity,
-    Project,
-    ProtocolDefinition,
-    RecipeIdentity,
-    RetrievalPolicy,
-    SpinTreatment,
-    StructureSite,
-    StructureSnapshot,
-    StructureSnapshotId,
-    new_atom_uid,
-)
-from ecatvasp.provenance import FreshnessEngine, FreshnessState, scientific_hash
-from ecatvasp.schema.version import SCHEMA_VERSION
-from ecatvasp.storage import ProjectBundle, ProjectStore
+import ecatvasp.analysis as analysis_api
+import ecatvasp.domain as domain_api
+import ecatvasp.provenance as provenance_api
+import ecatvasp.schema.version as schema_version
+import ecatvasp.storage as storage_api
 
+AnalysisProducerRef = domain_api.AnalysisProducerRef
+Artifact = domain_api.Artifact
+ArtifactAvailability = domain_api.ArtifactAvailability
+ArtifactType = domain_api.ArtifactType
+AtomUid = domain_api.AtomUid
+BandCenterEnergyReference = analysis_api.BandCenterEnergyReference
+BandCenterError = analysis_api.BandCenterError
+BandCenterKind = analysis_api.BandCenterKind
+BandCenterParameters = analysis_api.BandCenterParameters
+BandCenterSelector = analysis_api.BandCenterSelector
+BandCenterSpinMode = analysis_api.BandCenterSpinMode
+Calculation = domain_api.Calculation
+CalculationProducerRef = domain_api.CalculationProducerRef
+CalculationScientificStatus = domain_api.CalculationScientificStatus
+CalculationType = domain_api.CalculationType
+CanonicalDosIntake = analysis_api.CanonicalDosIntake
+CanonicalDosResult = analysis_api.CanonicalDosResult
+DosSeries = analysis_api.DosSeries
+DurableBandCenter = analysis_api.DurableBandCenter
+DurableDosMaterialization = analysis_api.DurableDosMaterialization
+ElectronicEnergyAxis = analysis_api.ElectronicEnergyAxis
+ExecutionAttempt = domain_api.ExecutionAttempt
+ExecutionAttemptProducerRef = domain_api.ExecutionAttemptProducerRef
+ExecutionAttemptStatus = domain_api.ExecutionAttemptStatus
+FreshnessEngine = provenance_api.FreshnessEngine
+FreshnessState = provenance_api.FreshnessState
+KPointPolicy = domain_api.KPointPolicy
+KPointPolicyKind = domain_api.KPointPolicyKind
+Lattice = domain_api.Lattice
+MethodDefinition = domain_api.MethodDefinition
+MethodFingerprint = domain_api.MethodFingerprint
+OrbitalChannel = analysis_api.OrbitalChannel
+PotcarIdentity = domain_api.PotcarIdentity
+Project = domain_api.Project
+ProjectBundle = storage_api.ProjectBundle
+ProjectStore = storage_api.ProjectStore
+ProjectionScope = analysis_api.ProjectionScope
+ProtocolDefinition = domain_api.ProtocolDefinition
+RecipeIdentity = domain_api.RecipeIdentity
+RetrievalPolicy = domain_api.RetrievalPolicy
+SCHEMA_VERSION = schema_version.SCHEMA_VERSION
+SpinChannel = analysis_api.SpinChannel
+SpinTreatment = domain_api.SpinTreatment
+StructureSite = domain_api.StructureSite
+StructureSnapshot = domain_api.StructureSnapshot
+StructureSnapshotId = domain_api.StructureSnapshotId
+calculate_band_center = analysis_api.calculate_band_center
+load_band_center_artifact = analysis_api.load_band_center_artifact
+materialize_band_center_analysis = analysis_api.materialize_band_center_analysis
+materialize_canonical_dos_analysis = analysis_api.materialize_canonical_dos_analysis
+new_atom_uid = domain_api.new_atom_uid
+parse_vasp_doscar = analysis_api.parse_vasp_doscar
+scientific_hash = provenance_api.scientific_hash
 
 _DXY = OrbitalChannel("dxy", 2)
 _PX = OrbitalChannel("px", 1)
