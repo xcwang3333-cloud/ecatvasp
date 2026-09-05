@@ -13,6 +13,7 @@ from ecatvasp.thermo import (
     CHEError,
     CHEHydrogenReference,
     CHEPhSemantics,
+    CHEProtonElectronChemicalPotential,
     CorrectionEvidence,
     CorrectionEvidenceKind,
     ElectrodePotentialReference,
@@ -46,7 +47,11 @@ from ecatvasp.thermo import (
 )
 
 
-def _raw_gas_result(species: GasReferenceSpecies, *, temperature_k: float = 298.15) -> ThermochemistryResult:
+def _raw_gas_result(
+    species: GasReferenceSpecies,
+    *,
+    temperature_k: float = 298.15,
+) -> ThermochemistryResult:
     atom_uids = (new_atom_uid(), new_atom_uid())
     if species is GasReferenceSpecies.H2:
         mass = 1.00784
@@ -97,14 +102,23 @@ def _raw_gas_result(species: GasReferenceSpecies, *, temperature_k: float = 298.
     )
 
 
-def _bound_h2(*, temperature_k: float = 298.15) -> BoundGasReferenceThermochemistry:
+def _bound_h2(
+    *,
+    temperature_k: float = 298.15,
+) -> BoundGasReferenceThermochemistry:
     return BoundGasReferenceThermochemistry(
         reference=GasReferenceDefinition(GasReferenceSpecies.H2),
-        result=_raw_gas_result(GasReferenceSpecies.H2, temperature_k=temperature_k),
+        result=_raw_gas_result(
+            GasReferenceSpecies.H2,
+            temperature_k=temperature_k,
+        ),
     )
 
 
-def _corrected_h2(raw: BoundGasReferenceThermochemistry, value_ev: float) -> ReferenceThermochemistryResult:
+def _corrected_h2(
+    raw: BoundGasReferenceThermochemistry,
+    value_ev: float,
+) -> ReferenceThermochemistryResult:
     policy = ReferenceCorrectionPolicy(
         correction=ThermochemistryCorrection(
             kind=ThermochemistryCorrectionKind.DFT_REFERENCE,
@@ -215,7 +229,9 @@ def test_she_rhe_transform_produces_identical_che_mu() -> None:
         ),
     )
 
-    assert she_result.chemical_potential_ev == pytest.approx(rhe_result.chemical_potential_ev)
+    assert she_result.chemical_potential_ev == pytest.approx(
+        rhe_result.chemical_potential_ev
+    )
 
 
 def test_rhe_with_explicit_ph_correction_semantics_is_rejected() -> None:
@@ -292,6 +308,43 @@ def test_che_rejects_corrected_h2_from_different_raw_source() -> None:
 
     with pytest.raises(CHEError, match="does not derive from the exact raw H2"):
         CHEHydrogenReference(raw=raw, corrected=forged)
+
+
+def test_che_result_contract_rejects_forged_hash_and_components() -> None:
+    hydrogen = CHEHydrogenReference(raw=_bound_h2())
+    conditions = CHEConditions(
+        temperature_k=298.15,
+        potential_v=-0.20,
+        ph=3.0,
+        potential_reference=ElectrodePotentialReference.SHE,
+        ph_semantics=CHEPhSemantics.EXPLICIT_ACTIVITY,
+    )
+    valid = proton_electron_chemical_potential(
+        hydrogen_reference=hydrogen,
+        conditions=conditions,
+    )
+
+    with pytest.raises(CHEError, match="64-character hexadecimal SHA-256"):
+        CHEProtonElectronChemicalPotential(
+            conditions=conditions,
+            hydrogen_reference_hash="not-a-hash",
+            hydrogen_gibbs_free_energy_ev=valid.hydrogen_gibbs_free_energy_ev,
+            half_h2_term_ev=valid.half_h2_term_ev,
+            potential_term_ev=valid.potential_term_ev,
+            ph_term_ev=valid.ph_term_ev,
+            chemical_potential_ev=valid.chemical_potential_ev,
+        )
+
+    with pytest.raises(CHEError, match="potential term differs"):
+        CHEProtonElectronChemicalPotential(
+            conditions=conditions,
+            hydrogen_reference_hash=valid.hydrogen_reference_hash,
+            hydrogen_gibbs_free_energy_ev=valid.hydrogen_gibbs_free_energy_ev,
+            half_h2_term_ev=valid.half_h2_term_ev,
+            potential_term_ev=valid.potential_term_ev + 0.01,
+            ph_term_ev=valid.ph_term_ev,
+            chemical_potential_ev=valid.chemical_potential_ev,
+        )
 
 
 def test_che_conditions_reject_nonfinite_values() -> None:
