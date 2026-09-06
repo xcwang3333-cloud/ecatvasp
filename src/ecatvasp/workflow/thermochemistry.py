@@ -213,7 +213,9 @@ def reconcile_thermochemistry_analyses(
         for node_id in (dependency.upstream_id, dependency.downstream_id)
     }
     node_ids.update(
-        artifact_id for requirement in requirements for artifact_id in requirement.input_artifact_ids
+        artifact_id
+        for requirement in requirements
+        for artifact_id in requirement.input_artifact_ids
     )
     for analysis in matching.values():
         if analysis is None:
@@ -354,7 +356,10 @@ def _project_requirement(
             analysis=analysis,
             outputs=outputs,
             freshness_state=analysis_freshness.state,
-            reason_codes=("analysis_not_fresh", *_freshness_reason_codes(analysis_freshness.reasons)),
+            reason_codes=(
+                "analysis_not_fresh",
+                *_freshness_reason_codes(analysis_freshness.reasons),
+            ),
         )
 
     status_projection = _analysis_status_projection(analysis.status)
@@ -451,9 +456,13 @@ def _workflow_gate_state(
     waiting = False
     for anchor in requirement.workflow_anchors:
         selections = tuple(
-            item for item in workflow_gates.binding_selections if item.step_key == anchor.step_key
+            item
+            for item in workflow_gates.binding_selections
+            if item.step_key == anchor.step_key
         )
-        gates = tuple(item for item in workflow_gates.step_gates if item.step_key == anchor.step_key)
+        gates = tuple(
+            item for item in workflow_gates.step_gates if item.step_key == anchor.step_key
+        )
         if len(selections) != 1 or len(gates) != 1:
             raise ThermochemistryReconciliationError(
                 "workflow anchor step must resolve exactly once in gate projection"
@@ -477,7 +486,10 @@ def _workflow_gate_state(
             raise ThermochemistryReconciliationError(
                 "workflow anchor current Calculation has no current binding"
             )
-        if gate.current_binding_id != selection.current_binding.id or gate.calculation_id != current.id:
+        if (
+            gate.current_binding_id != selection.current_binding.id
+            or gate.calculation_id != current.id
+        ):
             raise ThermochemistryReconciliationError(
                 "workflow gate does not reference its selected current binding/Calculation"
             )
@@ -539,8 +551,13 @@ def _artifact_gate_state(
                 ("artifact_sha256_missing",),
             )
         if artifact.availability is ArtifactAvailability.MISSING:
+            missing_state = (
+                ThermochemistryAnalysisScientificState.INVALID
+                if output
+                else ThermochemistryAnalysisScientificState.BLOCKED
+            )
             return (
-                ThermochemistryAnalysisScientificState.INVALID if output else ThermochemistryAnalysisScientificState.BLOCKED,
+                missing_state,
                 WorkflowStepReadiness.BLOCKED,
                 ("completed_analysis_output_missing" if output else "input_artifact_missing",),
             )
