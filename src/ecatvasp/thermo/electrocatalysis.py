@@ -408,6 +408,25 @@ class OEROverpotentialResult:
             raise ElectrocatalysisDescriptorError(
                 "OER limiting and reversible potentials must use the same conditions"
             )
+        if self.limiting.net_che_coefficient != self.reversible.net_che_coefficient:
+            raise ElectrocatalysisDescriptorError(
+                "OER limiting and reversible potentials must use the same net CHE stoichiometry"
+            )
+        if self.limiting.net_che_coefficient <= 0.0:
+            raise ElectrocatalysisDescriptorError(
+                "OER overpotential requires net production of CHE proton-electron pairs"
+            )
+        if self.limiting.selection is not LimitingPotentialSelection.MINIMUM_FEASIBLE:
+            raise ElectrocatalysisDescriptorError(
+                "OER overpotential requires the minimum feasible oxidation potential"
+            )
+        if any(
+            constraint.potential_slope_ev_per_v > 0.0
+            for constraint in self.limiting.constraints
+        ):
+            raise ElectrocatalysisDescriptorError(
+                "OER overpotential requires every CHE-dependent step to be oxidation-like"
+            )
         expected = (
             self.limiting.limiting_potential_v
             - self.reversible.reversible_potential_v
