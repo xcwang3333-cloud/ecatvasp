@@ -21,11 +21,13 @@ from ecatvasp.provenance import FreshnessState
 from ecatvasp.storage.model import ProjectBundle
 from ecatvasp.workflow import (
     WorkflowEdgeGateVerdict,
+    WorkflowGateError,
     WorkflowOrchestrationAction,
     WorkflowOrchestrationEvaluation,
     WorkflowScientificGateEvaluation,
     WorkflowStepReadiness,
     WorkflowStepScientificState,
+    resolve_workflow_binding_generations,
 )
 
 
@@ -210,33 +212,45 @@ def _validate_gate_projection(
     if actual_edges != expected_edges:
         raise WorkspaceReadinessError("workflow edge gates do not match canonical plan edges")
 
-    binding_by_id = {item.id: item for item in bundle.workflow_step_bindings}
-    calculation_by_id = {item.id: item for item in bundle.calculations}
+    try:
+        current_selections = resolve_workflow_binding_generations(
+            plan=plan,
+            bindings=bundle.workflow_step_bindings,
+            calculations=bundle.calculations,
+        )
+    except WorkflowGateError as error:
+        raise WorkspaceReadinessError(str(error)) from error
+    if gates.binding_selections != current_selections:
+        raise WorkspaceReadinessError(
+            "workflow gate projection does not match the current persisted binding generations"
+        )
+
     for selection, gate in zip(gates.binding_selections, gates.step_gates, strict=True):
         if selection.step_key != gate.step_key:
             raise WorkspaceReadinessError("workflow gate step order is inconsistent")
         binding = selection.current_binding
         calculation = selection.current_calculation
-        if (binding is None) != (calculation is None):
-            raise WorkspaceReadinessError(
-                "current binding and Calculation must both be present or both be absent"
-            )
         if binding is None or calculation is None:
             if gate.current_binding_id is not None or gate.calculation_id is not None:
                 raise WorkspaceReadinessError("unmaterialized gate carries persisted current ids")
             continue
-        persisted_binding = binding_by_id.get(binding.id)
-        persisted_calculation = calculation_by_id.get(calculation.id)
-        if persisted_binding != binding or persisted_calculation != calculation:
-            raise WorkspaceReadinessError(
-                "workflow gate current generation does not match persisted project state"
-            )
         if gate.current_binding_id != binding.id or gate.calculation_id != calculation.id:
             raise WorkspaceReadinessError("workflow gate ids do not match selected current generation")
-        if binding.workflow_plan_id != plan.id or binding.step_key != selection.step_key:
-            raise WorkspaceReadinessError("current workflow binding belongs to another plan or step")
-        if binding.calculation_id != calculation.id:
-            raise WorkspaceReadinessError("current workflow binding does not reference its Calculation")
+
+    current_superseded = tuple(
+        sorted(
+            (
+                calculation_id
+                for selection in current_selections
+                for calculation_id in selection.superseded_calculation_ids
+            ),
+            key=str,
+        )
+    )
+    if gates.superseded_calculation_ids != current_superseded:
+        raise WorkspaceReadinessError(
+            "workflow gate supersession summary does not match persisted generation history"
+        )
 
 
 def _validate_orchestration_projection(
