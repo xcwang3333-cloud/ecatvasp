@@ -19,9 +19,23 @@ from ecatvasp.workspace.projection import (
     WorkspaceStatusSummary,
     build_workspace_projection,
 )
+from ecatvasp.workspace.readiness import (
+    WorkflowExecutionAttemptView,
+    WorkflowReadinessDashboard,
+    WorkflowReadinessEdgeView,
+    WorkflowReadinessStepView,
+    WorkflowRemoteJobView,
+    WorkspaceReadinessError,
+    build_workflow_readiness_dashboard,
+)
 
 __all__ = [
     "StatusCounts",
+    "WorkflowExecutionAttemptView",
+    "WorkflowReadinessDashboard",
+    "WorkflowReadinessEdgeView",
+    "WorkflowReadinessStepView",
+    "WorkflowRemoteJobView",
     "WorkspaceDependencyView",
     "WorkspaceEntityCounts",
     "WorkspaceEntityKind",
@@ -31,9 +45,11 @@ __all__ = [
     "WorkspaceInventoryRow",
     "WorkspaceProjection",
     "WorkspaceProvenanceView",
+    "WorkspaceReadinessError",
     "WorkspaceScientificInventory",
     "WorkspaceStatusDomain",
     "WorkspaceStatusSummary",
     "build_scientific_inventory",
+    "build_workflow_readiness_dashboard",
     "build_workspace_projection",
 ]
