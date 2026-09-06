@@ -35,7 +35,6 @@ from ecatvasp.storage import ProjectBundle
 from ecatvasp.vasp.recipes import RECIPE_SLAB_RELAX
 from ecatvasp.workflow import (
     WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
-    WorkflowBindingSelection,
     WorkflowEdgeGate,
     WorkflowEdgeGateVerdict,
     WorkflowOrchestrationAction,
