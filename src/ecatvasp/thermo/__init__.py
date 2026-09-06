@@ -77,6 +77,16 @@ from ecatvasp.thermo.harmonic import (
     calculate_harmonic_thermochemistry,
     materialize_harmonic_thermochemistry,
 )
+from ecatvasp.thermo.presets import (
+    ElectrocatalysisPathwayPreset,
+    ElectrocatalysisPresetError,
+    ElectrocatalysisPresetKind,
+    ElectrocatalysisReactionFamily,
+    compile_co2rr_to_co_2e_preset,
+    compile_her_volmer_heyrovsky_preset,
+    compile_oer_associative_4e_preset,
+    compile_orr_associative_4e_preset,
+)
 from ecatvasp.thermo.reaction import (
     AdsorptionReferenceTerm,
     CHEReactionSource,
@@ -146,6 +156,10 @@ __all__ = [
     "DurableHarmonicThermochemistry",
     "DurableReferenceThermochemistry",
     "ElectrocatalysisDescriptorError",
+    "ElectrocatalysisPathwayPreset",
+    "ElectrocatalysisPresetError",
+    "ElectrocatalysisPresetKind",
+    "ElectrocatalysisReactionFamily",
     "ElectrodePotentialReference",
     "ElectronicEnergyKind",
     "ElectronicEntropyPolicy",
@@ -200,6 +214,10 @@ __all__ = [
     "apply_bound_reference_corrections",
     "calculate_harmonic_thermochemistry",
     "calculate_ideal_gas_thermochemistry",
+    "compile_co2rr_to_co_2e_preset",
+    "compile_her_volmer_heyrovsky_preset",
+    "compile_oer_associative_4e_preset",
+    "compile_orr_associative_4e_preset",
     "derive_reversible_potential",
     "evaluate_adsorption_free_energy",
     "evaluate_her_delta_g_h_star",
