@@ -181,6 +181,7 @@ class AnalysisType(StrEnum):
     BAND_CENTER = "band_center"
     GEOMETRY = "geometry"
     THERMOCHEMISTRY = "thermochemistry"
+    REACTION_DIAGRAM = "reaction_diagram"
 
 
 class AnalysisStatus(StrEnum):
