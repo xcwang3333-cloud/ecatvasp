@@ -58,3 +58,11 @@ This directory records durable product and implementation decisions for ECatVASP
 54. v0.7 Electronic Descriptor Boundary
 55. v0.7 Electronic Analysis Reconciliation and Workflow Integration Boundary
 56. v0.7 Final Electronic Analysis Acceptance and Hardening Boundary
+57. v0.8 Thermochemistry and Electrocatalysis Free-Energy Architecture Boundary
+58. v0.8 Thermochemistry Domain Contracts Boundary
+59. v0.8 Harmonic Surface / Adsorbate Thermochemistry Boundary
+60. v0.8 Ideal-Gas Reference Thermochemistry Boundary
+61. v0.8 Explicit Reference Correction Policy Boundary
+62. v0.8 CHE Potential and pH Semantics Boundary
+63. v0.8 Generic Reaction and Pathway Stoichiometry Boundary
+64. v0.8 Potential-Dependent Electrocatalysis Descriptor Boundary
