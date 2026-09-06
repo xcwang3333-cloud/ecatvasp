@@ -13,13 +13,17 @@ from ecatvasp.thermo.reaction_diagram import (
     REACTION_DIAGRAM_TOOL_VERSION,
     DurableReactionDiagram,
     ReactionDiagramDataset,
-    ReactionDiagramDescriptorDefinition as _ReactionDiagramDescriptorDefinition,
     ReactionDiagramDescriptorKind,
     ReactionDiagramDescriptorUnit,
     ReactionDiagramError,
-    ReactionDiagramSourceReceipt as _ReactionDiagramSourceReceipt,
     ReactionSourceArtifactBinding,
     materialize_reaction_diagram,
+)
+from ecatvasp.thermo.reaction_diagram import (
+    ReactionDiagramDescriptorDefinition as _ReactionDiagramDescriptorDefinition,
+)
+from ecatvasp.thermo.reaction_diagram import (
+    ReactionDiagramSourceReceipt as _ReactionDiagramSourceReceipt,
 )
 
 
