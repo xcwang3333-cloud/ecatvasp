@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-import json
 
 from ecatvasp.domain.ids import ProjectId
 from ecatvasp.storage.model import ProjectBundle
