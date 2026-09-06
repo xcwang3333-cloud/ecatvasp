@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import TypeAlias
@@ -24,6 +25,8 @@ from ecatvasp.visualization import (
 from ecatvasp.workflow import WorkflowGateError, resolve_workflow_binding_generations
 from ecatvasp.workspace import (
     WorkflowReadinessDashboard,
+    WorkspaceDependencyView,
+    WorkspaceInventoryRow,
     WorkspaceScientificInventory,
     build_scientific_inventory,
     build_workspace_projection,
@@ -67,7 +70,11 @@ class ScientificReport:
             separators=(",", ":"),
             ensure_ascii=False,
         )
-        object.__setattr__(self, "report_hash", sha256(canonical.encode("utf-8")).hexdigest())
+        object.__setattr__(
+            self,
+            "report_hash",
+            sha256(canonical.encode("utf-8")).hexdigest(),
+        )
 
     def to_dict(self) -> dict[str, object]:
         """Return the complete deterministic JSON-compatible report manifest."""
@@ -148,10 +155,8 @@ def render_inventory_csv(report: ScientificReport) -> str:
                 _join(row.attention_codes),
                 _join(str(item) for item in row.scientific_ancestor_ids),
                 _join(
-                    (
-                        f"{item.provenance_id}:{item.tool}@{item.tool_version}"
-                        for item in row.provenance
-                    )
+                    f"{item.provenance_id}:{item.tool}@{item.tool_version}"
+                    for item in row.provenance
                 ),
                 _join(_dependency_token(item) for item in row.incoming_dependencies),
                 _join(_dependency_token(item) for item in row.outgoing_dependencies),
@@ -205,7 +210,10 @@ def render_report_markdown(report: ScientificReport) -> str:
         if row.attention_codes or row.freshness.state is not FreshnessState.FRESH
     )
     if not attention_rows:
-        lines.append("No stale, invalid, superseded, blocked, or otherwise non-fresh inventory rows.")
+        lines.append(
+            "No stale, invalid, superseded, blocked, or otherwise non-fresh "
+            "inventory rows."
+        )
     else:
         lines.extend(
             [
@@ -231,21 +239,22 @@ def render_report_markdown(report: ScientificReport) -> str:
             )
 
     lines.extend(["", "## Provenance records", ""])
-    provenance = tuple(
-        item
-        for row in report.inventory.rows
-        for item in row.provenance
-    )
+    provenance = tuple(item for row in report.inventory.rows for item in row.provenance)
     if not provenance:
         lines.append("No provenance records are attached to inventory entities.")
     else:
         lines.extend(
             [
-                "| Subject | Provenance ID | Tool | Version | Parameters hash | Method fingerprint |",
+                "| Subject | Provenance ID | Tool | Version | Parameters hash | "
+                "Method fingerprint |",
                 "| --- | --- | --- | --- | --- | --- |",
             ]
         )
-        for item in sorted(provenance, key=lambda value: (str(value.subject_id), str(value.provenance_id))):
+        ordered_provenance = sorted(
+            provenance,
+            key=lambda value: (str(value.subject_id), str(value.provenance_id)),
+        )
+        for item in ordered_provenance:
             lines.append(
                 "| "
                 + " | ".join(
@@ -295,7 +304,8 @@ def render_report_markdown(report: ScientificReport) -> str:
             [
                 f"### Workflow `{dashboard.workflow_plan_id}`",
                 "",
-                "| Step | Scientific state | Readiness | Calculation status | Generation | Gate reasons | Orchestration |",
+                "| Step | Scientific state | Readiness | Calculation status | "
+                "Generation | Gate reasons | Orchestration |",
                 "| --- | --- | --- | --- | ---: | --- | --- |",
             ]
         )
@@ -352,9 +362,7 @@ def _validate_inventory(
 ) -> None:
     if inventory.project_id != bundle.project.id:
         raise ScientificReportError("report inventory belongs to another Project")
-    expected_entity_ids = {
-        _uuid_id(item) for item in bundle.provenance_entities()
-    }
+    expected_entity_ids = {_uuid_id(item) for item in bundle.provenance_entities()}
     actual_entity_ids = {item.entity_id for item in inventory.rows}
     if actual_entity_ids != expected_entity_ids:
         raise ScientificReportError(
@@ -457,7 +465,9 @@ def _validate_presentations(
                 )
         elif isinstance(presentation, ReactionDiagramPresentationDataset):
             if presentation.project_id != bundle.project.id:
-                raise ScientificReportError("reaction-diagram presentation belongs to another Project")
+                raise ScientificReportError(
+                    "reaction-diagram presentation belongs to another Project"
+                )
         else:
             raise ScientificReportError(
                 f"unsupported scientific presentation type: {type(presentation).__name__}"
@@ -482,7 +492,6 @@ def _report_payload(
 
 
 def _projection_dict(projection: WorkspaceProjection) -> dict[str, object]:
-    counts = projection.entity_counts
     return {
         "project_id": str(projection.project_id),
         "project_name": projection.project_name,
@@ -495,7 +504,9 @@ def _projection_dict(projection: WorkspaceProjection) -> dict[str, object]:
         "statuses": {
             "calculations": [list(item) for item in projection.statuses.calculations],
             "analyses": [list(item) for item in projection.statuses.analyses],
-            "execution_attempts": [list(item) for item in projection.statuses.execution_attempts],
+            "execution_attempts": [
+                list(item) for item in projection.statuses.execution_attempts
+            ],
             "scheduler_jobs": [list(item) for item in projection.statuses.scheduler_jobs],
         },
     }
@@ -509,11 +520,7 @@ def _inventory_dict(inventory: WorkspaceScientificInventory) -> dict[str, object
     }
 
 
-def _inventory_row_dict(row: object) -> dict[str, object]:
-    from ecatvasp.workspace import WorkspaceInventoryRow
-
-    if not isinstance(row, WorkspaceInventoryRow):
-        raise ScientificReportError("invalid workspace inventory row")
+def _inventory_row_dict(row: WorkspaceInventoryRow) -> dict[str, object]:
     return {
         "entity_id": str(row.entity_id),
         "entity_kind": row.entity_kind.value,
@@ -529,7 +536,9 @@ def _inventory_row_dict(row: object) -> dict[str, object]:
                 "tool_version": item.tool_version,
                 "parameters_hash": item.parameters_hash,
                 "method_fingerprint_id": (
-                    None if item.method_fingerprint_id is None else str(item.method_fingerprint_id)
+                    None
+                    if item.method_fingerprint_id is None
+                    else str(item.method_fingerprint_id)
                 ),
                 "created_at": item.created_at.isoformat(),
             }
@@ -543,7 +552,9 @@ def _inventory_row_dict(row: object) -> dict[str, object]:
             "reasons": [
                 {
                     "code": item.code,
-                    "upstream_id": None if item.upstream_id is None else str(item.upstream_id),
+                    "upstream_id": (
+                        None if item.upstream_id is None else str(item.upstream_id)
+                    ),
                     "dependency_id": (
                         None if item.dependency_id is None else str(item.dependency_id)
                     ),
@@ -555,11 +566,7 @@ def _inventory_row_dict(row: object) -> dict[str, object]:
     }
 
 
-def _dependency_dict(item: object) -> dict[str, object]:
-    from ecatvasp.workspace import WorkspaceDependencyView
-
-    if not isinstance(item, WorkspaceDependencyView):
-        raise ScientificReportError("invalid workspace dependency view")
+def _dependency_dict(item: WorkspaceDependencyView) -> dict[str, object]:
     return {
         "dependency_id": str(item.dependency_id),
         "upstream_id": str(item.upstream_id),
@@ -590,7 +597,9 @@ def _readiness_dict(dashboard: WorkflowReadinessDashboard) -> dict[str, object]:
                     None if item.calculation_id is None else str(item.calculation_id)
                 ),
                 "calculation_status": item.calculation_status,
-                "superseded_binding_ids": [str(value) for value in item.superseded_binding_ids],
+                "superseded_binding_ids": [
+                    str(value) for value in item.superseded_binding_ids
+                ],
                 "superseded_calculation_ids": [
                     str(value) for value in item.superseded_calculation_ids
                 ],
@@ -670,7 +679,9 @@ def _presentation_kind(presentation: ScientificPresentation) -> str:
     )
 
 
-def _presentation_sort_key(presentation: ScientificPresentation) -> tuple[str, str, str]:
+def _presentation_sort_key(
+    presentation: ScientificPresentation,
+) -> tuple[str, str, str]:
     if isinstance(presentation, StructurePresentationDataset):
         return (
             "structure",
@@ -702,12 +713,15 @@ def _presentation_sort_key(presentation: ScientificPresentation) -> tuple[str, s
 
 def _presentation_markdown(presentation: ScientificPresentation) -> list[str]:
     if isinstance(presentation, StructurePresentationDataset):
+        availability = str(
+            presentation.matterviz.runtime.interactive_available
+        ).lower()
         return [
             f"### Structure `{presentation.structure_snapshot_id}`",
             "",
             f"- Source scientific hash: `{presentation.source_scientific_hash}`",
             f"- MatterViz contract: `{presentation.matterviz.contract_version}`",
-            f"- Interactive runtime available: `{str(presentation.matterviz.runtime.interactive_available).lower()}`",
+            f"- Interactive runtime available: `{availability}`",
             "",
         ]
     if isinstance(presentation, DosPresentationDataset):
@@ -722,24 +736,34 @@ def _presentation_markdown(presentation: ScientificPresentation) -> list[str]:
             "",
         ]
     if isinstance(presentation, CohpPresentationDataset):
+        unit_line = (
+            f"- Units: energy={presentation.energy_unit}; "
+            f"bond length={presentation.bond_length_unit}"
+        )
         return [
             f"### COHP/ICOHP `{presentation.structure_snapshot_id}`",
             "",
             f"- Source content hash: `{presentation.source_content_hash}`",
             f"- Energy reference: `{presentation.energy_reference.value}`",
             f"- Sign convention: `{presentation.sign_convention}`",
-            f"- Units: energy={presentation.energy_unit}; bond length={presentation.bond_length_unit}",
+            unit_line,
             f"- Interaction count: {len(presentation.interactions)}",
             "",
         ]
     if isinstance(presentation, ReactionDiagramPresentationDataset):
         conditions = presentation.requested_conditions
+        condition_line = (
+            f"- Conditions: T={conditions.temperature_k} K; "
+            f"U={conditions.potential_v} {presentation.potential_unit} vs "
+            f"{conditions.potential_reference.upper()}; pH={conditions.ph}; "
+            f"semantics={conditions.ph_semantics}"
+        )
         lines = [
             f"### Reaction diagram `{presentation.source_result_hash}`",
             "",
             f"- Project ID: `{presentation.project_id}`",
             f"- Potential-view result hash: `{presentation.potential_view_result_hash}`",
-            f"- Conditions: T={conditions.temperature_k} K; U={conditions.potential_v} {presentation.potential_unit} vs {conditions.potential_reference.upper()}; pH={conditions.ph}; semantics={conditions.ph_semantics}",
+            condition_line,
             f"- Free-energy unit: {presentation.free_energy_unit}",
             f"- States/steps: {len(presentation.states)}/{len(presentation.steps)}",
             "",
@@ -753,8 +777,8 @@ def _presentation_markdown(presentation: ScientificPresentation) -> list[str]:
             )
             for item in presentation.descriptors:
                 lines.append(
-                    f"| {_md(item.key)} | {_md(item.kind)} | {item.value} | {_md(item.unit)} | "
-                    f"`{item.source_result_hash}` |"
+                    f"| {_md(item.key)} | {_md(item.kind)} | {item.value} | "
+                    f"{_md(item.unit)} | `{item.source_result_hash}` |"
                 )
             lines.append("")
         return lines
@@ -763,7 +787,9 @@ def _presentation_markdown(presentation: ScientificPresentation) -> list[str]:
     )
 
 
-def _entity_count_items(projection: WorkspaceProjection) -> tuple[tuple[str, int], ...]:
+def _entity_count_items(
+    projection: WorkspaceProjection,
+) -> tuple[tuple[str, int], ...]:
     counts = projection.entity_counts
     return (
         ("projects", counts.projects),
@@ -786,7 +812,9 @@ def _entity_count_items(projection: WorkspaceProjection) -> tuple[tuple[str, int
     )
 
 
-def _status_rows(projection: WorkspaceProjection) -> tuple[tuple[str, str, int], ...]:
+def _status_rows(
+    projection: WorkspaceProjection,
+) -> tuple[tuple[str, str, int], ...]:
     groups = (
         ("calculation_scientific", projection.statuses.calculations),
         ("analysis", projection.statuses.analyses),
@@ -800,11 +828,7 @@ def _status_rows(projection: WorkspaceProjection) -> tuple[tuple[str, str, int],
     )
 
 
-def _dependency_token(item: object) -> str:
-    from ecatvasp.workspace import WorkspaceDependencyView
-
-    if not isinstance(item, WorkspaceDependencyView):
-        raise ScientificReportError("invalid workspace dependency view")
+def _dependency_token(item: WorkspaceDependencyView) -> str:
     return (
         f"{item.dependency_id}:{item.kind.value}:{item.role}:"
         f"{item.upstream_id}->{item.downstream_id}"
@@ -818,10 +842,8 @@ def _uuid_id(value: object) -> UUID:
     return entity_id
 
 
-def _join(values: object) -> str:
-    if not hasattr(values, "__iter__"):
-        raise ScientificReportError("report list field must be iterable")
-    return ";".join(str(item) for item in values)  # type: ignore[arg-type]
+def _join(values: Iterable[object]) -> str:
+    return ";".join(str(item) for item in values)
 
 
 def _md(value: str) -> str:
