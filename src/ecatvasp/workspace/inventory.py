@@ -180,7 +180,7 @@ def build_scientific_inventory(
         )
         analysis_invalid = isinstance(entity, Analysis) and entity.status is AnalysisStatus.INVALID
         if calculation_invalid or analysis_invalid:
-            inferred_invalid.add(entity.id)
+            inferred_invalid.add(_entity_id(entity))
 
     explicit_invalid: set[UUID] = set() if invalid_ids is None else set(invalid_ids)
     explicit_superseded: set[UUID] = (
