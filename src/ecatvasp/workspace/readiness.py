@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID
 
 from ecatvasp.domain import (
-    Calculation,
     ExecutionAttempt,
     RemoteJob,
     ScientificWorkflowPlan,
-    WorkflowStepBinding,
 )
 from ecatvasp.domain.ids import (
     CalculationId,
