@@ -93,7 +93,6 @@ from ecatvasp.workflow.recovery import (
 from ecatvasp.workflow.thermochemistry import (
     THERMOCHEMISTRY_ANALYSIS_TYPES,
     ThermochemistryAnalysisProjection,
-    ThermochemistryAnalysisRequirement,
     ThermochemistryAnalysisScientificState,
     ThermochemistryReconciliationError,
     ThermochemistryReconciliationReport,
@@ -101,6 +100,7 @@ from ecatvasp.workflow.thermochemistry import (
     reconcile_thermochemistry_analyses,
     reconcile_thermochemistry_analyses_from_store,
 )
+from ecatvasp.workflow.thermochemistry_api import ThermochemistryAnalysisRequirement
 
 __all__ = [
     "ELECTRONIC_ANALYSIS_TYPES",
