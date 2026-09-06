@@ -12,8 +12,10 @@ from ecatvasp.domain import (
     AtomUid,
     Lattice,
     Project,
+    ScientificWorkflowPlan,
     StructureSite,
     StructureSnapshot,
+    WorkflowRecipeIdentity,
 )
 from ecatvasp.provenance import (
     DependencyKind,
@@ -40,7 +42,19 @@ from ecatvasp.visualization import (
     ReactionDiagramStepPresentation,
     build_structure_presentation,
 )
-from ecatvasp.workspace import build_scientific_inventory
+from ecatvasp.workflow import (
+    WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
+    WorkflowEdgeGateVerdict,
+    WorkflowStepReadiness,
+    WorkflowStepScientificState,
+    get_workflow_recipe_spec,
+)
+from ecatvasp.workspace import (
+    WorkflowReadinessDashboard,
+    WorkflowReadinessEdgeView,
+    WorkflowReadinessStepView,
+    build_scientific_inventory,
+)
 
 
 def _bundle() -> tuple[ProjectBundle, StructureSnapshot, Analysis, ProvenanceRecord]:
@@ -169,6 +183,65 @@ def _reaction_presentation(project: Project) -> ReactionDiagramPresentationDatas
     )
 
 
+def _workflow_report_case() -> tuple[ProjectBundle, WorkflowReadinessDashboard]:
+    base, snapshot, _, _ = _bundle()
+    identity = WorkflowRecipeIdentity(WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION)
+    spec = get_workflow_recipe_spec(identity)
+    plan = ScientificWorkflowPlan(
+        project_id=base.project.id,
+        workflow_recipe=identity,
+        root_structure_snapshot_id=snapshot.id,
+        steps=spec.steps,
+        edges=spec.edges,
+    )
+    bundle = ProjectBundle(
+        project=base.project,
+        structure_snapshots=base.structure_snapshots,
+        analyses=base.analyses,
+        provenance_records=base.provenance_records,
+        dependency_records=base.dependency_records,
+        workflow_plans=(plan,),
+    )
+    bundle.validate()
+    dashboard = WorkflowReadinessDashboard(
+        workflow_plan_id=plan.id,
+        steps=tuple(
+            WorkflowReadinessStepView(
+                step_key=step.key,
+                scientific_state=WorkflowStepScientificState.UNMATERIALIZED,
+                readiness=(
+                    WorkflowStepReadiness.READY
+                    if step.key == "relax"
+                    else WorkflowStepReadiness.BLOCKED
+                ),
+                gate_reason_codes=("unmaterialized",),
+                freshness_state=None,
+                current_binding_id=None,
+                current_generation=None,
+                calculation_id=None,
+                calculation_status=None,
+                superseded_binding_ids=(),
+                superseded_calculation_ids=(),
+                execution_attempts=(),
+            )
+            for step in plan.steps
+        ),
+        edges=tuple(
+            WorkflowReadinessEdgeView(
+                upstream_step_key=edge.upstream_step_key,
+                downstream_step_key=edge.downstream_step_key,
+                role=edge.role,
+                verdict=WorkflowEdgeGateVerdict.WAITING,
+                source_binding_id=None,
+                accepted_structure_snapshot_id=None,
+                reason_codes=("upstream_step_not_satisfied",),
+            )
+            for edge in plan.edges
+        ),
+    )
+    return bundle, dashboard
+
+
 def test_report_exports_are_deterministic_and_preserve_stale_blocked_context() -> None:
     bundle, snapshot, analysis, provenance = _bundle()
     inventory = build_scientific_inventory(
@@ -270,6 +343,19 @@ def test_report_rejects_stale_inventory_entity_set() -> None:
 
     with pytest.raises(ScientificReportError, match="exact current project entity set"):
         build_scientific_report(bundle, inventory=stale_inventory)
+
+
+def test_report_accepts_current_readiness_and_rejects_stale_generation_view() -> None:
+    bundle, dashboard = _workflow_report_case()
+
+    report = build_scientific_report(bundle, readiness=(dashboard,))
+    assert report.readiness == (dashboard,)
+    assert str(dashboard.workflow_plan_id) in render_report_json(report)
+
+    stale_first = replace(dashboard.steps[0], current_generation=1)
+    stale = replace(dashboard, steps=(stale_first, *dashboard.steps[1:]))
+    with pytest.raises(ScientificReportError, match="stale relative"):
+        build_scientific_report(bundle, readiness=(stale,))
 
 
 def test_reporting_is_non_scientific_and_does_not_advance_schema() -> None:
