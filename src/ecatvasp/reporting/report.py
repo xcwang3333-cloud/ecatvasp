@@ -254,17 +254,17 @@ def render_report_markdown(report: ScientificReport) -> str:
             provenance,
             key=lambda value: (str(value.subject_id), str(value.provenance_id)),
         )
-        for item in ordered_provenance:
+        for provenance_item in ordered_provenance:
             lines.append(
                 "| "
                 + " | ".join(
                     (
-                        f"`{item.subject_id}`",
-                        f"`{item.provenance_id}`",
-                        _md(item.tool),
-                        _md(item.tool_version),
-                        _optional_code(item.parameters_hash),
-                        _optional_code(item.method_fingerprint_id),
+                        f"`{provenance_item.subject_id}`",
+                        f"`{provenance_item.provenance_id}`",
+                        _md(provenance_item.tool),
+                        _md(provenance_item.tool_version),
+                        _optional_code(provenance_item.parameters_hash),
+                        _optional_code(provenance_item.method_fingerprint_id),
                     )
                 )
                 + " |"
@@ -280,17 +280,17 @@ def render_report_markdown(report: ScientificReport) -> str:
                 "| --- | --- | --- | --- | --- | --- |",
             ]
         )
-        for item in report.inventory.dependencies:
+        for dependency in report.inventory.dependencies:
             lines.append(
                 "| "
                 + " | ".join(
                     (
-                        f"`{item.dependency_id}`",
-                        _md(item.kind.value),
-                        _md(item.role),
-                        f"`{item.upstream_id}`",
-                        f"`{item.downstream_id}`",
-                        f"`{item.recorded_hash}`",
+                        f"`{dependency.dependency_id}`",
+                        _md(dependency.kind.value),
+                        _md(dependency.role),
+                        f"`{dependency.upstream_id}`",
+                        f"`{dependency.downstream_id}`",
+                        f"`{dependency.recorded_hash}`",
                     )
                 )
                 + " |"
