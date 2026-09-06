@@ -199,7 +199,9 @@ def _validate_gate_projection(
         raise WorkspaceReadinessError("workflow gate projection belongs to another plan")
     expected_steps = tuple(item.key for item in plan.steps)
     if tuple(item.step_key for item in gates.binding_selections) != expected_steps:
-        raise WorkspaceReadinessError("workflow binding selections do not match canonical plan steps")
+        raise WorkspaceReadinessError(
+            "workflow binding selections do not match canonical plan steps"
+        )
     if tuple(item.step_key for item in gates.step_gates) != expected_steps:
         raise WorkspaceReadinessError("workflow step gates do not match canonical plan steps")
 
@@ -235,7 +237,9 @@ def _validate_gate_projection(
                 raise WorkspaceReadinessError("unmaterialized gate carries persisted current ids")
             continue
         if gate.current_binding_id != binding.id or gate.calculation_id != calculation.id:
-            raise WorkspaceReadinessError("workflow gate ids do not match selected current generation")
+            raise WorkspaceReadinessError(
+                "workflow gate ids do not match selected current generation"
+            )
 
     current_superseded = tuple(
         sorted(
