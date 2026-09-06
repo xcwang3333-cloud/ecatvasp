@@ -67,3 +67,4 @@ This directory records durable product and implementation decisions for ECatVASP
 63. v0.8 Generic Reaction and Pathway Stoichiometry Boundary
 64. v0.8 Potential-Dependent Electrocatalysis Descriptor Boundary
 65. v0.8 Durable Reaction Diagram and Reconciliation Boundary
+66. v0.8 Final Thermochemistry and Electrocatalysis Acceptance and Hardening Boundary
