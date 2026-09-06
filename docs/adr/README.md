@@ -66,3 +66,4 @@ This directory records durable product and implementation decisions for ECatVASP
 62. v0.8 CHE Potential and pH Semantics Boundary
 63. v0.8 Generic Reaction and Pathway Stoichiometry Boundary
 64. v0.8 Potential-Dependent Electrocatalysis Descriptor Boundary
+65. v0.8 Durable Reaction Diagram and Reconciliation Boundary

@@ -90,9 +90,21 @@ from ecatvasp.workflow.recovery import (
     WorkflowStepRecoveryPolicy,
     evaluate_workflow_recovery_policy,
 )
+from ecatvasp.workflow.thermochemistry import (
+    THERMOCHEMISTRY_ANALYSIS_TYPES,
+    ThermochemistryAnalysisProjection,
+    ThermochemistryAnalysisRequirement,
+    ThermochemistryAnalysisScientificState,
+    ThermochemistryReconciliationError,
+    ThermochemistryReconciliationReport,
+    ThermochemistryWorkflowAnchor,
+    reconcile_thermochemistry_analyses,
+    reconcile_thermochemistry_analyses_from_store,
+)
 
 __all__ = [
     "ELECTRONIC_ANALYSIS_TYPES",
+    "THERMOCHEMISTRY_ANALYSIS_TYPES",
     "WORKFLOW_ACCEPTED_STRUCTURE_REASON",
     "WORKFLOW_EDGE_ACCEPTED_STRUCTURE",
     "WORKFLOW_PLANNER_CONTRACT_VERSION",
@@ -111,6 +123,12 @@ __all__ = [
     "ElectronicAnalysisRequirement",
     "ElectronicAnalysisScientificState",
     "ElectronicWorkflowAnchor",
+    "ThermochemistryAnalysisProjection",
+    "ThermochemistryAnalysisRequirement",
+    "ThermochemistryAnalysisScientificState",
+    "ThermochemistryReconciliationError",
+    "ThermochemistryReconciliationReport",
+    "ThermochemistryWorkflowAnchor",
     "WorkflowAcceptanceError",
     "WorkflowAcceptanceReport",
     "WorkflowAcceptanceState",
@@ -159,6 +177,8 @@ __all__ = [
     "plan_scientific_workflow",
     "reconcile_electronic_analyses",
     "reconcile_electronic_analyses_from_store",
+    "reconcile_thermochemistry_analyses",
+    "reconcile_thermochemistry_analyses_from_store",
     "reconcile_workflow_orchestration",
     "reopen_workflow_resume_state",
     "resolve_workflow_binding_generations",

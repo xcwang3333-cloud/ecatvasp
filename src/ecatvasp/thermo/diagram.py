@@ -1,0 +1,41 @@
+"""Compatibility exports for the canonical Block 8 reaction-diagram implementation."""
+
+from ecatvasp.thermo.reaction_diagram import (
+    CANONICAL_REACTION_DIAGRAM_FORMAT,
+    CANONICAL_REACTION_DIAGRAM_VERSION,
+    REACTION_DIAGRAM_TOOL_NAME,
+    REACTION_DIAGRAM_TOOL_VERSION,
+    DurableReactionDiagram,
+    ReactionDiagramDataset,
+    ReactionDiagramDescriptorDefinition,
+    ReactionDiagramDescriptorKind,
+    ReactionDiagramDescriptorUnit,
+    ReactionDiagramError,
+    ReactionDiagramSourceReceipt,
+    ReactionSourceArtifactBinding,
+    define_her_delta_g_h_star_descriptor,
+    define_limiting_potential_descriptor,
+    define_oer_overpotential_descriptor,
+    define_reversible_potential_descriptor,
+    materialize_reaction_diagram,
+)
+
+__all__ = [
+    "CANONICAL_REACTION_DIAGRAM_FORMAT",
+    "CANONICAL_REACTION_DIAGRAM_VERSION",
+    "REACTION_DIAGRAM_TOOL_NAME",
+    "REACTION_DIAGRAM_TOOL_VERSION",
+    "DurableReactionDiagram",
+    "ReactionDiagramDataset",
+    "ReactionDiagramDescriptorDefinition",
+    "ReactionDiagramDescriptorKind",
+    "ReactionDiagramDescriptorUnit",
+    "ReactionDiagramError",
+    "ReactionDiagramSourceReceipt",
+    "ReactionSourceArtifactBinding",
+    "define_her_delta_g_h_star_descriptor",
+    "define_limiting_potential_descriptor",
+    "define_oer_overpotential_descriptor",
+    "define_reversible_potential_descriptor",
+    "materialize_reaction_diagram",
+]
