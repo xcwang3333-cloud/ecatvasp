@@ -172,17 +172,20 @@ def build_scientific_inventory(
             {entity_id: _normalize_sha256(value) for entity_id, value in observed_hashes.items()}
         )
 
-    inferred_invalid = {
-        entity.id
-        for entity in entities
+    inferred_invalid: set[UUID] = set()
+    for entity in entities:
         if (
             isinstance(entity, Calculation)
             and entity.status is CalculationScientificStatus.INVALID
-        )
-        or (isinstance(entity, Analysis) and entity.status is AnalysisStatus.INVALID)
-    }
-    explicit_invalid = set() if invalid_ids is None else set(invalid_ids)
-    explicit_superseded = set() if superseded_ids is None else set(superseded_ids)
+        ):
+            inferred_invalid.add(entity.id)
+        elif isinstance(entity, Analysis) and entity.status is AnalysisStatus.INVALID:
+            inferred_invalid.add(entity.id)
+
+    explicit_invalid: set[UUID] = set() if invalid_ids is None else set(invalid_ids)
+    explicit_superseded: set[UUID] = (
+        set() if superseded_ids is None else set(superseded_ids)
+    )
 
     try:
         freshness_by_id = FreshnessEngine(bundle.dependency_records).evaluate(
@@ -256,10 +259,23 @@ def _inventory_row(
 
 def _current_scientific_hashes(entities: tuple[object, ...]) -> dict[UUID, str]:
     hashes: dict[UUID, str] = {}
+    supported_types = (
+        StructureVariant,
+        StructureSnapshot,
+        ActiveSite,
+        AdsorptionState,
+        StateConformer,
+        MethodFingerprint,
+        Calculation,
+        Artifact,
+        Analysis,
+    )
     for entity in entities:
+        if not isinstance(entity, supported_types):
+            continue
         try:
-            value = scientific_hash(entity)  # type: ignore[arg-type]
-        except (TypeError, ProvenanceIntegrityError):
+            value = scientific_hash(entity)
+        except ProvenanceIntegrityError:
             continue
         hashes[_entity_id(entity)] = value
     return hashes
@@ -458,7 +474,8 @@ def _entity_id(entity: object) -> UUID:
 
 def _normalize_sha256(value: str) -> str:
     normalized = value.lower()
-    if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+    valid_hex = all(character in "0123456789abcdef" for character in normalized)
+    if len(normalized) != 64 or not valid_hex:
         raise WorkspaceInspectionError(
             "observed scientific hash must be a 64-character hexadecimal SHA-256 digest"
         )
