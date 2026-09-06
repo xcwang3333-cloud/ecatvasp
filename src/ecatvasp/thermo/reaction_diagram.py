@@ -119,7 +119,9 @@ def _normalized_sha256(value: str, field_name: str) -> str:
     try:
         int(normalized, 16)
     except ValueError as error:
-        raise ReactionDiagramError(f"{field_name} must contain only hexadecimal characters") from error
+        raise ReactionDiagramError(
+            f"{field_name} must contain only hexadecimal characters"
+        ) from error
     return normalized
 
 
@@ -151,7 +153,9 @@ class ReactionDiagramDescriptorDefinition:
             else ReactionDiagramDescriptorUnit.VOLT
         )
         if self.unit is not expected_unit:
-            raise ReactionDiagramError("descriptor unit does not match the declared descriptor kind")
+            raise ReactionDiagramError(
+                "descriptor unit does not match the declared descriptor kind"
+            )
         if self.kind in _PATHWAY_DESCRIPTOR_KINDS:
             if self.pathway_hash is None or self.baseline_result_hash is None:
                 raise ReactionDiagramError(
@@ -409,7 +413,8 @@ def materialize_reaction_diagram(
         missing = sorted(expected_keys - set(source_map))
         extra = sorted(set(source_map) - expected_keys)
         raise ReactionDiagramError(
-            f"reaction sources must exactly match pathway stoichiometry; missing={missing}, extra={extra}"
+            "reaction sources must exactly match pathway stoichiometry; "
+            f"missing={missing}, extra={extra}"
         )
     binding_map = _binding_map(source_bindings)
     expected_bound = {
