@@ -254,7 +254,10 @@ def test_reaction_diagram_presentation_copies_conditions_steps_descriptors_and_r
     assert dataset.source_result_hash == source.result_hash
     assert dataset.potential_view_result_hash == source.potential_view.result_hash
     assert dataset.pathway_definition_hash == source.pathway_definition_hash
-    assert dataset.requested_conditions.parameters_hash == source.requested_conditions.parameters_hash
+    assert (
+        dataset.requested_conditions.parameters_hash
+        == source.requested_conditions.parameters_hash
+    )
     assert tuple((item.state_key, item.cumulative_free_energy_ev) for item in dataset.states) == (
         ("*", 0.0),
         ("*OH", 0.4),
