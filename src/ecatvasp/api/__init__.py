@@ -1,4 +1,4 @@
-"""Application-service package boundary for ECatVASP."""
+"""Application-service and headless Python facade boundary for ECatVASP."""
 
 from ecatvasp.api.application import (
     ApplicationInspectionResult,
@@ -9,6 +9,7 @@ from ecatvasp.api.application import (
     ApplicationVaspAnalysisResult,
     ProjectApplicationService,
 )
+from ecatvasp.api.facade import HeadlessProjectStatus, ProjectFacade, open_project
 
 __all__ = [
     "ApplicationInspectionResult",
@@ -17,5 +18,8 @@ __all__ = [
     "ApplicationServiceError",
     "ApplicationStructurePromotionResult",
     "ApplicationVaspAnalysisResult",
+    "HeadlessProjectStatus",
     "ProjectApplicationService",
+    "ProjectFacade",
+    "open_project",
 ]
