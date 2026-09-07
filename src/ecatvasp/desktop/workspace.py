@@ -11,9 +11,9 @@ def build_desktop_frontend_handoff(bundle: ProjectBundle) -> FrontendHandoff:
     """Build the current desktop handoff without persisting or inferring scientific state.
 
     Structure presentations are deterministic projections of every current StructureSnapshot and are
-    rebuilt for each reopened ProjectBundle. Workflow readiness and result-specific presentations are
-    intentionally not synthesized here because their exact scientific evidence/selection belongs to
-    existing caller-supplied authorities.
+    rebuilt for each reopened ProjectBundle. Workflow readiness and result-specific presentations
+    are intentionally not synthesized here because their exact scientific evidence/selection belongs
+    to existing caller-supplied authorities.
     """
 
     presentations = tuple(
