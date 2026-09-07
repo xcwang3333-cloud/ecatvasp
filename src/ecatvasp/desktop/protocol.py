@@ -1,4 +1,4 @@
-"""Versioned stateless desktop IPC contract over the v0.9 application/frontend seams."""
+"""Versioned stateless desktop IPC contract over existing Python authorities."""
 
 from __future__ import annotations
 
@@ -7,9 +7,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from ecatvasp import __version__
 from ecatvasp.api import open_project
+from ecatvasp.desktop.actions import (
+    list_desktop_workflow_recipes,
+    prepare_workflow_action,
+    report_action,
+)
 from ecatvasp.desktop.workspace import build_desktop_frontend_handoff
 from ecatvasp.frontend import FRONTEND_HANDOFF_CONTRACT_VERSION
 from ecatvasp.storage import (
@@ -30,6 +36,11 @@ _PROJECT_READ_ERRORS = (
     StorageCodecError,
     UnsupportedSchemaVersionError,
 )
+_REPORT_FORMATS = frozenset({"json", "csv", "markdown"})
+_BASE_REQUEST_FIELDS = frozenset(
+    {"protocol_version", "request_id", "operation", "project_root"}
+)
+_OPERATION_FIELDS: dict["DesktopOperation", frozenset[str]] = {}
 
 
 class DesktopIPCError(ValueError):
@@ -37,25 +48,47 @@ class DesktopIPCError(ValueError):
 
 
 class DesktopOperation(StrEnum):
-    """Read-only Block 1 operations available across the local desktop boundary."""
+    """Explicit operations available across the local desktop boundary."""
 
     HEALTH = "health"
     OPEN_PROJECT = "open_project"
     STATUS = "status"
     FRONTEND_HANDOFF = "frontend_handoff"
+    APPLICATION_REPORT = "application_report"
+    PREPARE_WORKFLOW = "prepare_workflow"
+
+
+_OPERATION_FIELDS.update(
+    {
+        DesktopOperation.HEALTH: frozenset(),
+        DesktopOperation.OPEN_PROJECT: frozenset(),
+        DesktopOperation.STATUS: frozenset(),
+        DesktopOperation.FRONTEND_HANDOFF: frozenset(),
+        DesktopOperation.APPLICATION_REPORT: frozenset({"report_format"}),
+        DesktopOperation.PREPARE_WORKFLOW: frozenset(
+            {
+                "workflow_recipe_id",
+                "workflow_recipe_version",
+                "root_structure_snapshot_id",
+                "parameters_hash",
+            }
+        ),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class DesktopRequest:
-    """One stateless local-backend request.
-
-    Project-scoped requests always carry an explicit path. The backend does not retain a current
-    project or any scientific/session state between requests.
-    """
+    """One stateless request with operation-specific typed fields."""
 
     request_id: str
     operation: DesktopOperation
     project_root: str | None = None
+    report_format: str | None = None
+    workflow_recipe_id: str | None = None
+    workflow_recipe_version: str | None = None
+    root_structure_snapshot_id: str | None = None
+    parameters_hash: str | None = None
     protocol_version: str = DESKTOP_IPC_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -65,13 +98,67 @@ class DesktopRequest:
             raise DesktopIPCError("request_id must not be blank")
         if not isinstance(self.operation, DesktopOperation):
             raise DesktopIPCError("operation must be a DesktopOperation")
-        if self.operation is DesktopOperation.HEALTH and self.project_root is not None:
-            raise DesktopIPCError("health request must not include project_root")
-        if (
-            self.operation is not DesktopOperation.HEALTH
-            and (self.project_root is None or not self.project_root.strip())
-        ):
+        if self.operation is DesktopOperation.HEALTH:
+            if self.project_root is not None:
+                raise DesktopIPCError("health request must not include project_root")
+        elif self.project_root is None or not self.project_root.strip():
             raise DesktopIPCError(f"{self.operation.value} request requires project_root")
+
+        if self.operation is DesktopOperation.APPLICATION_REPORT:
+            self._validate_report_request()
+        elif self.operation is DesktopOperation.PREPARE_WORKFLOW:
+            self._validate_prepare_workflow_request()
+        else:
+            self._forbid_action_fields()
+
+    def _validate_report_request(self) -> None:
+        if self.report_format not in _REPORT_FORMATS:
+            raise DesktopIPCError("application_report requires a supported report_format")
+        if any(
+            value is not None
+            for value in (
+                self.workflow_recipe_id,
+                self.workflow_recipe_version,
+                self.root_structure_snapshot_id,
+                self.parameters_hash,
+            )
+        ):
+            raise DesktopIPCError("application_report must not include workflow fields")
+
+    def _validate_prepare_workflow_request(self) -> None:
+        if self.report_format is not None:
+            raise DesktopIPCError("prepare_workflow must not include report_format")
+        for name, value in (
+            ("workflow_recipe_id", self.workflow_recipe_id),
+            ("workflow_recipe_version", self.workflow_recipe_version),
+            ("root_structure_snapshot_id", self.root_structure_snapshot_id),
+        ):
+            if value is None or not value.strip():
+                raise DesktopIPCError(f"prepare_workflow requires {name}")
+        assert self.root_structure_snapshot_id is not None
+        try:
+            UUID(self.root_structure_snapshot_id)
+        except ValueError as error:
+            raise DesktopIPCError(
+                "root_structure_snapshot_id must be a UUID"
+            ) from error
+        if self.parameters_hash is not None and not _is_sha256(self.parameters_hash):
+            raise DesktopIPCError("parameters_hash must be a SHA-256 digest")
+
+    def _forbid_action_fields(self) -> None:
+        if any(
+            value is not None
+            for value in (
+                self.report_format,
+                self.workflow_recipe_id,
+                self.workflow_recipe_version,
+                self.root_structure_snapshot_id,
+                self.parameters_hash,
+            )
+        ):
+            raise DesktopIPCError(
+                f"{self.operation.value} request must not include application action fields"
+            )
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -79,8 +166,17 @@ class DesktopRequest:
             "request_id": self.request_id,
             "operation": self.operation.value,
         }
-        if self.project_root is not None:
-            payload["project_root"] = self.project_root
+        for name in (
+            "project_root",
+            "report_format",
+            "workflow_recipe_id",
+            "workflow_recipe_version",
+            "root_structure_snapshot_id",
+            "parameters_hash",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                payload[name] = value
         return payload
 
 
@@ -159,6 +255,33 @@ class DesktopBackend:
                 }
                 return self._success(request, payload)
 
+            if request.operation is DesktopOperation.APPLICATION_REPORT:
+                assert request.report_format is not None
+                receipt = report_action(
+                    project_root=root,
+                    report_format=request.report_format,
+                )
+                return self._success(
+                    request,
+                    {"project_root": str(root), **receipt.to_dict()},
+                )
+
+            if request.operation is DesktopOperation.PREPARE_WORKFLOW:
+                assert request.workflow_recipe_id is not None
+                assert request.workflow_recipe_version is not None
+                assert request.root_structure_snapshot_id is not None
+                receipt = prepare_workflow_action(
+                    project_root=root,
+                    workflow_recipe_id=request.workflow_recipe_id,
+                    workflow_recipe_version=request.workflow_recipe_version,
+                    root_structure_snapshot_id=request.root_structure_snapshot_id,
+                    parameters_hash=request.parameters_hash,
+                )
+                return self._success(
+                    request,
+                    {"project_root": str(root), **receipt.to_dict()},
+                )
+
             facade = open_project(root)
             if request.operation is DesktopOperation.STATUS:
                 status = facade.status()
@@ -193,6 +316,12 @@ class DesktopBackend:
             return self._failure(
                 request,
                 code="project_unavailable",
+                message=str(error),
+            )
+        except ValueError as error:
+            return self._failure(
+                request,
+                code="application_rejected",
                 message=str(error),
             )
 
@@ -232,32 +361,43 @@ def decode_desktop_request(line: str) -> DesktopRequest:
     if not isinstance(raw, dict):
         raise DesktopIPCError("desktop request must be a JSON object")
 
-    allowed = {"protocol_version", "request_id", "operation", "project_root"}
-    unknown = set(raw) - allowed
-    if unknown:
-        raise DesktopIPCError(f"desktop request contains unknown fields: {sorted(unknown)!r}")
-
     protocol_version = raw.get("protocol_version")
     request_id = raw.get("request_id")
     operation = raw.get("operation")
-    project_root = raw.get("project_root")
     if not isinstance(protocol_version, str):
         raise DesktopIPCError("protocol_version must be a string")
     if not isinstance(request_id, str):
         raise DesktopIPCError("request_id must be a string")
     if not isinstance(operation, str):
         raise DesktopIPCError("operation must be a string")
-    if project_root is not None and not isinstance(project_root, str):
-        raise DesktopIPCError("project_root must be a string when supplied")
     try:
         selected_operation = DesktopOperation(operation)
     except ValueError as error:
         raise DesktopIPCError("unsupported desktop operation") from error
+
+    allowed = _BASE_REQUEST_FIELDS | _OPERATION_FIELDS[selected_operation]
+    unknown = set(raw) - allowed
+    if unknown:
+        raise DesktopIPCError(
+            f"{selected_operation.value} request contains unknown fields: {sorted(unknown)!r}"
+        )
+
+    project_root = _optional_string(raw, "project_root")
+    report_format = _optional_string(raw, "report_format")
+    workflow_recipe_id = _optional_string(raw, "workflow_recipe_id")
+    workflow_recipe_version = _optional_string(raw, "workflow_recipe_version")
+    root_structure_snapshot_id = _optional_string(raw, "root_structure_snapshot_id")
+    parameters_hash = _optional_string(raw, "parameters_hash")
     return DesktopRequest(
         protocol_version=protocol_version,
         request_id=request_id,
         operation=selected_operation,
         project_root=project_root,
+        report_format=report_format,
+        workflow_recipe_id=workflow_recipe_id,
+        workflow_recipe_version=workflow_recipe_version,
+        root_structure_snapshot_id=root_structure_snapshot_id,
+        parameters_hash=parameters_hash,
     )
 
 
@@ -281,8 +421,24 @@ def _health_payload() -> dict[str, object]:
         "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
         "operations": [operation.value for operation in DesktopOperation],
         "stateless_project_requests": True,
+        "workflow_recipes": [
+            recipe.to_dict() for recipe in list_desktop_workflow_recipes()
+        ],
     }
 
 
 def _pairs(values: tuple[tuple[str, int], ...]) -> list[list[object]]:
     return [[name, count] for name, count in values]
+
+
+def _optional_string(raw: dict[str, Any], field_name: str) -> str | None:
+    if field_name not in raw:
+        return None
+    value = raw[field_name]
+    if not isinstance(value, str):
+        raise DesktopIPCError(f"{field_name} must be a string when supplied")
+    return value
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
