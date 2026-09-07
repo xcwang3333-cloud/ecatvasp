@@ -15,6 +15,11 @@ htmlcov/
 .idea/
 .vscode/
 
+# Desktop packaging outputs are generated per target and never committed
+ui/desktop/.packaging-build/
+ui/desktop/src-tauri/binaries/
+ui/desktop/src-tauri/target/
+
 # ECatVASP local/project runtime data
 .workbench/
 *.sqlite
