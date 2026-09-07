@@ -1,6 +1,6 @@
 [package]
 name = "ecatvasp-desktop"
-version = "1.0.0-dev.0"
+version = "1.1.0-dev.0"
 description = "ECatVASP production desktop shell"
 authors = ["xiaochen wang"]
 edition = "2021"
