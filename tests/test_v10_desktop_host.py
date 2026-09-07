@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tomllib
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
@@ -145,6 +146,16 @@ def test_desktop_module_entrypoint_uses_stdout_only_for_protocol_frames() -> Non
     response = json.loads(lines[0])
     assert response["request_id"] == "health-process"
     assert response["ok"] is True
+
+
+def test_desktop_sidecar_console_script_adds_no_runtime_dependency() -> None:
+    root = Path(__file__).resolve().parents[1]
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert metadata["project"]["scripts"]["ecatvasp-desktop-backend"] == (
+        "ecatvasp.desktop.host:main"
+    )
+    assert metadata["project"]["dependencies"] == ["ase>=3.29,<4", "numpy>=1.26"]
 
 
 class _ExplodingBackend:
