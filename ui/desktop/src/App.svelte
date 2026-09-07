@@ -96,6 +96,7 @@
 
         const projectLifecycle = new DesktopProjectLifecycle(client, preferencesClient);
         lifecycle = projectLifecycle;
+        projectBusy = true;
         try {
           const restored = await projectLifecycle.restore();
           if (!disposed) applySnapshot(restored);
@@ -106,6 +107,8 @@
               "local preferences could not be loaded",
             )}`;
           }
+        } finally {
+          if (!disposed) projectBusy = false;
         }
       } catch (error: unknown) {
         if (disposed) return;
