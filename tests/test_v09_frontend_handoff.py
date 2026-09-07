@@ -24,7 +24,13 @@ from ecatvasp.frontend import (
     build_frontend_handoff,
     render_frontend_handoff_json,
 )
-from ecatvasp.provenance import DependencyKind, DependencyRecord, FreshnessState, scientific_hash
+from ecatvasp.provenance import (
+    DependencyKind,
+    DependencyRecord,
+    FreshnessState,
+    ProvenanceRecord,
+    scientific_hash,
+)
 from ecatvasp.reporting import ScientificReportError
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
@@ -94,8 +100,10 @@ def test_structure_presentation_crosses_handoff_without_identity_loss() -> None:
 
     handoff = build_frontend_handoff(bundle, presentations=(presentation,))
     payload = handoff.to_dict()
-    presentation_payload = payload["report"]["presentations"][0]
+    presentation_record = payload["report"]["presentations"][0]
+    presentation_payload = presentation_record["payload"]
 
+    assert presentation_record["kind"] == "structure"
     assert presentation_payload["contract_version"] == PRESENTATION_CONTRACT_VERSION
     assert presentation_payload["structure_snapshot_id"] == str(snapshot.id)
     assert presentation_payload["source_scientific_hash"] == scientific_hash(snapshot)
@@ -112,6 +120,11 @@ def test_handoff_preserves_authoritative_stale_inventory_visibility() -> None:
         input_artifact_ids=(),
         status=AnalysisStatus.COMPLETED,
     )
+    provenance = ProvenanceRecord(
+        subject_id=analysis.id,
+        tool="ecatvasp.geometry",
+        tool_version="0.9",
+    )
     dependency = DependencyRecord(
         upstream_id=snapshot.id,
         downstream_id=analysis.id,
@@ -123,6 +136,7 @@ def test_handoff_preserves_authoritative_stale_inventory_visibility() -> None:
         project=project,
         structure_snapshots=(snapshot,),
         analyses=(analysis,),
+        provenance_records=(provenance,),
         dependency_records=(dependency,),
     )
     inventory = build_scientific_inventory(
