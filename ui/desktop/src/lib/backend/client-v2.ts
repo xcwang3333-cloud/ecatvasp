@@ -157,14 +157,18 @@ export class DesktopBackendClientV2 {
     projectRoot: string,
     input: CreateCatalystInput,
   ): Promise<DesktopV2SuccessResponse<JsonObject>> {
-    return this.projectCommand<JsonObject>("create_catalyst", projectRoot, input);
+    return this.projectCommand<JsonObject>("create_catalyst", projectRoot, { ...input });
   }
 
   async buildGraphene(
     projectRoot: string,
     input: BuildGrapheneInput,
   ): Promise<DesktopV2SuccessResponse<StructureModelReceipt>> {
-    return this.projectCommand<StructureModelReceipt>("build_graphene_model", projectRoot, input);
+    return this.projectCommand<StructureModelReceipt>(
+      "build_graphene_model",
+      projectRoot,
+      { ...input },
+    );
   }
 
   async importStructure(
@@ -174,7 +178,7 @@ export class DesktopBackendClientV2 {
     return this.projectCommand<StructureModelReceipt & JsonObject>(
       "import_structure_model",
       projectRoot,
-      input,
+      { ...input },
     );
   }
 
@@ -185,7 +189,7 @@ export class DesktopBackendClientV2 {
     return this.projectCommand<StructureModelReceipt & JsonObject>(
       "mutate_structure_model",
       projectRoot,
-      input,
+      { ...input },
     );
   }
 
@@ -196,7 +200,7 @@ export class DesktopBackendClientV2 {
     return this.projectCommand<StructureModelReceipt & JsonObject>(
       "build_single_metal_site",
       projectRoot,
-      input,
+      { ...input },
     );
   }
 
@@ -207,7 +211,7 @@ export class DesktopBackendClientV2 {
     return this.projectCommand<StructureModelReceipt & JsonObject>(
       "build_multi_metal_site",
       projectRoot,
-      input,
+      { ...input },
     );
   }
 
@@ -215,14 +219,18 @@ export class DesktopBackendClientV2 {
     projectRoot: string,
     input: CreateActiveSiteInput,
   ): Promise<DesktopV2SuccessResponse<JsonObject>> {
-    return this.projectCommand<JsonObject>("create_active_site", projectRoot, input);
+    return this.projectCommand<JsonObject>("create_active_site", projectRoot, { ...input });
   }
 
   async buildAdsorbateConformer(
     projectRoot: string,
     input: BuildAdsorbateConformerInput,
   ): Promise<DesktopV2SuccessResponse<JsonObject>> {
-    return this.projectCommand<JsonObject>("build_adsorbate_conformer", projectRoot, input);
+    return this.projectCommand<JsonObject>(
+      "build_adsorbate_conformer",
+      projectRoot,
+      { ...input },
+    );
   }
 
   async applicationReport(
