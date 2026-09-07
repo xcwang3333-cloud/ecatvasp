@@ -258,7 +258,7 @@ class DesktopBackend:
             if request.operation is DesktopOperation.APPLICATION_REPORT:
                 assert request.report_format is not None
                 try:
-                    receipt = report_action(
+                    report_receipt = report_action(
                         project_root=root,
                         report_format=request.report_format,
                     )
@@ -272,7 +272,7 @@ class DesktopBackend:
                     )
                 return self._success(
                     request,
-                    {"project_root": str(root), **receipt.to_dict()},
+                    {"project_root": str(root), **report_receipt.to_dict()},
                 )
 
             if request.operation is DesktopOperation.PREPARE_WORKFLOW:
@@ -280,7 +280,7 @@ class DesktopBackend:
                 assert request.workflow_recipe_version is not None
                 assert request.root_structure_snapshot_id is not None
                 try:
-                    receipt = prepare_workflow_action(
+                    workflow_receipt = prepare_workflow_action(
                         project_root=root,
                         workflow_recipe_id=request.workflow_recipe_id,
                         workflow_recipe_version=request.workflow_recipe_version,
@@ -297,7 +297,7 @@ class DesktopBackend:
                     )
                 return self._success(
                     request,
-                    {"project_root": str(root), **receipt.to_dict()},
+                    {"project_root": str(root), **workflow_receipt.to_dict()},
                 )
 
             facade = open_project(root)
