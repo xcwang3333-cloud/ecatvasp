@@ -52,6 +52,17 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "application_report",
         "prepare_workflow",
         "project_dashboard",
+        "model_catalog",
+        "structure_presentation",
+        "create_project",
+        "create_catalyst",
+        "build_graphene_model",
+        "import_structure_model",
+        "mutate_structure_model",
+        "build_single_metal_site",
+        "build_multi_metal_site",
+        "create_active_site",
+        "build_adsorbate_conformer",
     ]
     assert SCHEMA_VERSION == 3
 
