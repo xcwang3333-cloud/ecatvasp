@@ -1,5 +1,7 @@
 """Module entry point for the ECatVASP desktop backend sidecar."""
 
+from __future__ import annotations
+
 from ecatvasp.desktop.host import main
 
 
