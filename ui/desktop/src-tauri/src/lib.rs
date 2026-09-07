@@ -1,3 +1,5 @@
+mod preferences;
+
 use std::{
     env,
     ffi::OsString,
@@ -9,6 +11,7 @@ use std::{
     },
 };
 
+use preferences::{desktop_preferences_load, desktop_preferences_save};
 use serde_json::{json, Value};
 use tauri::State;
 
@@ -289,7 +292,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_health,
             backend_exchange,
-            backend_shutdown
+            backend_shutdown,
+            desktop_preferences_load,
+            desktop_preferences_save
         ])
         .run(tauri::generate_context!())
         .expect("error while running ECatVASP desktop application");

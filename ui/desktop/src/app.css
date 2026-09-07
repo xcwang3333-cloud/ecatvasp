@@ -31,9 +31,19 @@ textarea {
   font: inherit;
 }
 
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .app-shell {
   min-height: 100vh;
-  padding: 0 40px 40px;
+  padding: 0 40px 56px;
 }
 
 .topbar {
@@ -46,7 +56,8 @@ textarea {
 }
 
 .topbar h1,
-.section-heading h2 {
+.section-heading h2,
+.panel-heading h3 {
   margin: 0;
   font-weight: 650;
   letter-spacing: -0.02em;
@@ -59,7 +70,8 @@ textarea {
 
 .topbar p,
 .section-heading p,
-.runtime-state p {
+.runtime-state p,
+.empty-state p {
   margin: 7px 0 0;
   color: #65717e;
   line-height: 1.55;
@@ -103,7 +115,15 @@ textarea {
 
 .workspace-frame {
   max-width: 1180px;
-  margin: 52px auto 0;
+  margin: 46px auto 0;
+}
+
+.project-lifecycle {
+  margin-top: 42px;
+}
+
+.runtime-contract {
+  margin-top: 38px;
 }
 
 .section-heading {
@@ -115,12 +135,16 @@ textarea {
   border-bottom: 1px solid #d8dde3;
 }
 
+.compact-heading {
+  padding-bottom: 14px;
+}
+
 .section-heading h2 {
   font-size: 20px;
 }
 
 .section-heading p {
-  max-width: 720px;
+  max-width: 760px;
   font-size: 14px;
 }
 
@@ -133,14 +157,226 @@ textarea {
   font-size: 15px;
 }
 
-.runtime-state p {
+.runtime-state p,
+.empty-state p {
   max-width: 660px;
   font-size: 14px;
 }
 
 .runtime-error strong,
-.runtime-error p {
+.runtime-error p,
+.project-error {
   color: #8d2f2f;
+}
+
+.project-open-form {
+  padding: 24px 0 22px;
+}
+
+.project-open-form label {
+  display: block;
+  margin-bottom: 8px;
+  color: #56616c;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-open-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.project-open-row input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid #c8ced6;
+  border-radius: 6px;
+  color: inherit;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  outline: none;
+}
+
+.project-open-row input:focus {
+  border-color: #697888;
+  box-shadow: 0 0 0 2px rgb(73 92 112 / 12%);
+}
+
+.primary-button,
+.text-button,
+.recent-open,
+.recent-forget {
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.primary-button {
+  min-width: 128px;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #25394d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.text-button {
+  padding: 6px 0;
+  color: #526678;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.project-error {
+  margin: -4px 0 20px;
+  padding: 11px 13px;
+  border: 1px solid #dfb8b8;
+  border-radius: 6px;
+  background: #fff6f6;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.project-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  gap: 24px;
+}
+
+.project-panel {
+  min-height: 250px;
+  padding: 22px 24px;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 55%);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.panel-heading h3 {
+  margin-top: 3px;
+  font-size: 16px;
+}
+
+.eyebrow,
+.recent-count {
+  color: #7a8692;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.empty-state {
+  padding: 20px 0 8px;
+}
+
+.empty-state strong {
+  font-size: 14px;
+}
+
+.project-metadata {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin: 0;
+}
+
+.project-metadata div {
+  min-width: 0;
+}
+
+.project-metadata .project-root-row {
+  grid-column: 1 / -1;
+  padding-top: 12px;
+  border-top: 1px solid #e0e4e8;
+}
+
+.project-metadata dt,
+.runtime-grid dt {
+  margin-bottom: 7px;
+  color: #65717e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-metadata dd,
+.runtime-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.recent-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: stretch;
+  border: 1px solid #dce1e6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.recent-list li.active {
+  border-color: #8294a6;
+  background: #f1f5f8;
+}
+
+.recent-open {
+  min-width: 0;
+  padding: 10px 11px;
+  text-align: left;
+}
+
+.recent-open span,
+.recent-open small {
+  display: block;
+}
+
+.recent-open span {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-open small {
+  margin-top: 4px;
+  color: #7a8692;
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.recent-forget {
+  border-left: 1px solid #e1e5e9;
+  color: #7b8792;
+  font-size: 18px;
 }
 
 .runtime-grid {
@@ -151,26 +387,15 @@ textarea {
 }
 
 .runtime-grid div {
-  min-height: 122px;
-  padding: 30px 26px 24px 0;
+  min-height: 108px;
+  padding: 26px 26px 20px 0;
   border-bottom: 1px solid #d8dde3;
 }
 
-.runtime-grid dt {
-  margin-bottom: 12px;
-  color: #65717e;
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.runtime-grid dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.5;
+@media (max-width: 1040px) {
+  .project-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -181,15 +406,26 @@ textarea {
 
   .topbar,
   .section-heading,
-  .runtime-grid div {
+  .runtime-grid div,
+  .project-panel,
+  .project-metadata .project-root-row,
+  .recent-list li,
+  .recent-forget {
     border-color: #303840;
   }
 
   .topbar p,
   .section-heading p,
   .runtime-state p,
+  .empty-state p,
+  .project-open-form label,
+  .project-metadata dt,
   .runtime-grid dt,
-  .connection-indicator {
+  .connection-indicator,
+  .eyebrow,
+  .recent-count,
+  .recent-open small,
+  .recent-forget {
     color: #9aa5af;
   }
 
@@ -199,7 +435,33 @@ textarea {
 
   .connection-indicator.error,
   .runtime-error strong,
-  .runtime-error p {
+  .runtime-error p,
+  .project-error {
     color: #ed9797;
+  }
+
+  .project-open-row input,
+  .project-panel,
+  .recent-list li {
+    color: #e7ebef;
+    background: #171d23;
+  }
+
+  .recent-list li.active {
+    border-color: #65798c;
+    background: #1b2630;
+  }
+
+  .primary-button {
+    background: #526d87;
+  }
+
+  .text-button {
+    color: #a9bac9;
+  }
+
+  .project-error {
+    border-color: #6d3d3d;
+    background: #261818;
   }
 }
