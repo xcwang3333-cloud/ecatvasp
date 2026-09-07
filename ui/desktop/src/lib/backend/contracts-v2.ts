@@ -11,6 +11,7 @@ import {
   type ReportFormat,
   type StatusPayload,
 } from "./contracts";
+import type { StructurePresentation } from "../workspace/contracts";
 
 export const DESKTOP_IPC_V2_CONTRACT_VERSION = "ecatvasp-desktop-ipc-v2" as const;
 export const DESKTOP_IPC_V1_CONTRACT_VERSION = "ecatvasp-desktop-ipc-v1" as const;
@@ -23,10 +24,21 @@ export const DESKTOP_V2_OPERATIONS = [
   "application_report",
   "prepare_workflow",
   "project_dashboard",
+  "model_catalog",
+  "structure_presentation",
+  "create_project",
+  "create_catalyst",
+  "build_graphene_model",
+  "import_structure_model",
+  "mutate_structure_model",
+  "build_single_metal_site",
+  "build_multi_metal_site",
+  "create_active_site",
+  "build_adsorbate_conformer",
 ] as const;
 
 export type DesktopV2Operation = (typeof DESKTOP_V2_OPERATIONS)[number];
-export type DesktopV2ProjectOperation = Exclude<DesktopV2Operation, "health">;
+export type DesktopV2ProjectOperation = Exclude<DesktopV2Operation, "health" | "create_project">;
 
 export interface DesktopV2HealthRequest {
   protocol_version: typeof DESKTOP_IPC_V2_CONTRACT_VERSION;
@@ -37,7 +49,12 @@ export interface DesktopV2HealthRequest {
 export interface DesktopV2ProjectRequest {
   protocol_version: typeof DESKTOP_IPC_V2_CONTRACT_VERSION;
   request_id: string;
-  operation: "open_project" | "status" | "frontend_handoff" | "project_dashboard";
+  operation:
+    | "open_project"
+    | "status"
+    | "frontend_handoff"
+    | "project_dashboard"
+    | "model_catalog";
   project_root: string;
 }
 
@@ -125,6 +142,201 @@ export interface DesktopProjectDashboardPayload {
   dashboard: DesktopProjectDashboard;
 }
 
+export interface ModelCatalystSummary {
+  catalyst_id: string;
+  name: string;
+  slug: string;
+  formula_label: string | null;
+  support_type: string | null;
+  series_key: string | null;
+  series_value: string | number | null;
+  tags: string[];
+}
+
+export interface ModelVariantSummary {
+  structure_variant_id: string;
+  catalyst_id: string;
+  name: string;
+  variant_type: string;
+  parent_variant_id: string | null;
+  topology_tags: string[];
+  current_structure_snapshot_id: string | null;
+  atom_count: number | null;
+  structure_label: string | null;
+  structure_origin: string | null;
+}
+
+export interface ModelActiveSiteSummary {
+  active_site_id: string;
+  structure_variant_id: string;
+  center_atom_uids: string[];
+  topology: string | null;
+  coordination_environment: string | null;
+  side_labels: Array<{ atom_uid: string; side: string }>;
+}
+
+export interface ModelAdsorptionStateSummary {
+  adsorption_state_id: string;
+  structure_variant_id: string;
+  active_site_id: string;
+  state_label: string;
+  adsorbates: string[];
+  coverage: number | null;
+  reaction_role: string | null;
+}
+
+export interface ModelStateConformerSummary {
+  state_conformer_id: string;
+  adsorption_state_id: string;
+  structure_snapshot_id: string;
+  name: string;
+  binding_mode: string;
+  orientation: string | null;
+  rank: number | null;
+}
+
+export interface ModelAdsorbateTemplateSummary {
+  key: string;
+  atom_keys: string[];
+  anchor_atom_keys: string[];
+  primary_anchor_atom_key: string;
+  reaction_families: string[];
+}
+
+export interface DesktopModelCatalogPayload {
+  project_root: string;
+  project_id: string;
+  project_name: string;
+  catalysts: ModelCatalystSummary[];
+  variants: ModelVariantSummary[];
+  active_sites: ModelActiveSiteSummary[];
+  adsorption_states: ModelAdsorptionStateSummary[];
+  state_conformers: ModelStateConformerSummary[];
+  adsorbate_templates: ModelAdsorbateTemplateSummary[];
+}
+
+export interface DesktopStructurePresentationPayload {
+  project_root: string;
+  presentation: StructurePresentation;
+}
+
+export interface CreateProjectInput {
+  project_root: string;
+  name: string;
+  slug: string;
+  description?: string;
+}
+
+export interface CreateCatalystInput {
+  name: string;
+  slug: string;
+  formula_label?: string;
+  support_type?: string;
+  series_key?: string;
+  series_value?: string | number;
+  tags?: string[];
+}
+
+export interface BuildGrapheneInput {
+  catalyst_id: string;
+  variant_name: string;
+  nx: number;
+  ny: number;
+  bond_length_angstrom: number;
+  vacuum_gap_angstrom: number;
+  label?: string;
+}
+
+export interface ImportStructureInput {
+  catalyst_id: string;
+  variant_name: string;
+  source_path: string;
+  format?: "poscar" | "cif" | "xyz" | "extxyz";
+}
+
+export interface DopantInput {
+  atom_uid: string;
+  dopant: "N" | "S" | "P";
+}
+
+export interface MutateStructureInput {
+  source_variant_id: string;
+  source_snapshot_id: string;
+  variant_name: string;
+  vacancy_atom_uids?: string[];
+  substitutions?: DopantInput[];
+  label?: string;
+}
+
+export interface BuildSingleMetalInput {
+  source_variant_id: string;
+  source_snapshot_id: string;
+  variant_name: string;
+  metal_element: string;
+  coordination_atom_uids: string[];
+  side: "top" | "bottom" | "in_plane";
+  height_angstrom: number;
+  label?: string;
+}
+
+export interface MetalCenterInput {
+  metal_element: string;
+  coordination_atom_uids: string[];
+  side: "top" | "bottom" | "in_plane";
+  height_angstrom: number;
+}
+
+export interface BuildMultiMetalInput {
+  source_variant_id: string;
+  source_snapshot_id: string;
+  variant_name: string;
+  centers: MetalCenterInput[];
+  metal_metal_topology_intent?: string;
+  label?: string;
+}
+
+export interface CreateActiveSiteInput {
+  structure_variant_id: string;
+  source_snapshot_id: string;
+  center_atom_uids: string[];
+  side_labels?: Array<{ atom_uid: string; side: "top" | "bottom" | "in_plane" }>;
+  topology?: string;
+  coordination_environment?: string;
+}
+
+export interface AdsorbateContactInput {
+  adsorbate_atom_key: string;
+  site_atom_uid: string;
+}
+
+export interface BuildAdsorbateConformerInput {
+  structure_variant_id: string;
+  source_snapshot_id: string;
+  active_site_id: string;
+  state_label: string;
+  template_key: string;
+  target_center_atom_uids: string[];
+  binding_mode: "single_center" | "bridge" | "multicenter";
+  height_angstrom: number;
+  contacts: AdsorbateContactInput[];
+  conformer_name: string;
+  coverage?: number;
+  reaction_role?: string;
+  orientation?: string;
+  rank?: number;
+}
+
+export interface StructureModelReceipt {
+  project_root: string;
+  structure_variant_id: string;
+  variant_name: string;
+  variant_type: string;
+  parent_variant_id: string | null;
+  structure_snapshot_id: string;
+  parent_snapshot_id: string | null;
+  atom_count: number;
+}
+
 export type DesktopV2KnownPayload =
   | DesktopV2HealthPayload
   | OpenProjectPayload
@@ -133,6 +345,9 @@ export type DesktopV2KnownPayload =
   | ApplicationReportPayload
   | PrepareWorkflowPayload
   | DesktopProjectDashboardPayload
+  | DesktopModelCatalogPayload
+  | DesktopStructurePresentationPayload
+  | StructureModelReceipt
   | JsonObject;
 
 export function parseDesktopV2Response<TPayload>(
@@ -261,6 +476,49 @@ export function assertProjectDashboardPayload(
     dashboard.attention_rows < 0
   ) {
     throw new DesktopContractError("desktop project dashboard attention count is invalid");
+  }
+}
+
+export function assertModelCatalogPayload(
+  payload: DesktopModelCatalogPayload,
+  expectedProjectRoot: string,
+): void {
+  const value: unknown = payload;
+  if (!isRecord(value) || value.project_root !== expectedProjectRoot) {
+    throw new DesktopContractError("desktop Model Studio catalog project root is invalid");
+  }
+  if (typeof value.project_id !== "string" || typeof value.project_name !== "string") {
+    throw new DesktopContractError("desktop Model Studio catalog project identity is invalid");
+  }
+  for (const field of [
+    "catalysts",
+    "variants",
+    "active_sites",
+    "adsorption_states",
+    "state_conformers",
+    "adsorbate_templates",
+  ] as const) {
+    if (!Array.isArray(value[field])) {
+      throw new DesktopContractError(`desktop Model Studio catalog ${field} is invalid`);
+    }
+  }
+}
+
+export function assertStructurePresentationPayload(
+  payload: DesktopStructurePresentationPayload,
+  expectedProjectRoot: string,
+  expectedSnapshotId: string,
+): void {
+  const value: unknown = payload;
+  if (!isRecord(value) || value.project_root !== expectedProjectRoot || !isRecord(value.presentation)) {
+    throw new DesktopContractError("desktop structure presentation payload is invalid");
+  }
+  if (
+    value.presentation.kind !== "structure" ||
+    value.presentation.structure_snapshot_id !== expectedSnapshotId ||
+    !isRecord(value.presentation.matterviz)
+  ) {
+    throw new DesktopContractError("desktop structure presentation identity is invalid");
   }
 }
 
