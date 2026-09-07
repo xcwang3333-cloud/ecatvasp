@@ -302,7 +302,7 @@ def test_v10_production_desktop_cross_layer_e2e_and_scientific_drift(
     assert [reason["code"] for reason in analysis_row["freshness"]["reasons"]] == [
         "scientific_hash_changed"
     ]
-    assert "stale_scientific_dependency" in analysis_row["attention_codes"]
+    assert analysis_row["attention_codes"] == ["freshness_stale"]
 
     restarted_report = _payload(second[3])
     restarted_content = restarted_report["content"]
