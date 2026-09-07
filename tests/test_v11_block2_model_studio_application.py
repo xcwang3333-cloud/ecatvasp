@@ -42,7 +42,7 @@ def _graphene(
     model = service.build_graphene_model(
         catalyst_id=catalyst.id,
         variant_name="graphene",
-        spec=GrapheneBuildSpec(nx=3, ny=3, vacuum_angstrom=15.0),
+        spec=GrapheneBuildSpec(nx=3, ny=3, vacuum_gap_angstrom=15.0),
     )
     return catalyst, model
 
