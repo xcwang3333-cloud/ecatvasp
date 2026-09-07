@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DesktopSuccessResponse, OpenProjectPayload } from "../backend/contracts";
-import {
-  DESKTOP_IPC_CONTRACT_VERSION,
-} from "../backend/contracts";
+import { DESKTOP_IPC_CONTRACT_VERSION } from "../backend/contracts";
 import {
   DESKTOP_PREFERENCES_CONTRACT_VERSION,
   type DesktopPreferences,
@@ -52,6 +50,7 @@ class FakeBackend implements ProjectBackendPort {
 class FakePreferences implements PreferencesPort {
   value: DesktopPreferences;
   readonly saves: DesktopPreferences[] = [];
+  failNextSave = false;
 
   constructor(initial: DesktopPreferences = defaultDesktopPreferences()) {
     this.value = {
@@ -68,6 +67,10 @@ class FakePreferences implements PreferencesPort {
   }
 
   async save(preferences: DesktopPreferences): Promise<void> {
+    if (this.failNextSave) {
+      this.failNextSave = false;
+      throw new Error("preferences disk unavailable");
+    }
     this.value = {
       ...preferences,
       recent_project_roots: [...preferences.recent_project_roots],
@@ -109,6 +112,25 @@ describe("desktop project lifecycle", () => {
     expect(current.preferences.current_project_root).toBe("/project-a");
     expect(current.preferences.recent_project_roots).toEqual(["/project-a"]);
     expect(preferences.saves).toHaveLength(saveCount);
+  });
+
+  it("does not half-switch when local preference persistence fails", async () => {
+    const backend = new FakeBackend();
+    backend.projects.set("/project-a", project("/project-a", "A"));
+    backend.projects.set("/project-b", project("/project-b", "B"));
+    const preferences = new FakePreferences();
+    const lifecycle = new DesktopProjectLifecycle(backend, preferences);
+
+    await lifecycle.open("/project-a");
+    preferences.failNextSave = true;
+    await expect(lifecycle.open("/project-b")).rejects.toThrow(/preferences disk unavailable/);
+
+    const current = lifecycle.currentSnapshot();
+    expect(current.project?.project_id).toBe("A");
+    expect(current.preferences.current_project_root).toBe("/project-a");
+    expect(current.preferences.recent_project_roots).toEqual(["/project-a"]);
+    expect(preferences.value.current_project_root).toBe("/project-a");
+    expect(backend.calls).toEqual(["/project-a", "/project-b"]);
   });
 
   it("clears a missing saved current project on restore while preserving recents", async () => {
