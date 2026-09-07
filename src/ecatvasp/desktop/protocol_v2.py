@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeAlias, TypeGuard
 from uuid import UUID
@@ -16,10 +15,42 @@ from ecatvasp.desktop.actions import (
     prepare_workflow_action,
     report_action,
 )
+from ecatvasp.desktop.model_studio import (
+    build_adsorbate_conformer_action,
+    build_graphene_action,
+    build_multi_metal_action,
+    build_single_metal_action,
+    create_active_site_action,
+    create_catalyst_action,
+    create_project_action,
+    import_structure_action,
+    model_catalog_action,
+    mutate_structure_action,
+    structure_presentation_action,
+)
 from ecatvasp.desktop.protocol import (
     DESKTOP_IPC_CONTRACT_VERSION,
     DesktopError,
     DesktopIPCError,
+)
+from ecatvasp.desktop.protocol_v2_common import (
+    DESKTOP_IPC_V2_CONTRACT_VERSION,
+    DesktopV2Operation,
+)
+from ecatvasp.desktop.protocol_v2_model import (
+    DesktopV2BuildAdsorbateConformerRequest,
+    DesktopV2BuildGrapheneRequest,
+    DesktopV2BuildMultiMetalRequest,
+    DesktopV2BuildSingleMetalRequest,
+    DesktopV2CreateActiveSiteRequest,
+    DesktopV2CreateCatalystRequest,
+    DesktopV2CreateProjectRequest,
+    DesktopV2ImportStructureRequest,
+    DesktopV2ModelRequest,
+    DesktopV2MutateStructureRequest,
+    DesktopV2StructurePresentationRequest,
+    decode_desktop_v2_model_request,
+    is_desktop_v2_model_request,
 )
 from ecatvasp.desktop.workspace import (
     build_desktop_frontend_handoff,
@@ -35,8 +66,6 @@ from ecatvasp.storage import (
     UnsupportedSchemaVersionError,
 )
 
-DESKTOP_IPC_V2_CONTRACT_VERSION = "ecatvasp-desktop-ipc-v2"
-
 _PROJECT_READ_ERRORS = (
     MigrationPathError,
     ProjectIntegrityError,
@@ -47,26 +76,13 @@ _PROJECT_READ_ERRORS = (
 _REPORT_FORMATS = frozenset({"json", "csv", "markdown"})
 _BASE_FIELDS = frozenset({"protocol_version", "request_id", "operation"})
 _PROJECT_FIELDS = _BASE_FIELDS | {"project_root"}
-
-
-class DesktopV2Operation(StrEnum):
-    """Explicit v1.1 operations; future blocks add only type-specific members."""
-
-    HEALTH = "health"
-    OPEN_PROJECT = "open_project"
-    STATUS = "status"
-    FRONTEND_HANDOFF = "frontend_handoff"
-    APPLICATION_REPORT = "application_report"
-    PREPARE_WORKFLOW = "prepare_workflow"
-    PROJECT_DASHBOARD = "project_dashboard"
-
-
 _PROJECT_READ_OPERATIONS = frozenset(
     {
         DesktopV2Operation.OPEN_PROJECT,
         DesktopV2Operation.STATUS,
         DesktopV2Operation.FRONTEND_HANDOFF,
         DesktopV2Operation.PROJECT_DASHBOARD,
+        DesktopV2Operation.MODEL_CATALOG,
     }
 )
 
@@ -185,6 +201,7 @@ DesktopV2Request: TypeAlias = (
     | DesktopV2ProjectRequest
     | DesktopV2ApplicationReportRequest
     | DesktopV2PrepareWorkflowRequest
+    | DesktopV2ModelRequest
 )
 
 
@@ -199,7 +216,7 @@ def is_desktop_v2_request(value: object) -> TypeGuard[DesktopV2Request]:
             DesktopV2ApplicationReportRequest,
             DesktopV2PrepareWorkflowRequest,
         ),
-    )
+    ) or is_desktop_v2_model_request(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,6 +262,9 @@ class DesktopBackendV2:
         if isinstance(request, DesktopV2HealthRequest):
             return self._success(request.request_id, request.operation, _health_payload())
 
+        if is_desktop_v2_model_request(request):
+            return self._handle_model_request(request)
+
         if isinstance(request, DesktopV2ApplicationReportRequest):
             root = Path(request.project_root)
             try:
@@ -256,12 +276,7 @@ class DesktopBackendV2:
                 except _PROJECT_READ_ERRORS:
                     raise
                 except ValueError as error:
-                    return self._failure(
-                        request.request_id,
-                        request.operation,
-                        code="application_rejected",
-                        message=str(error),
-                    )
+                    return self._application_failure(request, error)
                 return self._success(
                     request.request_id,
                     request.operation,
@@ -284,12 +299,7 @@ class DesktopBackendV2:
                 except _PROJECT_READ_ERRORS:
                     raise
                 except ValueError as error:
-                    return self._failure(
-                        request.request_id,
-                        request.operation,
-                        code="application_rejected",
-                        message=str(error),
-                    )
+                    return self._application_failure(request, error)
                 return self._success(
                     request.request_id,
                     request.operation,
@@ -349,10 +359,128 @@ class DesktopBackendV2:
                     request.operation,
                     {"project_root": str(root), "dashboard": dashboard.to_dict()},
                 )
+            if request.operation is DesktopV2Operation.MODEL_CATALOG:
+                return self._success(
+                    request.request_id,
+                    request.operation,
+                    model_catalog_action(root),
+                )
         except _PROJECT_READ_ERRORS as error:
             return self._project_failure(request.request_id, request.operation, error)
 
         raise DesktopIPCError(f"unsupported desktop v2 operation: {request.operation.value}")
+
+    def _handle_model_request(self, request: DesktopV2ModelRequest) -> DesktopV2Response:
+        try:
+            if isinstance(request, DesktopV2StructurePresentationRequest):
+                payload = structure_presentation_action(
+                    request.project_root,
+                    structure_snapshot_id=request.structure_snapshot_id,
+                )
+            elif isinstance(request, DesktopV2CreateProjectRequest):
+                payload = create_project_action(
+                    project_root=request.project_root,
+                    name=request.name,
+                    slug=request.slug,
+                    description=request.description,
+                )
+            elif isinstance(request, DesktopV2CreateCatalystRequest):
+                payload = create_catalyst_action(
+                    project_root=request.project_root,
+                    name=request.name,
+                    slug=request.slug,
+                    formula_label=request.formula_label,
+                    support_type=request.support_type,
+                    series_key=request.series_key,
+                    series_value=request.series_value,
+                    tags=request.tags,
+                )
+            elif isinstance(request, DesktopV2BuildGrapheneRequest):
+                payload = build_graphene_action(
+                    project_root=request.project_root,
+                    catalyst_id=request.catalyst_id,
+                    variant_name=request.variant_name,
+                    nx=request.nx,
+                    ny=request.ny,
+                    bond_length_angstrom=request.bond_length_angstrom,
+                    vacuum_gap_angstrom=request.vacuum_gap_angstrom,
+                    label=request.label,
+                )
+            elif isinstance(request, DesktopV2ImportStructureRequest):
+                payload = import_structure_action(
+                    project_root=request.project_root,
+                    catalyst_id=request.catalyst_id,
+                    variant_name=request.variant_name,
+                    source_path=request.source_path,
+                    format=request.format,
+                )
+            elif isinstance(request, DesktopV2MutateStructureRequest):
+                payload = mutate_structure_action(
+                    project_root=request.project_root,
+                    source_variant_id=request.source_variant_id,
+                    source_snapshot_id=request.source_snapshot_id,
+                    variant_name=request.variant_name,
+                    vacancy_atom_uids=request.vacancy_atom_uids,
+                    substitutions=request.substitutions,
+                    label=request.label,
+                )
+            elif isinstance(request, DesktopV2BuildSingleMetalRequest):
+                payload = build_single_metal_action(
+                    project_root=request.project_root,
+                    source_variant_id=request.source_variant_id,
+                    source_snapshot_id=request.source_snapshot_id,
+                    variant_name=request.variant_name,
+                    metal_element=request.metal_element,
+                    coordination_atom_uids=request.coordination_atom_uids,
+                    side=request.side,
+                    height_angstrom=request.height_angstrom,
+                    label=request.label,
+                )
+            elif isinstance(request, DesktopV2BuildMultiMetalRequest):
+                payload = build_multi_metal_action(
+                    project_root=request.project_root,
+                    source_variant_id=request.source_variant_id,
+                    source_snapshot_id=request.source_snapshot_id,
+                    variant_name=request.variant_name,
+                    centers=request.centers,
+                    metal_metal_topology_intent=request.metal_metal_topology_intent,
+                    label=request.label,
+                )
+            elif isinstance(request, DesktopV2CreateActiveSiteRequest):
+                payload = create_active_site_action(
+                    project_root=request.project_root,
+                    structure_variant_id=request.structure_variant_id,
+                    source_snapshot_id=request.source_snapshot_id,
+                    center_atom_uids=request.center_atom_uids,
+                    side_labels=request.side_labels,
+                    topology=request.topology,
+                    coordination_environment=request.coordination_environment,
+                )
+            elif isinstance(request, DesktopV2BuildAdsorbateConformerRequest):
+                payload = build_adsorbate_conformer_action(
+                    project_root=request.project_root,
+                    structure_variant_id=request.structure_variant_id,
+                    source_snapshot_id=request.source_snapshot_id,
+                    active_site_id=request.active_site_id,
+                    state_label=request.state_label,
+                    template_key=request.template_key,
+                    target_center_atom_uids=request.target_center_atom_uids,
+                    binding_mode=request.binding_mode,
+                    height_angstrom=request.height_angstrom,
+                    contacts=request.contacts,
+                    conformer_name=request.conformer_name,
+                    coverage=request.coverage,
+                    reaction_role=request.reaction_role,
+                    orientation=request.orientation,
+                    rank=request.rank,
+                )
+            else:  # pragma: no cover - protected by the closed request union
+                raise DesktopIPCError("unsupported Model Studio request")
+        except _PROJECT_READ_ERRORS as error:
+            return self._project_failure(request.request_id, request.operation, error)
+        except (OSError, ValueError) as error:
+            return self._application_failure(request, error)
+        return self._success(request.request_id, request.operation, payload)
 
     @staticmethod
     def _success(
@@ -365,6 +493,19 @@ class DesktopBackendV2:
             operation=operation,
             ok=True,
             payload=payload,
+        )
+
+    @classmethod
+    def _application_failure(
+        cls,
+        request: DesktopV2Request,
+        error: Exception,
+    ) -> DesktopV2Response:
+        return cls._failure(
+            request.request_id,
+            request.operation,
+            code="application_rejected",
+            message=str(error),
         )
 
     @staticmethod
@@ -438,21 +579,28 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
             report_format=_required_string(raw, "report_format"),
         )
 
-    allowed = _PROJECT_FIELDS | {
-        "workflow_recipe_id",
-        "workflow_recipe_version",
-        "root_structure_snapshot_id",
-        "parameters_hash",
-    }
-    _reject_unknown(raw, allowed, operation)
-    parameters_hash = _optional_string(raw, "parameters_hash")
-    return DesktopV2PrepareWorkflowRequest(
+    if operation is DesktopV2Operation.PREPARE_WORKFLOW:
+        allowed = _PROJECT_FIELDS | {
+            "workflow_recipe_id",
+            "workflow_recipe_version",
+            "root_structure_snapshot_id",
+            "parameters_hash",
+        }
+        _reject_unknown(raw, allowed, operation)
+        parameters_hash = _optional_string(raw, "parameters_hash")
+        return DesktopV2PrepareWorkflowRequest(
+            request_id=request_id,
+            project_root=_required_string(raw, "project_root"),
+            workflow_recipe_id=_required_string(raw, "workflow_recipe_id"),
+            workflow_recipe_version=_required_string(raw, "workflow_recipe_version"),
+            root_structure_snapshot_id=_required_string(raw, "root_structure_snapshot_id"),
+            parameters_hash=parameters_hash,
+        )
+
+    return decode_desktop_v2_model_request(
+        raw,
+        operation=operation,
         request_id=request_id,
-        project_root=_required_string(raw, "project_root"),
-        workflow_recipe_id=_required_string(raw, "workflow_recipe_id"),
-        workflow_recipe_version=_required_string(raw, "workflow_recipe_version"),
-        root_structure_snapshot_id=_required_string(raw, "root_structure_snapshot_id"),
-        parameters_hash=parameters_hash,
     )
 
 
@@ -530,6 +678,7 @@ def _optional_string(raw: dict[str, Any], field_name: str) -> str | None:
     value = raw[field_name]
     if not isinstance(value, str):
         raise DesktopIPCError(f"{field_name} must be a string when supplied")
+    _require_nonblank(value, field_name)
     return value
 
 
