@@ -2,16 +2,22 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 
 import {
   DESKTOP_IPC_CONTRACT_VERSION,
+  type ApplicationReportPayload,
   type DesktopOperation,
   type DesktopRequest,
   type DesktopSuccessResponse,
   type FrontendHandoffPayload,
   type HealthPayload,
   type OpenProjectPayload,
+  type PrepareWorkflowInput,
+  type PrepareWorkflowPayload,
   type ProjectDesktopOperation,
+  type ReportFormat,
   type StatusPayload,
+  assertApplicationReportPayload,
   assertFrontendHandoffCompatibility,
   assertHealthCompatibility,
+  assertPrepareWorkflowPayload,
   parseDesktopResponse,
   requireSuccess,
 } from "./contracts";
@@ -57,42 +63,100 @@ export class DesktopBackendClient {
     return response;
   }
 
+  async applicationReport(
+    projectRoot: string,
+    reportFormat: ReportFormat,
+  ): Promise<DesktopSuccessResponse<ApplicationReportPayload>> {
+    this.requireReadyProject(projectRoot);
+    const request: DesktopRequest = {
+      protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+      request_id: this.nextRequestId(),
+      operation: "application_report",
+      project_root: projectRoot,
+      report_format: reportFormat,
+    };
+    const response = await this.exchange<ApplicationReportPayload>(request);
+    assertApplicationReportPayload(response.payload, projectRoot, reportFormat);
+    return response;
+  }
+
+  async prepareWorkflow(
+    projectRoot: string,
+    input: PrepareWorkflowInput,
+  ): Promise<DesktopSuccessResponse<PrepareWorkflowPayload>> {
+    this.requireReadyProject(projectRoot);
+    if (
+      input.workflow_recipe_id.trim().length === 0 ||
+      input.workflow_recipe_version.trim().length === 0 ||
+      input.root_structure_snapshot_id.trim().length === 0
+    ) {
+      throw new Error("prepare workflow requires explicit recipe and root snapshot identity");
+    }
+    if (
+      input.parameters_hash !== undefined &&
+      !/^[0-9a-fA-F]{64}$/.test(input.parameters_hash)
+    ) {
+      throw new Error("prepare workflow parameters hash must be SHA-256 when supplied");
+    }
+    const request: DesktopRequest = {
+      protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+      request_id: this.nextRequestId(),
+      operation: "prepare_workflow",
+      project_root: projectRoot,
+      workflow_recipe_id: input.workflow_recipe_id,
+      workflow_recipe_version: input.workflow_recipe_version,
+      root_structure_snapshot_id: input.root_structure_snapshot_id,
+      ...(input.parameters_hash === undefined
+        ? {}
+        : { parameters_hash: input.parameters_hash }),
+    };
+    const response = await this.exchange<PrepareWorkflowPayload>(request);
+    assertPrepareWorkflowPayload(response.payload, projectRoot, input);
+    return response;
+  }
+
   async shutdown(): Promise<void> {
     await this.invokeFn<void>("backend_shutdown");
     this.ready = false;
   }
 
   private async projectRequest<TPayload>(
-    operation: ProjectDesktopOperation,
+    operation: Exclude<ProjectDesktopOperation, "application_report" | "prepare_workflow">,
     projectRoot: string,
   ): Promise<DesktopSuccessResponse<TPayload>> {
+    this.requireReadyProject(projectRoot);
+    const request: DesktopRequest = {
+      protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+      request_id: this.nextRequestId(),
+      operation,
+      project_root: projectRoot,
+    };
+    return this.exchange<TPayload>(request);
+  }
+
+  private async exchange<TPayload>(
+    request: DesktopRequest,
+  ): Promise<DesktopSuccessResponse<TPayload>> {
+    const raw = await this.invokeFn<string>("backend_exchange", {
+      requestJson: JSON.stringify(request),
+    });
+    return requireSuccess(
+      parseDesktopResponse<TPayload>(raw, request.operation, request.request_id),
+    );
+  }
+
+  private requireReadyProject(projectRoot: string): void {
     if (!this.ready) {
       throw new Error("desktop backend health handshake is required");
     }
     if (projectRoot.trim().length === 0) {
       throw new Error("project root must not be blank");
     }
-
-    const request = this.buildRequest(operation, projectRoot);
-    const raw = await this.invokeFn<string>("backend_exchange", {
-      requestJson: JSON.stringify(request),
-    });
-    return requireSuccess(
-      parseDesktopResponse<TPayload>(raw, operation, request.request_id),
-    );
   }
 
-  private buildRequest(
-    operation: ProjectDesktopOperation,
-    projectRoot: string,
-  ): DesktopRequest {
+  private nextRequestId(): string {
     this.requestSequence += 1;
-    return {
-      protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
-      request_id: `desktop-${this.requestSequence}`,
-      operation,
-      project_root: projectRoot,
-    };
+    return `desktop-${this.requestSequence}`;
   }
 }
 
