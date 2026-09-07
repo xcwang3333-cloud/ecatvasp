@@ -6,10 +6,13 @@ export const DESKTOP_OPERATIONS = [
   "open_project",
   "status",
   "frontend_handoff",
+  "application_report",
+  "prepare_workflow",
 ] as const;
 
 export type DesktopOperation = (typeof DESKTOP_OPERATIONS)[number];
 export type ProjectDesktopOperation = Exclude<DesktopOperation, "health">;
+export type ReportFormat = "json" | "csv" | "markdown";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -22,6 +25,11 @@ export interface DesktopRequest {
   request_id: string;
   operation: DesktopOperation;
   project_root?: string;
+  report_format?: ReportFormat;
+  workflow_recipe_id?: string;
+  workflow_recipe_version?: string;
+  root_structure_snapshot_id?: string;
+  parameters_hash?: string;
 }
 
 export interface DesktopErrorPayload {
@@ -49,11 +57,18 @@ export type DesktopResponse<TPayload> =
   | DesktopSuccessResponse<TPayload>
   | DesktopFailureResponse;
 
+export interface WorkflowRecipeSummary {
+  recipe_id: string;
+  version: string;
+  description: string | null;
+}
+
 export interface HealthPayload {
   backend_version: string;
   frontend_handoff_contract_version: typeof FRONTEND_HANDOFF_CONTRACT_VERSION;
   operations: DesktopOperation[];
   stateless_project_requests: true;
+  workflow_recipes: WorkflowRecipeSummary[];
 }
 
 export interface OpenProjectPayload {
@@ -93,6 +108,35 @@ export interface FrontendHandoffV1 {
 export interface FrontendHandoffPayload {
   project_root: string;
   handoff: FrontendHandoffV1;
+}
+
+export interface ApplicationReportPayload {
+  project_root: string;
+  project_id: string;
+  report_format: ReportFormat;
+  report_contract_version: string;
+  report_hash: string;
+  content_sha256: string;
+  content: string;
+}
+
+export interface PrepareWorkflowInput {
+  workflow_recipe_id: string;
+  workflow_recipe_version: string;
+  root_structure_snapshot_id: string;
+  parameters_hash?: string;
+}
+
+export interface PrepareWorkflowPayload {
+  project_root: string;
+  project_id: string;
+  workflow_plan_id: string;
+  workflow_recipe_id: string;
+  workflow_recipe_version: string;
+  root_structure_snapshot_id: string;
+  plan_hash: string;
+  planning_hash: string;
+  reused: boolean;
 }
 
 export class DesktopContractError extends Error {
@@ -198,11 +242,107 @@ export function assertHealthCompatibility(
       throw new DesktopContractError(`desktop backend is missing operation: ${operation}`);
     }
   }
+  if (!Array.isArray(payload.workflow_recipes) || payload.workflow_recipes.length === 0) {
+    throw new DesktopContractError("desktop backend workflow recipes are invalid");
+  }
+  const seen = new Set<string>();
+  for (const recipe of payload.workflow_recipes) {
+    if (!isRecord(recipe)) {
+      throw new DesktopContractError("desktop workflow recipe is invalid");
+    }
+    if (
+      typeof recipe.recipe_id !== "string" ||
+      recipe.recipe_id.trim().length === 0 ||
+      typeof recipe.version !== "string" ||
+      recipe.version.trim().length === 0 ||
+      !(recipe.description === null || typeof recipe.description === "string")
+    ) {
+      throw new DesktopContractError("desktop workflow recipe fields are invalid");
+    }
+    const key = `${recipe.recipe_id}@${recipe.version}`;
+    if (seen.has(key)) {
+      throw new DesktopContractError("desktop workflow recipe identities must be unique");
+    }
+    seen.add(key);
+  }
 }
 
 export function assertFrontendHandoffCompatibility(handoff: FrontendHandoffV1): void {
   if (handoff.contract_version !== FRONTEND_HANDOFF_CONTRACT_VERSION) {
     throw new DesktopContractError("unsupported frontend handoff contract version");
+  }
+}
+
+export function assertApplicationReportPayload(
+  payload: ApplicationReportPayload,
+  expectedProjectRoot: string,
+  expectedFormat: ReportFormat,
+): void {
+  const value: unknown = payload;
+  if (!isRecord(value)) {
+    throw new DesktopContractError("application report receipt is invalid");
+  }
+  if (value.project_root !== expectedProjectRoot) {
+    throw new DesktopContractError("application report receipt project root mismatch");
+  }
+  if (typeof value.project_id !== "string" || value.project_id.length === 0) {
+    throw new DesktopContractError("application report receipt project id is invalid");
+  }
+  if (value.report_format !== expectedFormat) {
+    throw new DesktopContractError("application report receipt format mismatch");
+  }
+  if (
+    typeof value.report_contract_version !== "string" ||
+    value.report_contract_version.length === 0
+  ) {
+    throw new DesktopContractError("application report contract version is invalid");
+  }
+  requireSha256(value.report_hash, "application report hash");
+  requireSha256(value.content_sha256, "application report content hash");
+  if (typeof value.content !== "string") {
+    throw new DesktopContractError("application report content is invalid");
+  }
+}
+
+export function assertPrepareWorkflowPayload(
+  payload: PrepareWorkflowPayload,
+  expectedProjectRoot: string,
+  input: PrepareWorkflowInput,
+): void {
+  const value: unknown = payload;
+  if (!isRecord(value)) {
+    throw new DesktopContractError("prepare workflow receipt is invalid");
+  }
+  if (value.project_root !== expectedProjectRoot) {
+    throw new DesktopContractError("prepare workflow receipt project root mismatch");
+  }
+  for (const [field, item] of [
+    ["project id", value.project_id],
+    ["workflow plan id", value.workflow_plan_id],
+  ] as const) {
+    if (typeof item !== "string" || item.length === 0) {
+      throw new DesktopContractError(`prepare workflow receipt ${field} is invalid`);
+    }
+  }
+  if (value.workflow_recipe_id !== input.workflow_recipe_id) {
+    throw new DesktopContractError("prepare workflow receipt recipe id mismatch");
+  }
+  if (value.workflow_recipe_version !== input.workflow_recipe_version) {
+    throw new DesktopContractError("prepare workflow receipt recipe version mismatch");
+  }
+  if (value.root_structure_snapshot_id !== input.root_structure_snapshot_id) {
+    throw new DesktopContractError("prepare workflow receipt root snapshot mismatch");
+  }
+  requireSha256(value.plan_hash, "prepare workflow plan hash");
+  requireSha256(value.planning_hash, "prepare workflow planning hash");
+  if (typeof value.reused !== "boolean") {
+    throw new DesktopContractError("prepare workflow receipt reused flag is invalid");
+  }
+}
+
+function requireSha256(value: unknown, fieldName: string): void {
+  if (typeof value !== "string" || !/^[0-9a-fA-F]{64}$/.test(value)) {
+    throw new DesktopContractError(`${fieldName} is invalid`);
   }
 }
 
