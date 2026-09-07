@@ -26,6 +26,7 @@ _HOST_ERROR_FRAME_TYPE = "host_error"
 class _DesktopRequestHandler(Protocol):
     def handle(self, request: DesktopRequest) -> DesktopResponse:
         """Handle one already-decoded desktop request."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
