@@ -1,0 +1,17 @@
+[package]
+name = "ecatvasp-desktop"
+version = "1.0.0-dev.0"
+description = "ECatVASP production desktop shell"
+authors = ["xiaochen wang"]
+edition = "2021"
+
+[lib]
+name = "ecatvasp_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1"
+tauri = { version = "=2.11.5", features = [] }
