@@ -16,8 +16,11 @@ from ecatvasp.api.application import (
     ApplicationReportResult,
     ProjectApplicationService,
 )
+from ecatvasp.frontend import FrontendHandoff, build_frontend_handoff
 from ecatvasp.provenance import FreshnessState
+from ecatvasp.reporting import ScientificPresentation
 from ecatvasp.storage import ProjectStore
+from ecatvasp.workspace import WorkflowReadinessDashboard, WorkspaceScientificInventory
 
 StatusCounts = tuple[tuple[str, int], ...]
 
@@ -40,7 +43,7 @@ class HeadlessProjectStatus:
 
 
 class ProjectFacade:
-    """Small Python entry point shared by notebooks, scripts, and the CLI."""
+    """Small Python entry point shared by notebooks, scripts, CLI, and frontend adapters."""
 
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
@@ -94,6 +97,23 @@ class ProjectFacade:
         """Render the current project through the Block 5 reporting authority."""
 
         return self.application().report(format=format)
+
+    def frontend_handoff(
+        self,
+        *,
+        inventory: WorkspaceScientificInventory | None = None,
+        readiness: tuple[WorkflowReadinessDashboard, ...] = (),
+        presentations: tuple[ScientificPresentation, ...] = (),
+    ) -> FrontendHandoff:
+        """Reopen current state and build the versioned Block 8 frontend transport envelope."""
+
+        bundle = ProjectStore(self._root).open()
+        return build_frontend_handoff(
+            bundle,
+            inventory=inventory,
+            readiness=readiness,
+            presentations=presentations,
+        )
 
 
 def open_project(root: Path | str) -> ProjectFacade:
