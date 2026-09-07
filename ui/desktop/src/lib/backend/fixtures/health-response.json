@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "operation": "health",
+  "payload": {
+    "backend_version": "1.0.0.dev0",
+    "frontend_handoff_contract_version": "ecatvasp-frontend-handoff-v1",
+    "operations": [
+      "health",
+      "open_project",
+      "status",
+      "frontend_handoff"
+    ],
+    "stateless_project_requests": true
+  },
+  "protocol_version": "ecatvasp-desktop-ipc-v1",
+  "request_id": "desktop-shell-health-fixture"
+}
