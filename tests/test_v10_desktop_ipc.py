@@ -24,6 +24,11 @@ from ecatvasp.storage import (
     ProjectStore,
     UnsupportedSchemaVersionError,
 )
+from ecatvasp.workflow import (
+    WORKFLOW_RECIPE_ADSORBATE_SCIENTIFIC_PREPARATION,
+    WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION,
+    WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
+)
 
 
 def _project_store(root: Path, *, name: str, slug: str) -> tuple[ProjectStore, Project]:
@@ -50,12 +55,22 @@ def test_desktop_ipc_health_is_versioned_stateless_and_deterministic() -> None:
     response = backend.handle(_request("health-1", DesktopOperation.HEALTH))
 
     assert response.ok is True
-    assert response.payload == {
-        "backend_version": "1.0.0.dev0",
-        "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-        "operations": [operation.value for operation in DesktopOperation],
-        "stateless_project_requests": True,
+    assert response.payload is not None
+    assert response.payload["backend_version"] == "1.0.0.dev0"
+    assert (
+        response.payload["frontend_handoff_contract_version"]
+        == FRONTEND_HANDOFF_CONTRACT_VERSION
+    )
+    assert response.payload["operations"] == [operation.value for operation in DesktopOperation]
+    assert response.payload["stateless_project_requests"] is True
+    recipes = response.payload["workflow_recipes"]
+    assert isinstance(recipes, list)
+    assert {item["recipe_id"] for item in recipes} == {
+        WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
+        WORKFLOW_RECIPE_ADSORBATE_SCIENTIFIC_PREPARATION,
+        WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION,
     }
+    assert all(item["version"] == "1" for item in recipes)
     assert __version__ == "1.0.0.dev0"
     assert SCHEMA_VERSION == 3
     assert encode_desktop_response(response) == encode_desktop_response(response)
