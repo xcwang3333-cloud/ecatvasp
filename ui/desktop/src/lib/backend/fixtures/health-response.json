@@ -8,9 +8,28 @@
       "health",
       "open_project",
       "status",
-      "frontend_handoff"
+      "frontend_handoff",
+      "application_report",
+      "prepare_workflow"
     ],
-    "stateless_project_requests": true
+    "stateless_project_requests": true,
+    "workflow_recipes": [
+      {
+        "recipe_id": "ECatVASP.Workflow.SlabScientificPreparation",
+        "version": "1",
+        "description": "Relax a slab, then fan out the accepted structure to ground-state and electronic-structure prerequisite calculations."
+      },
+      {
+        "recipe_id": "ECatVASP.Workflow.AdsorbateScientificPreparation",
+        "version": "1",
+        "description": "Relax an adsorbate structure, then fan out the accepted geometry to static, selected-atom frequency, and electronic-structure prerequisite calculations."
+      },
+      {
+        "recipe_id": "ECatVASP.Workflow.GasReferencePreparation",
+        "version": "1",
+        "description": "Relax an isolated gas reference and fan out its accepted geometry to static and gas-frequency calculations."
+      }
+    ]
   },
   "protocol_version": "ecatvasp-desktop-ipc-v1",
   "request_id": "desktop-shell-health-fixture"
