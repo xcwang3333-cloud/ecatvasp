@@ -1,7 +1,7 @@
 """Typed v1.1 Model Studio application operations over schema-v3 authorities.
 
 The functions in this module compose existing immutable domain/structure tooling with
-``ProjectStore`` persistence.  They do not introduce a second scientific model: all
+``ProjectStore`` persistence. They do not introduce a second scientific model: all
 geometry, atom identity, active-site, adsorption, and conformer semantics remain owned
 by the existing ``ecatvasp.structures`` and ``ecatvasp.domain`` authorities.
 """
@@ -16,6 +16,7 @@ from ecatvasp.domain import (
     ActiveSite,
     ActiveSiteId,
     AdsorptionState,
+    AdsorptionStateId,
     AtomUid,
     Catalyst,
     CatalystId,
@@ -23,6 +24,7 @@ from ecatvasp.domain import (
     ProjectId,
     SideLabel,
     StateConformer,
+    StateConformerId,
     StructureSnapshot,
     StructureSnapshotId,
     StructureVariant,
@@ -134,23 +136,26 @@ class ProjectModelStudioApplicationService(ProjectApplicationService):
         *,
         name: str,
         slug: str,
-        formula: str | None = None,
-        support: str | None = None,
-        series: str | None = None,
+        formula_label: str | None = None,
+        support_type: str | None = None,
+        series_key: str | None = None,
+        series_value: str | int | float | None = None,
         tags: tuple[str, ...] = (),
     ) -> Catalyst:
         """Create one catalyst identity inside the current project."""
 
         bundle = self.store.open()
-        if any(item.slug.casefold() == slug.strip().casefold() for item in bundle.catalysts):
+        normalized_slug = slug.strip().casefold()
+        if any(item.slug.strip().casefold() == normalized_slug for item in bundle.catalysts):
             raise ApplicationServiceError("catalyst slug already exists in this project")
         catalyst = Catalyst(
             project_id=bundle.project.id,
             name=name,
             slug=slug,
-            formula=formula,
-            support=support,
-            series=series,
+            formula_label=formula_label,
+            support_type=support_type,
+            series_key=series_key,
+            series_value=series_value,
             tags=tags,
         )
         self.store.save(replace(bundle, catalysts=(*bundle.catalysts, catalyst)))
@@ -514,14 +519,20 @@ def _require_active_site(bundle: ProjectBundle, active_site_id: ActiveSiteId) ->
     raise ApplicationServiceError("ActiveSite is absent from the current ProjectStore")
 
 
-def _require_adsorption_state(bundle: ProjectBundle, state_id: object) -> AdsorptionState:
+def _require_adsorption_state(
+    bundle: ProjectBundle,
+    state_id: AdsorptionStateId,
+) -> AdsorptionState:
     for item in bundle.adsorption_states:
         if item.id == state_id:
             return item
     raise ApplicationServiceError("AdsorptionState is absent from the current ProjectStore")
 
 
-def _require_conformer(bundle: ProjectBundle, conformer_id: object) -> StateConformer:
+def _require_conformer(
+    bundle: ProjectBundle,
+    conformer_id: StateConformerId,
+) -> StateConformer:
     for item in bundle.state_conformers:
         if item.id == conformer_id:
             return item
