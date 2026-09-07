@@ -9,6 +9,12 @@ from pathlib import Path
 
 WINDOWS_TARGET_TRIPLE = "x86_64-pc-windows-msvc"
 SIDECAR_BASENAME = "ecatvasp-desktop-backend"
+ASE_IO_HIDDEN_IMPORTS = (
+    "ase.io.vasp",
+    "ase.io.cif",
+    "ase.io.xyz",
+    "ase.io.extxyz",
+)
 
 
 def main() -> int:
@@ -30,6 +36,11 @@ def main() -> int:
     work_dir = build_root / "work"
     spec_dir = build_root / "spec"
     output_name = f"{SIDECAR_BASENAME}-{WINDOWS_TARGET_TRIPLE}"
+    hidden_import_args = [
+        argument
+        for module in ASE_IO_HIDDEN_IMPORTS
+        for argument in ("--hidden-import", module)
+    ]
 
     shutil.rmtree(build_root, ignore_errors=True)
     binaries_dir.mkdir(parents=True, exist_ok=True)
@@ -50,6 +61,7 @@ def main() -> int:
             output_name,
             "--paths",
             str(repository_root / "src"),
+            *hidden_import_args,
             "--distpath",
             str(binaries_dir),
             "--workpath",
