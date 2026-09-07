@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -49,7 +50,7 @@ def _snapshot() -> StructureSnapshot:
         ),
         sites=(
             StructureSite(
-                atom_uid=AtomUid("018f2000-0000-7000-8000-000000000001"),
+                atom_uid=AtomUid(UUID("018f2000-0000-7000-8000-000000000001")),
                 element="C",
                 fractional_coords=(0.0, 0.0, 0.5),
             ),
