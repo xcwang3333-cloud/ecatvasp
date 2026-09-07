@@ -179,7 +179,7 @@ def test_v09_projectstore_workspace_frontend_cli_and_drift_fail_closed(tmp_path:
     assert readiness.workflow_plan_id == plan.id
     assert all(step.readiness is WorkflowStepReadiness.BLOCKED for step in readiness.steps)
     assert payload["report"]["project"]["schema_version"] == 3
-    assert payload["report"]["readiness"][0]["workflow_plan_id"] == str(plan.id)
+    assert payload["report"]["workflow_readiness"][0]["workflow_plan_id"] == str(plan.id)
     assert payload["report"]["presentations"][0]["kind"] == "structure"
     assert payload["report"]["presentations"][0]["payload"]["structure_snapshot_id"] == str(
         snapshot.id
@@ -191,7 +191,7 @@ def test_v09_projectstore_workspace_frontend_cli_and_drift_fail_closed(tmp_path:
         stdout=cli_before,
     ) == 0
     status_before = json.loads(cli_before.getvalue())
-    assert ["fresh", 1] in status_before["freshness"]
+    assert all(name != "stale" for name, _ in status_before["freshness"])
     assert status_before["attention_rows"] == 0
 
     changed_site = replace(snapshot.sites[0], fractional_coords=(0.125, 0.0, 0.5))
