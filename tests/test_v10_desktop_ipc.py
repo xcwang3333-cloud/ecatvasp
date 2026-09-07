@@ -18,7 +18,7 @@ from ecatvasp.desktop import (
 )
 from ecatvasp.domain import Project
 from ecatvasp.frontend import FRONTEND_HANDOFF_CONTRACT_VERSION
-from ecatvasp.schema import SCHEMA_VERSION
+from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
 
 
