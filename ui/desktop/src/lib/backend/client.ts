@@ -3,6 +3,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import {
   DESKTOP_IPC_CONTRACT_VERSION,
   type ApplicationReportPayload,
+  type BackendRuntimeDiagnostics,
   type DesktopOperation,
   type DesktopRequest,
   type DesktopSuccessResponse,
@@ -12,13 +13,16 @@ import {
   type PrepareWorkflowInput,
   type PrepareWorkflowPayload,
   type ProjectDesktopOperation,
+  type ReportExportReceipt,
   type ReportFormat,
   type StatusPayload,
   assertApplicationReportPayload,
   assertFrontendHandoffCompatibility,
   assertHealthCompatibility,
   assertPrepareWorkflowPayload,
+  parseBackendRuntimeDiagnostics,
   parseDesktopResponse,
+  parseReportExportReceipt,
   requireSuccess,
 } from "./contracts";
 
@@ -37,11 +41,26 @@ export class DesktopBackendClient {
   }
 
   async connect(): Promise<DesktopSuccessResponse<HealthPayload>> {
+    this.ready = false;
     const raw = await this.invokeFn<string>("backend_health");
     const response = requireSuccess(parseDesktopResponse<HealthPayload>(raw, "health"));
     assertHealthCompatibility(response);
     this.ready = true;
     return response;
+  }
+
+  async restart(): Promise<DesktopSuccessResponse<HealthPayload>> {
+    this.ready = false;
+    const raw = await this.invokeFn<string>("backend_restart");
+    const response = requireSuccess(parseDesktopResponse<HealthPayload>(raw, "health"));
+    assertHealthCompatibility(response);
+    this.ready = true;
+    return response;
+  }
+
+  async diagnostics(): Promise<BackendRuntimeDiagnostics> {
+    const raw = await this.invokeFn<string>("backend_diagnostics");
+    return parseBackendRuntimeDiagnostics(raw);
   }
 
   async openProject(projectRoot: string): Promise<DesktopSuccessResponse<OpenProjectPayload>> {
@@ -80,6 +99,22 @@ export class DesktopBackendClient {
     return response;
   }
 
+  async exportReport(
+    outputDirectory: string,
+    report: ApplicationReportPayload,
+  ): Promise<ReportExportReceipt> {
+    if (outputDirectory.trim().length === 0) {
+      throw new Error("desktop report export requires an explicit output directory");
+    }
+    const raw = await this.invokeFn<string>("desktop_export_report", {
+      outputDirectory,
+      reportFormat: report.report_format,
+      contentSha256: report.content_sha256,
+      content: report.content,
+    });
+    return parseReportExportReceipt(raw, report);
+  }
+
   async prepareWorkflow(
     projectRoot: string,
     input: PrepareWorkflowInput,
@@ -116,8 +151,11 @@ export class DesktopBackendClient {
   }
 
   async shutdown(): Promise<void> {
-    await this.invokeFn<void>("backend_shutdown");
-    this.ready = false;
+    try {
+      await this.invokeFn<void>("backend_shutdown");
+    } finally {
+      this.ready = false;
+    }
   }
 
   private async projectRequest<TPayload>(
@@ -137,12 +175,24 @@ export class DesktopBackendClient {
   private async exchange<TPayload>(
     request: DesktopRequest,
   ): Promise<DesktopSuccessResponse<TPayload>> {
-    const raw = await this.invokeFn<string>("backend_exchange", {
-      requestJson: JSON.stringify(request),
-    });
-    return requireSuccess(
-      parseDesktopResponse<TPayload>(raw, request.operation, request.request_id),
-    );
+    let raw: string;
+    try {
+      raw = await this.invokeFn<string>("backend_exchange", {
+        requestJson: JSON.stringify(request),
+      });
+    } catch (error: unknown) {
+      this.ready = false;
+      throw error;
+    }
+
+    let response;
+    try {
+      response = parseDesktopResponse<TPayload>(raw, request.operation, request.request_id);
+    } catch (error: unknown) {
+      this.ready = false;
+      throw error;
+    }
+    return requireSuccess(response);
   }
 
   private requireReadyProject(projectRoot: string): void {
