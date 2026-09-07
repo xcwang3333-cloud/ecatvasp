@@ -17,9 +17,11 @@
     type ScientificWorkspace,
     parseScientificWorkspace,
   } from "./lib/workspace/contracts";
+  import { LatestWorkspaceLoad } from "./lib/workspace/load_guard";
 
   const client = new DesktopBackendClient();
   const preferencesClient = new DesktopPreferencesClient();
+  const workspaceLoads = new LatestWorkspaceLoad();
 
   let lifecycle: DesktopProjectLifecycle | null = null;
   let connectionState: "connecting" | "ready" | "error" = "connecting";
@@ -50,6 +52,7 @@
   }
 
   async function loadWorkspace(selectedProject: OpenProjectPayload | null): Promise<void> {
+    const loadToken = workspaceLoads.begin();
     if (selectedProject === null) {
       workspace = null;
       workspaceError = "";
@@ -62,6 +65,7 @@
     workspace = null;
     try {
       const response = await client.frontendHandoff(selectedProject.project_root);
+      if (!workspaceLoads.isCurrent(loadToken)) return;
       if (response.payload.project_root !== selectedProject.project_root) {
         throw new Error("desktop workspace handoff returned a different project root");
       }
@@ -71,9 +75,12 @@
       }
       workspace = parsed;
     } catch (error: unknown) {
+      if (!workspaceLoads.isCurrent(loadToken)) return;
       workspaceError = describeError(error, "scientific workspace could not be loaded");
     } finally {
-      workspaceBusy = false;
+      if (workspaceLoads.isCurrent(loadToken)) {
+        workspaceBusy = false;
+      }
     }
   }
 
@@ -172,6 +179,7 @@
 
     return () => {
       disposed = true;
+      workspaceLoads.invalidate();
       void client.shutdown().catch(() => undefined);
     };
   });
