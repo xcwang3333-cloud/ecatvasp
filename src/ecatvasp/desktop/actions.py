@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from ecatvasp.api.application import ApplicationReportFormat, ProjectApplicationService
-from ecatvasp.domain import WorkflowRecipeIdentity
+from ecatvasp.domain import StructureSnapshotId, WorkflowRecipeIdentity
 from ecatvasp.storage import ProjectStore
 from ecatvasp.workflow import get_workflow_recipe_spec, list_workflow_recipe_specs
 
@@ -105,7 +105,7 @@ def prepare_workflow_action(
         version=workflow_recipe_version,
     )
     get_workflow_recipe_spec(identity)
-    snapshot_id = UUID(root_structure_snapshot_id)
+    snapshot_id = StructureSnapshotId(UUID(root_structure_snapshot_id))
     receipt = ProjectApplicationService(ProjectStore(project_root)).prepare_workflow(
         workflow_recipe=identity,
         root_structure_snapshot_id=snapshot_id,
