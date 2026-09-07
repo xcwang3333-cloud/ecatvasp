@@ -171,7 +171,13 @@ export function requireSuccess<TPayload>(
 export function assertHealthCompatibility(
   response: DesktopSuccessResponse<HealthPayload>,
 ): void {
-  const payload = response.payload;
+  const payload: unknown = response.payload;
+  if (!isRecord(payload)) {
+    throw new DesktopContractError("desktop backend health payload is invalid");
+  }
+  if (typeof payload.backend_version !== "string") {
+    throw new DesktopContractError("desktop backend version is invalid");
+  }
   if (!payload.backend_version.startsWith("1.")) {
     throw new DesktopContractError("unsupported backend package major version");
   }
@@ -181,7 +187,10 @@ export function assertHealthCompatibility(
   if (payload.stateless_project_requests !== true) {
     throw new DesktopContractError("desktop backend must advertise stateless project requests");
   }
-  if (!Array.isArray(payload.operations)) {
+  if (
+    !Array.isArray(payload.operations) ||
+    !payload.operations.every((operation) => typeof operation === "string")
+  ) {
     throw new DesktopContractError("desktop backend operations are invalid");
   }
   for (const operation of DESKTOP_OPERATIONS) {
