@@ -53,43 +53,35 @@ def _store(root: Path) -> tuple[ProjectStore, Project, StructureSnapshot]:
 
 def test_action_request_codec_is_operation_specific_and_fail_closed() -> None:
     report = decode_desktop_request(
-        (
-            '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
-            '"request_id":"report-1","operation":"application_report",'
-            '"project_root":"/project","report_format":"json"}'
-        )
+        '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
+        '"request_id":"report-1","operation":"application_report",'
+        '"project_root":"/project","report_format":"json"}'
     )
     assert report.operation is DesktopOperation.APPLICATION_REPORT
     assert report.report_format == "json"
 
     with pytest.raises(DesktopIPCError, match="unknown fields"):
         decode_desktop_request(
-            (
-                '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
-                '"request_id":"report-2","operation":"application_report",'
-                '"project_root":"/project","report_format":"json",'
-                '"workflow_recipe_id":"forbidden"}'
-            )
+            '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
+            '"request_id":"report-2","operation":"application_report",'
+            '"project_root":"/project","report_format":"json",'
+            '"workflow_recipe_id":"forbidden"}'
         )
 
     with pytest.raises(DesktopIPCError, match="must be a UUID"):
         decode_desktop_request(
-            (
-                '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
-                '"request_id":"workflow-1","operation":"prepare_workflow",'
-                '"project_root":"/project","workflow_recipe_id":"recipe",'
-                '"workflow_recipe_version":"1",'
-                '"root_structure_snapshot_id":"not-a-uuid"}'
-            )
+            '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
+            '"request_id":"workflow-1","operation":"prepare_workflow",'
+            '"project_root":"/project","workflow_recipe_id":"recipe",'
+            '"workflow_recipe_version":"1",'
+            '"root_structure_snapshot_id":"not-a-uuid"}'
         )
 
     with pytest.raises(DesktopIPCError, match="unsupported desktop operation"):
         decode_desktop_request(
-            (
-                '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
-                '"request_id":"promotion-1","operation":"promote_vasp_structure",'
-                '"project_root":"/project"}'
-            )
+            '{"protocol_version":"ecatvasp-desktop-ipc-v1",'
+            '"request_id":"promotion-1","operation":"promote_vasp_structure",'
+            '"project_root":"/project"}'
         )
 
 
