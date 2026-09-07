@@ -12,15 +12,34 @@ use std::{
 };
 
 use preferences::{desktop_preferences_load, desktop_preferences_save};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tauri::State;
 
 const DESKTOP_IPC_CONTRACT_VERSION: &str = "ecatvasp-desktop-ipc-v1";
 const FRONTEND_HANDOFF_CONTRACT_VERSION: &str = "ecatvasp-frontend-handoff-v1";
 const BACKEND_EXECUTABLE_ENV: &str = "ECATVASP_DESKTOP_BACKEND";
 const DEFAULT_BACKEND_EXECUTABLE: &str = "ecatvasp-desktop-backend";
-const PROJECT_OPERATIONS: [&str; 3] = ["open_project", "status", "frontend_handoff"];
-const HEALTH_OPERATIONS: [&str; 4] = ["health", "open_project", "status", "frontend_handoff"];
+const PROJECT_OPERATIONS: [&str; 5] = [
+    "open_project",
+    "status",
+    "frontend_handoff",
+    "application_report",
+    "prepare_workflow",
+];
+const HEALTH_OPERATIONS: [&str; 6] = [
+    "health",
+    "open_project",
+    "status",
+    "frontend_handoff",
+    "application_report",
+    "prepare_workflow",
+];
+const BASE_REQUEST_FIELDS: [&str; 4] = [
+    "protocol_version",
+    "request_id",
+    "operation",
+    "project_root",
+];
 
 #[derive(Default)]
 struct BackendState {
@@ -179,41 +198,96 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
     let object = request
         .as_object()
         .ok_or_else(|| "desktop frontend request must be an object".to_string())?;
-    for key in object.keys() {
-        if !matches!(
-            key.as_str(),
-            "protocol_version" | "request_id" | "operation" | "project_root"
-        ) {
-            return Err(format!("desktop frontend request contains unknown field: {key}"));
-        }
-    }
     if object.get("protocol_version").and_then(Value::as_str)
         != Some(DESKTOP_IPC_CONTRACT_VERSION)
     {
         return Err("unsupported desktop IPC contract version".to_string());
     }
-    let request_id = object
-        .get("request_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "desktop frontend request_id must be a string".to_string())?;
+    let request_id = require_nonblank_string(object, "request_id")?;
     if request_id.trim().is_empty() {
         return Err("desktop frontend request_id must not be blank".to_string());
     }
-    let operation = object
-        .get("operation")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "desktop frontend operation must be a string".to_string())?;
+    let operation = require_nonblank_string(object, "operation")?;
     if !PROJECT_OPERATIONS.contains(&operation) {
-        return Err("desktop frontend operation is not available in Block 3".to_string());
+        return Err("desktop frontend operation is not available in Block 6".to_string());
     }
-    let project_root = object
-        .get("project_root")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "desktop frontend project_root must be a string".to_string())?;
-    if project_root.trim().is_empty() {
-        return Err("desktop frontend project_root must not be blank".to_string());
+    require_nonblank_string(object, "project_root")?;
+
+    match operation {
+        "open_project" | "status" | "frontend_handoff" => {
+            validate_allowed_fields(object, &BASE_REQUEST_FIELDS)?;
+        }
+        "application_report" => {
+            let allowed = [
+                "protocol_version",
+                "request_id",
+                "operation",
+                "project_root",
+                "report_format",
+            ];
+            validate_allowed_fields(object, &allowed)?;
+            let format = require_nonblank_string(object, "report_format")?;
+            if !matches!(format, "json" | "csv" | "markdown") {
+                return Err("desktop report format is unsupported".to_string());
+            }
+        }
+        "prepare_workflow" => {
+            let allowed = [
+                "protocol_version",
+                "request_id",
+                "operation",
+                "project_root",
+                "workflow_recipe_id",
+                "workflow_recipe_version",
+                "root_structure_snapshot_id",
+                "parameters_hash",
+            ];
+            validate_allowed_fields(object, &allowed)?;
+            require_nonblank_string(object, "workflow_recipe_id")?;
+            require_nonblank_string(object, "workflow_recipe_version")?;
+            require_nonblank_string(object, "root_structure_snapshot_id")?;
+            if let Some(parameters_hash) = object.get("parameters_hash") {
+                let value = parameters_hash
+                    .as_str()
+                    .ok_or_else(|| "desktop parameters_hash must be a string".to_string())?;
+                if !is_sha256(value) {
+                    return Err("desktop parameters_hash must be a SHA-256 digest".to_string());
+                }
+            }
+        }
+        _ => return Err("desktop frontend operation is not available in Block 6".to_string()),
     }
     Ok(())
+}
+
+fn validate_allowed_fields(
+    object: &Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    for key in object.keys() {
+        if !allowed.contains(&key.as_str()) {
+            return Err(format!("desktop frontend request contains unknown field: {key}"));
+        }
+    }
+    Ok(())
+}
+
+fn require_nonblank_string<'a>(
+    object: &'a Map<String, Value>,
+    field_name: &str,
+) -> Result<&'a str, String> {
+    let value = object
+        .get(field_name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("desktop frontend {field_name} must be a string"))?;
+    if value.trim().is_empty() {
+        return Err(format!("desktop frontend {field_name} must not be blank"));
+    }
+    Ok(value)
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn validate_correlated_response(request: &Value, response: &Value) -> Result<(), String> {
@@ -283,6 +357,24 @@ fn validate_health_response(response: &Value) -> Result<(), String> {
             return Err(format!("desktop backend is missing operation: {expected}"));
         }
     }
+    let recipes = payload
+        .get("workflow_recipes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "desktop backend workflow recipes are invalid".to_string())?;
+    if recipes.is_empty() {
+        return Err("desktop backend workflow recipes are empty".to_string());
+    }
+    for recipe in recipes {
+        let recipe = recipe
+            .as_object()
+            .ok_or_else(|| "desktop backend workflow recipe is invalid".to_string())?;
+        require_nonblank_string(recipe, "recipe_id")?;
+        require_nonblank_string(recipe, "version")?;
+        match recipe.get("description") {
+            Some(Value::String(_)) | Some(Value::Null) => {}
+            _ => return Err("desktop backend workflow recipe description is invalid".to_string()),
+        }
+    }
     Ok(())
 }
 
@@ -323,6 +415,50 @@ mod tests {
     }
 
     #[test]
+    fn frontend_request_enforces_typed_action_fields() {
+        let report = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "report-1",
+            "operation": "application_report",
+            "project_root": "/project",
+            "report_format": "json"
+        });
+        let workflow = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "workflow-1",
+            "operation": "prepare_workflow",
+            "project_root": "/project",
+            "workflow_recipe_id": "ECatVASP.Workflow.SlabScientificPreparation",
+            "workflow_recipe_version": "1",
+            "root_structure_snapshot_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "parameters_hash": "a".repeat(64)
+        });
+        assert!(validate_frontend_request(&report).is_ok());
+        assert!(validate_frontend_request(&workflow).is_ok());
+
+        let report_with_workflow_field = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "report-2",
+            "operation": "application_report",
+            "project_root": "/project",
+            "report_format": "json",
+            "workflow_recipe_id": "forbidden"
+        });
+        let generic_payload = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "workflow-2",
+            "operation": "prepare_workflow",
+            "project_root": "/project",
+            "workflow_recipe_id": "recipe",
+            "workflow_recipe_version": "1",
+            "root_structure_snapshot_id": "snapshot",
+            "payload": {"arbitrary": true}
+        });
+        assert!(validate_frontend_request(&report_with_workflow_field).is_err());
+        assert!(validate_frontend_request(&generic_payload).is_err());
+    }
+
+    #[test]
     fn health_response_rejects_unknown_contract_major() {
         let response = json!({
             "protocol_version": "ecatvasp-desktop-ipc-v2",
@@ -333,7 +469,12 @@ mod tests {
                 "backend_version": "1.0.0.dev0",
                 "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
                 "operations": HEALTH_OPERATIONS,
-                "stateless_project_requests": true
+                "stateless_project_requests": true,
+                "workflow_recipes": [{
+                    "recipe_id": "recipe",
+                    "version": "1",
+                    "description": null
+                }]
             }
         });
         let request = json!({
@@ -343,6 +484,43 @@ mod tests {
         });
 
         assert!(validate_correlated_response(&request, &response).is_err());
+    }
+
+    #[test]
+    fn health_response_requires_typed_action_catalog() {
+        let response = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "tauri-health-1",
+            "operation": "health",
+            "ok": true,
+            "payload": {
+                "backend_version": "1.0.0.dev0",
+                "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
+                "operations": HEALTH_OPERATIONS,
+                "stateless_project_requests": true,
+                "workflow_recipes": [{
+                    "recipe_id": "recipe",
+                    "version": "1",
+                    "description": null
+                }]
+            }
+        });
+        assert!(validate_health_response(&response).is_ok());
+
+        let missing = json!({
+            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "request_id": "tauri-health-2",
+            "operation": "health",
+            "ok": true,
+            "payload": {
+                "backend_version": "1.0.0.dev0",
+                "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
+                "operations": ["health", "open_project", "status", "frontend_handoff"],
+                "stateless_project_requests": true,
+                "workflow_recipes": []
+            }
+        });
+        assert!(validate_health_response(&missing).is_err());
     }
 
     #[test]
