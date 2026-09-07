@@ -5,9 +5,12 @@ import { DesktopBackendClient, type InvokeFn } from "./client";
 import {
   DESKTOP_IPC_CONTRACT_VERSION,
   DesktopContractError,
+  type ApplicationReportPayload,
   type HealthPayload,
   assertHealthCompatibility,
+  parseBackendRuntimeDiagnostics,
   parseDesktopResponse,
+  parseReportExportReceipt,
   requireSuccess,
 } from "./contracts";
 
@@ -247,5 +250,198 @@ describe("desktop contract compatibility", () => {
       }),
     ).rejects.toThrow("parameters hash must be SHA-256");
     expect(calls).toEqual(["backend_health"]);
+  });
+
+  it("invalidates readiness on transport failure and requires explicit restart", async () => {
+    const calls: string[] = [];
+    let failTransport = true;
+    const invokeFn: InvokeFn = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      calls.push(command);
+      if (command === "backend_health" || command === "backend_restart") {
+        return fixtureJson() as T;
+      }
+      if (command === "backend_exchange") {
+        if (failTransport) {
+          failTransport = false;
+          throw new Error("simulated transport failure");
+        }
+        const request = JSON.parse(String(args?.requestJson)) as Record<string, unknown>;
+        return JSON.stringify({
+          protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+          request_id: request.request_id,
+          operation: request.operation,
+          ok: true,
+          payload: {
+            project_root: request.project_root,
+            project_id: "project-id",
+            project_name: "Project A",
+            project_slug: "project-a",
+            schema_version: 3,
+            projection_hash: "a".repeat(64),
+            calculations: [],
+            analyses: [],
+            execution_attempts: [],
+            scheduler_jobs: [],
+            freshness: [],
+            attention_rows: 0,
+          },
+        }) as T;
+      }
+      throw new Error(`unexpected command: ${command}`);
+    };
+    const client = new DesktopBackendClient(invokeFn);
+
+    await client.connect();
+    await expect(client.status("/project-a")).rejects.toThrow("simulated transport failure");
+    const callsAfterFailure = calls.length;
+    await expect(client.status("/project-a")).rejects.toThrow(
+      "desktop backend health handshake is required",
+    );
+    expect(calls.length).toBe(callsAfterFailure);
+
+    await client.restart();
+    const status = await client.status("/project-a");
+    expect(status.payload.project_id).toBe("project-id");
+    expect(calls).toContain("backend_restart");
+  });
+
+  it("keeps readiness after a correlated application-level backend rejection", async () => {
+    let requestCount = 0;
+    const invokeFn: InvokeFn = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command === "backend_health") return fixtureJson() as T;
+      if (command !== "backend_exchange") throw new Error(`unexpected command: ${command}`);
+      requestCount += 1;
+      const request = JSON.parse(String(args?.requestJson)) as Record<string, unknown>;
+      if (requestCount === 1) {
+        return JSON.stringify({
+          protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+          request_id: request.request_id,
+          operation: request.operation,
+          ok: false,
+          error: { code: "project_unavailable", message: "project unavailable" },
+        }) as T;
+      }
+      return JSON.stringify({
+        protocol_version: DESKTOP_IPC_CONTRACT_VERSION,
+        request_id: request.request_id,
+        operation: request.operation,
+        ok: true,
+        payload: {
+          project_root: request.project_root,
+          project_id: "project-id",
+          project_name: "Project A",
+          project_slug: "project-a",
+          schema_version: 3,
+        },
+      }) as T;
+    };
+    const client = new DesktopBackendClient(invokeFn);
+
+    await client.connect();
+    await expect(client.openProject("/missing")).rejects.toThrow("project unavailable");
+    const reopened = await client.openProject("/project-a");
+    expect(reopened.payload.project_id).toBe("project-id");
+    expect(requestCount).toBe(2);
+  });
+
+  it("accepts only sanitized runtime diagnostics fields", () => {
+    expect(
+      parseBackendRuntimeDiagnostics(
+        JSON.stringify({
+          backend_state: "unavailable",
+          restart_count: 2,
+          last_failure_kind: "transport",
+        }),
+      ),
+    ).toEqual({
+      backend_state: "unavailable",
+      restart_count: 2,
+      last_failure_kind: "transport",
+    });
+
+    expect(() =>
+      parseBackendRuntimeDiagnostics(
+        JSON.stringify({
+          backend_state: "ready",
+          restart_count: 0,
+          last_failure_kind: null,
+          project_root: "C:/secret/project",
+        }),
+      ),
+    ).toThrow("unexpected fields");
+  });
+
+  it("exports exact report bytes without accepting a frontend filename", async () => {
+    const digest = "f".repeat(64);
+    const report: ApplicationReportPayload = {
+      project_root: "/project-a",
+      project_id: "project-id",
+      report_format: "markdown",
+      report_contract_version: "ecatvasp-scientific-report-v1",
+      report_hash: "e".repeat(64),
+      content_sha256: digest,
+      content: "# Current report\n",
+    };
+    let capturedArgs: Record<string, unknown> | undefined;
+    const invokeFn: InvokeFn = async <T>(
+      command: string,
+      args?: Record<string, unknown>,
+    ): Promise<T> => {
+      if (command !== "desktop_export_report") throw new Error(`unexpected command: ${command}`);
+      capturedArgs = args;
+      return JSON.stringify({
+        file_name: `ecatvasp-report-${digest}.md`,
+        report_format: "markdown",
+        content_sha256: digest,
+        bytes_written: new TextEncoder().encode(report.content).byteLength,
+        reused: false,
+      }) as T;
+    };
+    const client = new DesktopBackendClient(invokeFn);
+
+    const receipt = await client.exportReport("C:/exports", report);
+
+    expect(receipt.file_name).toBe(`ecatvasp-report-${digest}.md`);
+    expect(capturedArgs).toEqual({
+      outputDirectory: "C:/exports",
+      reportFormat: "markdown",
+      contentSha256: digest,
+      content: report.content,
+    });
+    expect(capturedArgs).not.toHaveProperty("fileName");
+    expect(capturedArgs).not.toHaveProperty("projectRoot");
+  });
+
+  it("rejects export receipts that leak runtime paths", () => {
+    const digest = "d".repeat(64);
+    const report: ApplicationReportPayload = {
+      project_root: "/project-a",
+      project_id: "project-id",
+      report_format: "json",
+      report_contract_version: "ecatvasp-scientific-report-v1",
+      report_hash: "c".repeat(64),
+      content_sha256: digest,
+      content: "{}\n",
+    };
+
+    expect(() =>
+      parseReportExportReceipt(
+        JSON.stringify({
+          file_name: `ecatvasp-report-${digest}.json`,
+          report_format: "json",
+          content_sha256: digest,
+          bytes_written: 3,
+          reused: false,
+          output_directory: "C:/secret",
+        }),
+        report,
+      ),
+    ).toThrow("unexpected fields");
   });
 });
