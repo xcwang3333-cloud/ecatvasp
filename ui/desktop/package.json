@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
+    "matterviz": "0.6.0",
     "svelte": "5.57.0"
   },
   "devDependencies": {
