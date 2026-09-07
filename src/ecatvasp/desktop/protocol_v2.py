@@ -168,7 +168,7 @@ class DesktopV2PrepareWorkflowRequest:
             raise DesktopIPCError("parameters_hash must be a SHA-256 digest")
 
     def to_dict(self) -> dict[str, object]:
-        payload = {
+        payload: dict[str, object] = {
             **_base_payload(self.protocol_version, self.request_id, self.operation),
             "project_root": self.project_root,
             "workflow_recipe_id": self.workflow_recipe_id,
@@ -249,7 +249,7 @@ class DesktopBackendV2:
             root = Path(request.project_root)
             try:
                 try:
-                    receipt = report_action(
+                    report_receipt = report_action(
                         project_root=root,
                         report_format=request.report_format,
                     )
@@ -265,7 +265,7 @@ class DesktopBackendV2:
                 return self._success(
                     request.request_id,
                     request.operation,
-                    {"project_root": str(root), **receipt.to_dict()},
+                    {"project_root": str(root), **report_receipt.to_dict()},
                 )
             except _PROJECT_READ_ERRORS as error:
                 return self._project_failure(request.request_id, request.operation, error)
@@ -274,7 +274,7 @@ class DesktopBackendV2:
             root = Path(request.project_root)
             try:
                 try:
-                    receipt = prepare_workflow_action(
+                    workflow_receipt = prepare_workflow_action(
                         project_root=root,
                         workflow_recipe_id=request.workflow_recipe_id,
                         workflow_recipe_version=request.workflow_recipe_version,
@@ -293,7 +293,7 @@ class DesktopBackendV2:
                 return self._success(
                     request.request_id,
                     request.operation,
-                    {"project_root": str(root), **receipt.to_dict()},
+                    {"project_root": str(root), **workflow_receipt.to_dict()},
                 )
             except _PROJECT_READ_ERRORS as error:
                 return self._project_failure(request.request_id, request.operation, error)
