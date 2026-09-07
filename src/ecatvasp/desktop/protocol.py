@@ -10,6 +10,7 @@ from typing import Any
 
 from ecatvasp import __version__
 from ecatvasp.api import open_project
+from ecatvasp.desktop.workspace import build_desktop_frontend_handoff
 from ecatvasp.frontend import FRONTEND_HANDOFF_CONTRACT_VERSION
 from ecatvasp.storage import (
     MigrationPathError,
@@ -179,7 +180,8 @@ class DesktopBackend:
                     },
                 )
             if request.operation is DesktopOperation.FRONTEND_HANDOFF:
-                handoff = facade.frontend_handoff()
+                bundle = ProjectStore(root).open()
+                handoff = build_desktop_frontend_handoff(bundle)
                 return self._success(
                     request,
                     {
