@@ -169,7 +169,9 @@ def test_single_metal_active_site_and_adsorbate_conformer_persist_exact_uids(
     assert adsorbate.conformer.id in {item.id for item in reopened.state_conformers}
     assert adsorbate.build.snapshot.id in {item.id for item in reopened.structure_snapshots}
     assert metal.variant.current_structure_snapshot_id == metal.build.snapshot.id
-    persisted_variant = next(item for item in reopened.structure_variants if item.id == metal.variant.id)
+    persisted_variant = next(
+        item for item in reopened.structure_variants if item.id == metal.variant.id
+    )
     assert persisted_variant.current_structure_snapshot_id == metal.build.snapshot.id
     assert adsorbate.conformer.structure_snapshot_id == adsorbate.build.snapshot.id
     assert adsorbate.conformer.binding_edges[0].site_atom_uid == metal.build.metal_atom_uid
