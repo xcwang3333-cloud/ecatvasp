@@ -22,17 +22,19 @@ from ecatvasp.desktop.protocol import (
     encode_desktop_response,
 )
 from ecatvasp.desktop.protocol_v2 import (
-    DESKTOP_IPC_V2_CONTRACT_VERSION,
     DesktopBackendV2,
     DesktopV2ApplicationReportRequest,
     DesktopV2HealthRequest,
-    DesktopV2Operation,
     DesktopV2PrepareWorkflowRequest,
     DesktopV2ProjectRequest,
     DesktopV2Request,
     DesktopV2Response,
     decode_desktop_v2_request,
     encode_desktop_v2_response,
+)
+from ecatvasp.desktop.protocol_v2_common import (
+    DESKTOP_IPC_V2_CONTRACT_VERSION,
+    DesktopV2Operation,
 )
 from ecatvasp.desktop.workspace import DesktopProjectDashboard, build_desktop_project_dashboard
 
