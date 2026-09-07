@@ -3,7 +3,11 @@
 
   import ApplicationActionsView from "./lib/actions/ApplicationActionsView.svelte";
   import { DesktopBackendClient } from "./lib/backend/client";
-  import type { HealthPayload, OpenProjectPayload } from "./lib/backend/contracts";
+  import type {
+    BackendRuntimeDiagnostics,
+    HealthPayload,
+    OpenProjectPayload,
+  } from "./lib/backend/contracts";
   import { DesktopPreferencesClient } from "./lib/preferences/client";
   import {
     type DesktopPreferences,
@@ -27,12 +31,14 @@
   let lifecycle: DesktopProjectLifecycle | null = null;
   let connectionState: "connecting" | "ready" | "error" = "connecting";
   let health: HealthPayload | null = null;
+  let runtimeDiagnostics: BackendRuntimeDiagnostics | null = null;
   let project: OpenProjectPayload | null = null;
   let preferences: DesktopPreferences = defaultDesktopPreferences();
   let workspace: ScientificWorkspace | null = null;
   let projectRootInput = "";
   let projectBusy = false;
   let workspaceBusy = false;
+  let recoveryBusy = false;
   let connectionError = "";
   let projectError = "";
   let workspaceError = "";
@@ -49,6 +55,14 @@
     }
     if (snapshot.restore_error !== null) {
       projectError = `Saved project could not be reopened: ${snapshot.restore_error}`;
+    }
+  }
+
+  async function refreshDiagnostics(): Promise<void> {
+    try {
+      runtimeDiagnostics = await client.diagnostics();
+    } catch {
+      runtimeDiagnostics = null;
     }
   }
 
@@ -81,6 +95,7 @@
     } catch (error: unknown) {
       if (!workspaceLoads.isCurrent(loadToken)) return;
       workspaceError = describeError(error, "scientific workspace could not be loaded");
+      await refreshDiagnostics();
     } finally {
       if (workspaceLoads.isCurrent(loadToken)) {
         workspaceBusy = false;
@@ -98,6 +113,7 @@
       await loadWorkspace(snapshot.project);
     } catch (error: unknown) {
       projectError = describeError(error, "project could not be opened");
+      await refreshDiagnostics();
     } finally {
       projectBusy = false;
     }
@@ -149,6 +165,49 @@
     const selectedProject = project;
     if (selectedProject === null) return;
     await loadWorkspace(selectedProject, true);
+    await refreshDiagnostics();
+  }
+
+  async function restoreProjectAfterHandshake(): Promise<void> {
+    const projectLifecycle = lifecycle ?? new DesktopProjectLifecycle(client, preferencesClient);
+    lifecycle = projectLifecycle;
+    projectBusy = true;
+    projectError = "";
+    try {
+      const restored =
+        project === null
+          ? await projectLifecycle.restore()
+          : await projectLifecycle.open(project.project_root);
+      applySnapshot(restored);
+      await loadWorkspace(restored.project);
+    } catch (error: unknown) {
+      projectError = `Project could not be reloaded after backend recovery: ${describeError(
+        error,
+        "current ProjectStore could not be reopened",
+      )}`;
+    } finally {
+      projectBusy = false;
+    }
+  }
+
+  async function restartBackend(): Promise<void> {
+    if (recoveryBusy) return;
+    recoveryBusy = true;
+    connectionState = "connecting";
+    connectionError = "";
+    workspaceLoads.invalidate();
+    try {
+      const response = await client.restart();
+      health = response.payload;
+      connectionState = "ready";
+      await restoreProjectAfterHandshake();
+    } catch (error: unknown) {
+      connectionError = describeError(error, "desktop backend restart failed");
+      connectionState = "error";
+    } finally {
+      await refreshDiagnostics();
+      recoveryBusy = false;
+    }
   }
 
   onMount(() => {
@@ -184,6 +243,8 @@
         if (disposed) return;
         connectionError = describeError(error, "desktop backend connection failed");
         connectionState = "error";
+      } finally {
+        if (!disposed) await refreshDiagnostics();
       }
     })();
 
@@ -231,6 +292,9 @@
       <div class="runtime-state runtime-error">
         <strong>Compatibility handshake failed</strong>
         <p>{connectionError}</p>
+        <button type="button" class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>
+          {recoveryBusy ? "Restarting…" : "Restart backend"}
+        </button>
       </div>
     </section>
   {:else}
@@ -399,7 +463,15 @@
         <div class="section-heading compact-heading">
           <div>
             <h2>Runtime contract</h2>
-            <p>Compatibility details remain independent from project scientific state.</p>
+            <p>Compatibility and recovery diagnostics remain independent from project scientific state.</p>
+          </div>
+          <div>
+            <button type="button" class="text-button" onclick={() => void refreshDiagnostics()}>
+              Refresh diagnostics
+            </button>
+            <button type="button" class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>
+              {recoveryBusy ? "Restarting…" : "Restart backend"}
+            </button>
           </div>
         </div>
         <dl class="runtime-grid">
@@ -419,7 +491,24 @@
             <dt>Project requests</dt>
             <dd>{health.stateless_project_requests ? "Stateless" : "Unsupported"}</dd>
           </div>
+          <div>
+            <dt>Runtime state</dt>
+            <dd>{runtimeDiagnostics?.backend_state ?? "Unavailable"}</dd>
+          </div>
+          <div>
+            <dt>Successful restarts</dt>
+            <dd>{runtimeDiagnostics?.restart_count ?? 0}</dd>
+          </div>
+          <div>
+            <dt>Last runtime failure</dt>
+            <dd>{runtimeDiagnostics?.last_failure_kind ?? "None"}</dd>
+          </div>
         </dl>
+        <p>
+          Runtime diagnostics intentionally omit process IDs, executable/project paths, environment
+          values, request bodies, and scientific data. Restart only re-establishes transport; the
+          current project is reopened from ProjectStore before workspace state is shown again.
+        </p>
       </section>
     {/if}
   {/if}
