@@ -205,7 +205,9 @@ def _execution_orchestration(
     )
 
 
-def _workflow_store(tmp_path: Path) -> tuple[Project, StructureSnapshot, MethodFingerprint, ProjectStore]:
+def _workflow_store(
+    tmp_path: Path,
+) -> tuple[Project, StructureSnapshot, MethodFingerprint, ProjectStore]:
     project = Project(name="Application workflow", slug="application-workflow")
     root = _snapshot()
     fingerprint = _fingerprint()
@@ -314,7 +316,7 @@ def test_prepare_materialize_and_run_are_durable_and_replay_safe(tmp_path: Path)
     reopened = store.open()
     assert len(reopened.execution_attempts) == 1
     assert reopened.remote_jobs == ()
-    assert reopened.calculations[0].status is CalculationScientificStatus.READY
+    assert reopened.calculations[0].status is CalculationScientificStatus.DRAFT
 
 
 @dataclass(frozen=True, slots=True)
