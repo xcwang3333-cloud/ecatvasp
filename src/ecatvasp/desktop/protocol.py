@@ -124,7 +124,7 @@ class DesktopBackend:
     """Stateless adapter from desktop requests to existing authoritative Python contracts."""
 
     def handle(self, request: DesktopRequest) -> DesktopResponse:
-        """Handle one request without retaining a ProjectBundle, facade, or active-project session."""
+        """Handle one request without retaining project or active-session authority."""
 
         if request.operation is DesktopOperation.HEALTH:
             return self._success(request, _health_payload())
