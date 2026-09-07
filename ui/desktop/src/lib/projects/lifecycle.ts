@@ -32,23 +32,26 @@ export class DesktopProjectLifecycle {
   ) {}
 
   async restore(): Promise<ProjectLifecycleSnapshot> {
-    this.preferences = await this.preferencesClient.load();
-    const root = this.preferences.current_project_root;
+    const loaded = await this.preferencesClient.load();
+    const root = loaded.current_project_root;
     if (root === null) {
+      this.preferences = loaded;
       this.project = null;
       return this.snapshot(null);
     }
 
     try {
       const response = await this.backend.openProject(root);
+      const next = withOpenedProject(loaded, response.payload.project_root);
+      await this.preferencesClient.save(next);
+      this.preferences = next;
       this.project = response.payload;
-      this.preferences = withOpenedProject(this.preferences, response.payload.project_root);
-      await this.preferencesClient.save(this.preferences);
       return this.snapshot(null);
     } catch (error: unknown) {
+      const next = withoutCurrentProject(loaded);
+      await this.preferencesClient.save(next);
+      this.preferences = next;
       this.project = null;
-      this.preferences = withoutCurrentProject(this.preferences);
-      await this.preferencesClient.save(this.preferences);
       return this.snapshot(describeError(error));
     }
   }
@@ -59,26 +62,29 @@ export class DesktopProjectLifecycle {
       throw new Error("project root must not be blank");
     }
     const response = await this.backend.openProject(root);
+    const next = withOpenedProject(this.preferences, response.payload.project_root);
+    await this.preferencesClient.save(next);
+    this.preferences = next;
     this.project = response.payload;
-    this.preferences = withOpenedProject(this.preferences, response.payload.project_root);
-    await this.preferencesClient.save(this.preferences);
     return this.snapshot(null);
   }
 
   async close(): Promise<ProjectLifecycleSnapshot> {
+    const next = withoutCurrentProject(this.preferences);
+    await this.preferencesClient.save(next);
+    this.preferences = next;
     this.project = null;
-    this.preferences = withoutCurrentProject(this.preferences);
-    await this.preferencesClient.save(this.preferences);
     return this.snapshot(null);
   }
 
   async forget(projectRoot: string): Promise<ProjectLifecycleSnapshot> {
     const wasCurrent = this.preferences.current_project_root === projectRoot;
-    this.preferences = withoutRecentProject(this.preferences, projectRoot);
+    const next = withoutRecentProject(this.preferences, projectRoot);
+    await this.preferencesClient.save(next);
+    this.preferences = next;
     if (wasCurrent) {
       this.project = null;
     }
-    await this.preferencesClient.save(this.preferences);
     return this.snapshot(null);
   }
 
