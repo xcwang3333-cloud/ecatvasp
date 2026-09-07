@@ -67,11 +67,23 @@ def test_desktop_package_scripts_build_sidecar_before_windows_package() -> None:
     )
 
 
+def test_windows_icon_resource_is_generated_without_image_runtime_dependency() -> None:
+    build_rs = (_DESKTOP_ROOT / "src-tauri" / "build.rs").read_text(encoding="utf-8")
+    assert "CARGO_CFG_TARGET_OS" in build_rs
+    assert 'Path::new("icons/icon.png")' in build_rs
+    assert 'Path::new("icons/icon.ico")' in build_rs
+    assert "PNG_SIGNATURE" in build_rs
+    assert "IHDR" in build_rs
+    assert "Command::new" not in build_rs
+    assert (_DESKTOP_ROOT / "src-tauri" / "icons" / "icon.png").is_file()
+
+
 def test_generated_packaging_outputs_are_gitignored() -> None:
     ignored = (_REPOSITORY_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert "ui/desktop/.packaging-build/" in ignored
     assert "ui/desktop/src-tauri/binaries/" in ignored
     assert "ui/desktop/src-tauri/target/" in ignored
+    assert "ui/desktop/src-tauri/icons/icon.ico" in ignored
 
 
 def test_packaging_entrypoints_exist_without_importing_build_dependencies() -> None:
