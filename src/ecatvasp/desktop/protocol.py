@@ -257,10 +257,19 @@ class DesktopBackend:
 
             if request.operation is DesktopOperation.APPLICATION_REPORT:
                 assert request.report_format is not None
-                receipt = report_action(
-                    project_root=root,
-                    report_format=request.report_format,
-                )
+                try:
+                    receipt = report_action(
+                        project_root=root,
+                        report_format=request.report_format,
+                    )
+                except _PROJECT_READ_ERRORS:
+                    raise
+                except ValueError as error:
+                    return self._failure(
+                        request,
+                        code="application_rejected",
+                        message=str(error),
+                    )
                 return self._success(
                     request,
                     {"project_root": str(root), **receipt.to_dict()},
@@ -270,13 +279,22 @@ class DesktopBackend:
                 assert request.workflow_recipe_id is not None
                 assert request.workflow_recipe_version is not None
                 assert request.root_structure_snapshot_id is not None
-                receipt = prepare_workflow_action(
-                    project_root=root,
-                    workflow_recipe_id=request.workflow_recipe_id,
-                    workflow_recipe_version=request.workflow_recipe_version,
-                    root_structure_snapshot_id=request.root_structure_snapshot_id,
-                    parameters_hash=request.parameters_hash,
-                )
+                try:
+                    receipt = prepare_workflow_action(
+                        project_root=root,
+                        workflow_recipe_id=request.workflow_recipe_id,
+                        workflow_recipe_version=request.workflow_recipe_version,
+                        root_structure_snapshot_id=request.root_structure_snapshot_id,
+                        parameters_hash=request.parameters_hash,
+                    )
+                except _PROJECT_READ_ERRORS:
+                    raise
+                except ValueError as error:
+                    return self._failure(
+                        request,
+                        code="application_rejected",
+                        message=str(error),
+                    )
                 return self._success(
                     request,
                     {"project_root": str(root), **receipt.to_dict()},
@@ -316,12 +334,6 @@ class DesktopBackend:
             return self._failure(
                 request,
                 code="project_unavailable",
-                message=str(error),
-            )
-        except ValueError as error:
-            return self._failure(
-                request,
-                code="application_rejected",
                 message=str(error),
             )
 
@@ -441,4 +453,6 @@ def _optional_string(raw: dict[str, Any], field_name: str) -> str | None:
 
 
 def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(character in "0123456789abcdefABCDEF" for character in value)
+    return len(value) == 64 and all(
+        character in "0123456789abcdefABCDEF" for character in value
+    )
