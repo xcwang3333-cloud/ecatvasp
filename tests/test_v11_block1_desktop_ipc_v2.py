@@ -126,7 +126,9 @@ def test_v1_and_v2_health_are_distinct_and_schema_remains_three() -> None:
     assert SCHEMA_VERSION == 3
 
 
-def test_project_dashboard_is_page_scoped_and_preserves_lifecycle_namespaces(tmp_path: Path) -> None:
+def test_project_dashboard_is_page_scoped_and_preserves_lifecycle_namespaces(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "dashboard"
     _store(root, "Dashboard")
     response = DesktopBackendV2().handle(
