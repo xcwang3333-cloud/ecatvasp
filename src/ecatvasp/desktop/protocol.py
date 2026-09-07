@@ -40,7 +40,7 @@ _REPORT_FORMATS = frozenset({"json", "csv", "markdown"})
 _BASE_REQUEST_FIELDS = frozenset(
     {"protocol_version", "request_id", "operation", "project_root"}
 )
-_OPERATION_FIELDS: dict["DesktopOperation", frozenset[str]] = {}
+_OPERATION_FIELDS: dict[DesktopOperation, frozenset[str]] = {}
 
 
 class DesktopIPCError(ValueError):
