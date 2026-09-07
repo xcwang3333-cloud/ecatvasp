@@ -143,7 +143,7 @@ The desktop subtree uses the current stable v1.0 development stack selected on 2
 - Svelte Vite plugin 7.3.0;
 - Vite 8.1.0;
 - official `svelte-check` 4.7.6;
-- TypeScript 7.0.2;
+- TypeScript 6.0.3, the latest stable 6.x line compatible with `svelte-check`'s declared peer range;
 - Vitest 5.0.0;
 - Node 24 in CI.
 
