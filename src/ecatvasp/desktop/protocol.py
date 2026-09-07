@@ -47,10 +47,14 @@ class DesktopRequest:
             raise DesktopIPCError("unsupported desktop IPC contract version")
         if not self.request_id.strip():
             raise DesktopIPCError("request_id must not be blank")
-        if self.operation is DesktopOperation.HEALTH:
-            if self.project_root is not None:
-                raise DesktopIPCError("health request must not include project_root")
-        elif self.project_root is None or not self.project_root.strip():
+        if not isinstance(self.operation, DesktopOperation):
+            raise DesktopIPCError("operation must be a DesktopOperation")
+        if self.operation is DesktopOperation.HEALTH and self.project_root is not None:
+            raise DesktopIPCError("health request must not include project_root")
+        if (
+            self.operation is not DesktopOperation.HEALTH
+            and (self.project_root is None or not self.project_root.strip())
+        ):
             raise DesktopIPCError(f"{self.operation.value} request requires project_root")
 
     def to_dict(self) -> dict[str, object]:
@@ -95,10 +99,11 @@ class DesktopResponse:
             raise DesktopIPCError("unsupported desktop IPC contract version")
         if not self.request_id.strip():
             raise DesktopIPCError("request_id must not be blank")
-        if self.ok:
-            if self.payload is None or self.error is not None:
-                raise DesktopIPCError("successful desktop response requires payload and no error")
-        elif self.payload is not None or self.error is None:
+        if not isinstance(self.operation, DesktopOperation):
+            raise DesktopIPCError("operation must be a DesktopOperation")
+        if self.ok and (self.payload is None or self.error is not None):
+            raise DesktopIPCError("successful desktop response requires payload and no error")
+        if not self.ok and (self.payload is not None or self.error is None):
             raise DesktopIPCError("failed desktop response requires error and no payload")
 
     def to_dict(self) -> dict[str, object]:
