@@ -48,6 +48,20 @@ describe("desktop contract compatibility", () => {
     );
   });
 
+  it("rejects malformed health fields with a contract error", () => {
+    const raw = fixtureJson({
+      payload: {
+        ...healthFixture.payload,
+        backend_version: 100,
+      },
+    });
+    const response = requireSuccess(parseDesktopResponse<HealthPayload>(raw, "health"));
+
+    expect(() => assertHealthCompatibility(response)).toThrowError(
+      new DesktopContractError("desktop backend version is invalid"),
+    );
+  });
+
   it("requires health before any project-scoped request", async () => {
     const invokeFn: InvokeFn = async () => {
       throw new Error("invoke must not be reached before health");
