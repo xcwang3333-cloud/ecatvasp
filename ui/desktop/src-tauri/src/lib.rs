@@ -1,3 +1,4 @@
+mod exports;
 mod preferences;
 
 use std::{
@@ -50,6 +51,8 @@ const BASE_REQUEST_FIELDS: [&str; 4] = [
 struct BackendState {
     process: Mutex<Option<BackendProcess>>,
     health_sequence: AtomicU64,
+    restart_count: AtomicU64,
+    last_failure_kind: Mutex<Option<&'static str>>,
 }
 
 struct BackendProcess {
@@ -156,30 +159,66 @@ fn resolve_backend_executable(
     OsString::from(DEFAULT_BACKEND_EXECUTABLE)
 }
 
-#[tauri::command]
-fn backend_health(state: State<'_, BackendState>) -> Result<String, String> {
+fn record_backend_failure(state: &BackendState, kind: &'static str) {
+    if let Ok(mut last_failure) = state.last_failure_kind.lock() {
+        *last_failure = Some(kind);
+    }
+    eprintln!("ecatvasp-desktop: backend failure category: {kind}");
+}
+
+fn perform_backend_health(state: &BackendState) -> Result<String, String> {
     let mut guard = state
         .process
         .lock()
-        .map_err(|_| "desktop backend process lock is poisoned".to_string())?;
+        .map_err(|_| "desktop backend runtime state is unavailable".to_string())?;
     if guard.is_none() {
-        *guard = Some(BackendProcess::spawn()?);
+        match BackendProcess::spawn() {
+            Ok(process) => *guard = Some(process),
+            Err(_) => {
+                drop(guard);
+                record_backend_failure(state, "spawn");
+                return Err("desktop backend could not start".to_string());
+            }
+        }
     }
-    let process = guard
-        .as_mut()
-        .ok_or_else(|| "desktop backend process is unavailable".to_string())?;
+
     let sequence = state.health_sequence.fetch_add(1, Ordering::Relaxed) + 1;
     let request = json!({
         "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
         "request_id": format!("tauri-health-{sequence}"),
         "operation": "health"
     });
-    let response = process.exchange(&request)?;
-    validate_correlated_response(&request, &response)?;
-    validate_health_response(&response)?;
-    process.ready = true;
+    let exchange_result = guard
+        .as_mut()
+        .ok_or_else(|| "desktop backend process is unavailable".to_string())?
+        .exchange(&request);
+    let response = match exchange_result {
+        Ok(response) => response,
+        Err(_) => {
+            guard.take();
+            drop(guard);
+            record_backend_failure(state, "transport");
+            return Err("desktop backend transport failed; restart required".to_string());
+        }
+    };
+    if validate_correlated_response(&request, &response).is_err()
+        || validate_health_response(&response).is_err()
+    {
+        guard.take();
+        drop(guard);
+        record_backend_failure(state, "compatibility");
+        return Err("desktop backend compatibility check failed".to_string());
+    }
+    if let Some(process) = guard.as_mut() {
+        process.ready = true;
+    }
     serde_json::to_string(&response)
-        .map_err(|error| format!("failed to encode desktop health response: {error}"))
+        .map_err(|_| "desktop backend health response could not be encoded".to_string())
+}
+
+#[tauri::command]
+fn backend_health(state: State<'_, BackendState>) -> Result<String, String> {
+    perform_backend_health(&state)
 }
 
 #[tauri::command]
@@ -188,13 +227,13 @@ fn backend_exchange(
     state: State<'_, BackendState>,
 ) -> Result<String, String> {
     let request: Value = serde_json::from_str(&request_json)
-        .map_err(|error| format!("desktop frontend request is invalid JSON: {error}"))?;
+        .map_err(|_| "desktop frontend request is invalid JSON".to_string())?;
     validate_frontend_request(&request)?;
 
     let mut guard = state
         .process
         .lock()
-        .map_err(|_| "desktop backend process lock is poisoned".to_string())?;
+        .map_err(|_| "desktop backend runtime state is unavailable".to_string())?;
     let process = guard
         .as_mut()
         .ok_or_else(|| "desktop backend health handshake is required".to_string())?;
@@ -202,10 +241,74 @@ fn backend_exchange(
         return Err("desktop backend health handshake is required".to_string());
     }
 
-    let response = process.exchange(&request)?;
-    validate_correlated_response(&request, &response)?;
+    let exchange_result = process.exchange(&request);
+    let response = match exchange_result {
+        Ok(response) => response,
+        Err(_) => {
+            guard.take();
+            drop(guard);
+            record_backend_failure(&state, "transport");
+            return Err("desktop backend transport failed; restart required".to_string());
+        }
+    };
+    if validate_correlated_response(&request, &response).is_err() {
+        guard.take();
+        drop(guard);
+        record_backend_failure(&state, "compatibility");
+        return Err("desktop backend response failed compatibility validation".to_string());
+    }
     serde_json::to_string(&response)
-        .map_err(|error| format!("failed to encode desktop backend response: {error}"))
+        .map_err(|_| "desktop backend response could not be encoded".to_string())
+}
+
+#[tauri::command]
+fn backend_restart(state: State<'_, BackendState>) -> Result<String, String> {
+    let old_process = state
+        .process
+        .lock()
+        .map_err(|_| "desktop backend runtime state is unavailable".to_string())?
+        .take();
+    if let Some(process) = old_process {
+        let _ = process.shutdown();
+    }
+
+    let response = perform_backend_health(&state)?;
+    state.restart_count.fetch_add(1, Ordering::Relaxed);
+    Ok(response)
+}
+
+#[tauri::command]
+fn backend_diagnostics(state: State<'_, BackendState>) -> Result<String, String> {
+    let last_failure = *state
+        .last_failure_kind
+        .lock()
+        .map_err(|_| "desktop backend diagnostics are unavailable".to_string())?;
+    let mut process = state
+        .process
+        .lock()
+        .map_err(|_| "desktop backend diagnostics are unavailable".to_string())?;
+    let backend_state = runtime_backend_state(&mut process, last_failure.is_some());
+    Ok(json!({
+        "backend_state": backend_state,
+        "restart_count": state.restart_count.load(Ordering::Relaxed),
+        "last_failure_kind": last_failure,
+    })
+    .to_string())
+}
+
+fn runtime_backend_state(
+    process: &mut Option<BackendProcess>,
+    has_failure: bool,
+) -> &'static str {
+    let Some(process) = process.as_mut() else {
+        return if has_failure { "unavailable" } else { "not_started" };
+    };
+    match process.child.try_wait() {
+        Ok(Some(_)) => "exited",
+        Ok(None) if process.ready => "ready",
+        Ok(None) => "starting",
+        Err(_) => "unavailable",
+    }
 }
 
 #[tauri::command]
@@ -213,10 +316,13 @@ fn backend_shutdown(state: State<'_, BackendState>) -> Result<(), String> {
     let process = state
         .process
         .lock()
-        .map_err(|_| "desktop backend process lock is poisoned".to_string())?
+        .map_err(|_| "desktop backend runtime state is unavailable".to_string())?
         .take();
     if let Some(process) = process {
-        process.shutdown()?;
+        if process.shutdown().is_err() {
+            record_backend_failure(&state, "shutdown");
+            return Err("desktop backend could not shut down cleanly".to_string());
+        }
     }
     Ok(())
 }
@@ -236,7 +342,7 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
     }
     let operation = require_nonblank_string(object, "operation")?;
     if !PROJECT_OPERATIONS.contains(&operation) {
-        return Err("desktop frontend operation is not available in Block 6".to_string());
+        return Err("desktop frontend operation is not available".to_string());
     }
     require_nonblank_string(object, "project_root")?;
 
@@ -282,7 +388,7 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
                 }
             }
         }
-        _ => return Err("desktop frontend operation is not available in Block 6".to_string()),
+        _ => return Err("desktop frontend operation is not available".to_string()),
     }
     Ok(())
 }
@@ -291,10 +397,8 @@ fn validate_allowed_fields(
     object: &Map<String, Value>,
     allowed: &[&str],
 ) -> Result<(), String> {
-    for key in object.keys() {
-        if !allowed.contains(&key.as_str()) {
-            return Err(format!("desktop frontend request contains unknown field: {key}"));
-        }
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("desktop frontend request contains an unknown field".to_string());
     }
     Ok(())
 }
@@ -411,7 +515,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_health,
             backend_exchange,
+            backend_restart,
+            backend_diagnostics,
             backend_shutdown,
+            exports::desktop_export_report,
             desktop_preferences_load,
             desktop_preferences_save
         ])
@@ -456,6 +563,13 @@ mod tests {
         assert_eq!(resolved, OsString::from(DEFAULT_BACKEND_EXECUTABLE));
 
         fs::remove_dir_all(runtime_dir).expect("remove runtime test directory");
+    }
+
+    #[test]
+    fn runtime_state_without_process_never_exposes_runtime_details() {
+        let mut process = None;
+        assert_eq!(runtime_backend_state(&mut process, false), "not_started");
+        assert_eq!(runtime_backend_state(&mut process, true), "unavailable");
     }
 
     #[test]
