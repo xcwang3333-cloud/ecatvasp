@@ -17,7 +17,9 @@ from ecatvasp.domain import (
     CatalystId,
     SideLabel,
     SiteSide,
+    StructureSnapshot,
     StructureSnapshotId,
+    StructureVariant,
     StructureVariantId,
 )
 from ecatvasp.storage import ProjectStore
@@ -93,7 +95,9 @@ def model_catalog_action(project_root: Path | str) -> dict[str, object]:
                 "name": item.name,
                 "variant_type": item.variant_type.value,
                 "parent_variant_id": (
-                    str(item.parent_variant_id) if item.parent_variant_id is not None else None
+                    str(item.parent_variant_id)
+                    if item.parent_variant_id is not None
+                    else None
                 ),
                 "topology_tags": list(item.topology_tags),
                 "current_structure_snapshot_id": (
@@ -223,7 +227,8 @@ def create_catalyst_action(
     series_value: str | int | float | None,
     tags: tuple[str, ...],
 ) -> dict[str, object]:
-    catalyst = ProjectModelStudioApplicationService(ProjectStore(project_root)).create_catalyst(
+    service = ProjectModelStudioApplicationService(ProjectStore(project_root))
+    catalyst = service.create_catalyst(
         name=name,
         slug=slug,
         formula_label=formula_label,
@@ -283,8 +288,10 @@ def import_structure_action(
     )
     return {
         **_structure_model_payload(project_root, result.variant, result.snapshot),
-        "source_format": document.format.value,
-        "source_name": document.source_name,
+        "source_format": document.metadata.format.value,
+        "source_name": document.metadata.source_name,
+        "identity_status": document.metadata.identity_status.value,
+        "validation_warnings": list(document.metadata.validation_warnings),
     }
 
 
@@ -345,7 +352,9 @@ def build_single_metal_action(
         variant_name=variant_name,
         spec=SingleMetalSiteSpec(
             metal_element=metal_element,
-            coordination_atom_uids=tuple(AtomUid(UUID(value)) for value in coordination_atom_uids),
+            coordination_atom_uids=tuple(
+                AtomUid(UUID(value)) for value in coordination_atom_uids
+            ),
             side=SiteSide(side),
             height_angstrom=height_angstrom,
             label=label,
@@ -354,7 +363,9 @@ def build_single_metal_action(
     return {
         **_structure_model_payload(project_root, result.variant, result.build.snapshot),
         "metal_atom_uid": str(result.build.metal_atom_uid),
-        "coordination_atom_uids": [str(value) for value in result.build.coordination_atom_uids],
+        "coordination_atom_uids": [
+            str(value) for value in result.build.coordination_atom_uids
+        ],
         "coordination_signature": result.build.coordination_signature,
     }
 
@@ -394,7 +405,14 @@ def build_multi_metal_action(
         **_structure_model_payload(project_root, result.variant, result.build.snapshot),
         "metal_atom_uids": [str(value) for value in result.build.metal_atom_uids],
         "side_topology": result.build.side_topology.value,
-        "metal_pair_distances_angstrom": list(result.build.metal_pair_distances_angstrom),
+        "pair_distances": [
+            {
+                "left_atom_uid": str(pair.left_atom_uid),
+                "right_atom_uid": str(pair.right_atom_uid),
+                "distance_angstrom": pair.distance_angstrom,
+            }
+            for pair in result.build.pair_distances
+        ],
     }
 
 
@@ -481,32 +499,30 @@ def build_adsorbate_conformer_action(
         "structure_snapshot_id": str(result.build.snapshot.id),
         "state_label": result.state.state_label,
         "conformer_name": result.conformer.name,
-        "adsorbate_atom_uids": [str(value) for value in result.build.adsorbate_atom_uids],
+        "adsorbate_atom_uids": [
+            str(value) for value in result.build.adsorbate_atom_uids
+        ],
     }
 
 
 def _structure_model_payload(
     project_root: str,
-    variant: object,
-    snapshot: object,
+    variant: StructureVariant,
+    snapshot: StructureSnapshot,
 ) -> dict[str, object]:
-    structure_variant = variant
-    structure_snapshot = snapshot
     return {
         "project_root": project_root,
-        "structure_variant_id": str(structure_variant.id),
-        "variant_name": structure_variant.name,
-        "variant_type": structure_variant.variant_type.value,
+        "structure_variant_id": str(variant.id),
+        "variant_name": variant.name,
+        "variant_type": variant.variant_type.value,
         "parent_variant_id": (
-            str(structure_variant.parent_variant_id)
-            if structure_variant.parent_variant_id is not None
-            else None
+            str(variant.parent_variant_id) if variant.parent_variant_id is not None else None
         ),
-        "structure_snapshot_id": str(structure_snapshot.id),
+        "structure_snapshot_id": str(snapshot.id),
         "parent_snapshot_id": (
-            str(structure_snapshot.parent_snapshot_id)
-            if structure_snapshot.parent_snapshot_id is not None
+            str(snapshot.parent_snapshot_id)
+            if snapshot.parent_snapshot_id is not None
             else None
         ),
-        "atom_count": len(structure_snapshot.sites),
+        "atom_count": len(snapshot.sites),
     }
