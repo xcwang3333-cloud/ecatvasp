@@ -139,6 +139,37 @@ export interface PrepareWorkflowPayload {
   reused: boolean;
 }
 
+export const BACKEND_RUNTIME_STATES = [
+  "not_started",
+  "starting",
+  "ready",
+  "exited",
+  "unavailable",
+] as const;
+export type BackendRuntimeState = (typeof BACKEND_RUNTIME_STATES)[number];
+
+export const BACKEND_FAILURE_KINDS = [
+  "spawn",
+  "transport",
+  "compatibility",
+  "shutdown",
+] as const;
+export type BackendFailureKind = (typeof BACKEND_FAILURE_KINDS)[number];
+
+export interface BackendRuntimeDiagnostics {
+  backend_state: BackendRuntimeState;
+  restart_count: number;
+  last_failure_kind: BackendFailureKind | null;
+}
+
+export interface ReportExportReceipt {
+  file_name: string;
+  report_format: ReportFormat;
+  content_sha256: string;
+  bytes_written: number;
+  reused: boolean;
+}
+
 export class DesktopContractError extends Error {
   constructor(message: string) {
     super(message);
@@ -337,6 +368,87 @@ export function assertPrepareWorkflowPayload(
   requireSha256(value.planning_hash, "prepare workflow planning hash");
   if (typeof value.reused !== "boolean") {
     throw new DesktopContractError("prepare workflow receipt reused flag is invalid");
+  }
+}
+
+export function parseBackendRuntimeDiagnostics(raw: string): BackendRuntimeDiagnostics {
+  const value = parseLocalRuntimeJson(raw, "desktop backend diagnostics");
+  requireExactKeys(value, ["backend_state", "restart_count", "last_failure_kind"]);
+  if (
+    typeof value.backend_state !== "string" ||
+    !BACKEND_RUNTIME_STATES.includes(value.backend_state as BackendRuntimeState)
+  ) {
+    throw new DesktopContractError("desktop backend diagnostic state is invalid");
+  }
+  if (
+    typeof value.restart_count !== "number" ||
+    !Number.isSafeInteger(value.restart_count) ||
+    value.restart_count < 0
+  ) {
+    throw new DesktopContractError("desktop backend restart count is invalid");
+  }
+  if (
+    value.last_failure_kind !== null &&
+    (typeof value.last_failure_kind !== "string" ||
+      !BACKEND_FAILURE_KINDS.includes(value.last_failure_kind as BackendFailureKind))
+  ) {
+    throw new DesktopContractError("desktop backend failure category is invalid");
+  }
+  return value as unknown as BackendRuntimeDiagnostics;
+}
+
+export function parseReportExportReceipt(
+  raw: string,
+  report: ApplicationReportPayload,
+): ReportExportReceipt {
+  const value = parseLocalRuntimeJson(raw, "desktop report export receipt");
+  requireExactKeys(value, [
+    "file_name",
+    "report_format",
+    "content_sha256",
+    "bytes_written",
+    "reused",
+  ]);
+  if (value.report_format !== report.report_format) {
+    throw new DesktopContractError("desktop report export format mismatch");
+  }
+  if (value.content_sha256 !== report.content_sha256) {
+    throw new DesktopContractError("desktop report export content hash mismatch");
+  }
+  const extension =
+    report.report_format === "markdown" ? "md" : report.report_format;
+  const expectedFileName = `ecatvasp-report-${report.content_sha256}.${extension}`;
+  if (value.file_name !== expectedFileName) {
+    throw new DesktopContractError("desktop report export filename is invalid");
+  }
+  const expectedBytes = new TextEncoder().encode(report.content).byteLength;
+  if (value.bytes_written !== expectedBytes) {
+    throw new DesktopContractError("desktop report export byte count mismatch");
+  }
+  if (typeof value.reused !== "boolean") {
+    throw new DesktopContractError("desktop report export reuse flag is invalid");
+  }
+  return value as unknown as ReportExportReceipt;
+}
+
+function parseLocalRuntimeJson(raw: string, label: string): Record<string, unknown> {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new DesktopContractError(`${label} is not valid JSON`);
+  }
+  if (!isRecord(value)) {
+    throw new DesktopContractError(`${label} must be an object`);
+  }
+  return value;
+}
+
+function requireExactKeys(value: Record<string, unknown>, expected: string[]): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((item, index) => item !== wanted[index])) {
+    throw new DesktopContractError("desktop local runtime payload contains unexpected fields");
   }
 }
 
