@@ -1,4 +1,4 @@
-import type { DesktopSuccessResponse, OpenProjectPayload } from "../backend/contracts";
+import type { OpenProjectPayload } from "../backend/contracts";
 import {
   type DesktopPreferences,
   defaultDesktopPreferences,
@@ -7,8 +7,12 @@ import {
   withoutRecentProject,
 } from "../preferences/contracts";
 
+export interface ProjectOpenResponse {
+  payload: OpenProjectPayload;
+}
+
 export interface ProjectBackendPort {
-  openProject(projectRoot: string): Promise<DesktopSuccessResponse<OpenProjectPayload>>;
+  openProject(projectRoot: string): Promise<ProjectOpenResponse>;
 }
 
 export interface PreferencesPort {
@@ -32,7 +36,17 @@ export class DesktopProjectLifecycle {
   ) {}
 
   async restore(): Promise<ProjectLifecycleSnapshot> {
-    const loaded = await this.preferencesClient.load();
+    let loaded: DesktopPreferences;
+    try {
+      loaded = await this.preferencesClient.load();
+    } catch {
+      // Desktop-local preferences are convenience state only. A corrupted or unavailable
+      // preference file must not downgrade a healthy scientific backend connection.
+      this.preferences = defaultDesktopPreferences();
+      this.project = null;
+      return this.snapshot(null);
+    }
+
     const root = loaded.current_project_root;
     if (root === null) {
       this.preferences = loaded;
@@ -40,7 +54,7 @@ export class DesktopProjectLifecycle {
       return this.snapshot(null);
     }
 
-    let response: DesktopSuccessResponse<OpenProjectPayload>;
+    let response: ProjectOpenResponse;
     try {
       response = await this.backend.openProject(root);
     } catch (error: unknown) {

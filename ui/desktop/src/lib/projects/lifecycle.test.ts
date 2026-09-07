@@ -50,6 +50,7 @@ class FakeBackend implements ProjectBackendPort {
 class FakePreferences implements PreferencesPort {
   value: DesktopPreferences;
   readonly saves: DesktopPreferences[] = [];
+  failNextLoad = false;
   failNextSave = false;
 
   constructor(initial: DesktopPreferences = defaultDesktopPreferences()) {
@@ -60,6 +61,10 @@ class FakePreferences implements PreferencesPort {
   }
 
   async load(): Promise<DesktopPreferences> {
+    if (this.failNextLoad) {
+      this.failNextLoad = false;
+      throw new Error("preferences disk unavailable");
+    }
     return {
       ...this.value,
       recent_project_roots: [...this.value.recent_project_roots],
@@ -131,6 +136,24 @@ describe("desktop project lifecycle", () => {
     expect(current.preferences.recent_project_roots).toEqual(["/project-a"]);
     expect(preferences.value.current_project_root).toBe("/project-a");
     expect(backend.calls).toEqual(["/project-a", "/project-b"]);
+  });
+
+  it("keeps a healthy backend usable when desktop-local preferences cannot be loaded", async () => {
+    const backend = new FakeBackend();
+    const preferences = new FakePreferences({
+      contract_version: DESKTOP_PREFERENCES_CONTRACT_VERSION,
+      current_project_root: "/project-a",
+      recent_project_roots: ["/project-a"],
+    });
+    preferences.failNextLoad = true;
+    const lifecycle = new DesktopProjectLifecycle(backend, preferences);
+
+    const restored = await lifecycle.restore();
+
+    expect(restored.project).toBeNull();
+    expect(restored.restore_error).toBeNull();
+    expect(restored.preferences).toEqual(defaultDesktopPreferences());
+    expect(backend.calls).toEqual([]);
   });
 
   it("clears a missing saved current project on restore while preserving recents", async () => {

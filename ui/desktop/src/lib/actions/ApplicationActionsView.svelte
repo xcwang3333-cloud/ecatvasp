@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DesktopBackendClient } from "../backend/client";
+  import type { DesktopBackendClientV2 } from "../backend/client-v2";
   import type {
     ApplicationReportPayload,
     PrepareWorkflowPayload,
@@ -9,7 +9,7 @@
   } from "../backend/contracts";
   import type { ScientificWorkspace } from "../workspace/contracts";
 
-  export let client: DesktopBackendClient;
+  export let client: DesktopBackendClientV2;
   export let projectRoot: string;
   export let projectId: string;
   export let workflowRecipes: WorkflowRecipeSummary[];
@@ -46,12 +46,6 @@
     parametersHashValid &&
     !disabled &&
     !workflowBusy;
-  $: if (
-    rootSnapshotId.length > 0 &&
-    !structureSnapshots.some((row) => row.entity_id === rootSnapshotId)
-  ) {
-    rootSnapshotId = "";
-  }
 
   function describeError(error: unknown, fallback: string): string {
     return error instanceof Error ? error.message : fallback;
@@ -67,15 +61,14 @@
     reportError = "";
     reportReceipt = null;
     exportReceipt = null;
-    exportError = "";
     try {
       const response = await client.applicationReport(projectRoot, reportFormat);
       if (response.payload.project_id !== projectId) {
-        throw new Error("application report receipt belongs to a different project");
+        throw new Error("application report belongs to a different project");
       }
       reportReceipt = response.payload;
     } catch (error: unknown) {
-      reportError = describeError(error, "application report could not be generated");
+      reportError = describeError(error, "Scientific report could not be generated");
     } finally {
       reportBusy = false;
     }
@@ -89,7 +82,7 @@
     try {
       exportReceipt = await client.exportReport(exportDirectory, reportReceipt);
     } catch (error: unknown) {
-      exportError = describeError(error, "exact report bytes could not be exported");
+      exportError = describeError(error, "Report could not be exported");
     } finally {
       exportBusy = false;
     }
@@ -108,215 +101,85 @@
         ...(parametersHash.length === 0 ? {} : { parameters_hash: parametersHash }),
       });
       if (response.payload.project_id !== projectId) {
-        throw new Error("prepare workflow receipt belongs to a different project");
+        throw new Error("workflow receipt belongs to a different project");
       }
       workflowReceipt = response.payload;
       await onMutation();
     } catch (error: unknown) {
-      workflowError = describeError(error, "workflow could not be prepared");
+      workflowError = describeError(error, "Workflow could not be prepared");
     } finally {
       workflowBusy = false;
     }
   }
 </script>
 
-<section class="actions-workspace" aria-labelledby="typed-actions-heading">
-  <header class="actions-header">
-    <div>
-      <span class="eyebrow">Python application authority</span>
-      <h2 id="typed-actions-heading">Typed application actions</h2>
-      <p>
-        These forms call explicit Python operations. They do not expose arbitrary entity mutation,
-        scheduler-success shortcuts, or frontend-owned scientific defaults.
-      </p>
-    </div>
+<section class="actions-workspace" aria-labelledby="actions-heading">
+  <header>
+    <span class="eyebrow">Calculations and outputs</span>
+    <h2 id="actions-heading">Project actions</h2>
+    <p>Generate reports or prepare a canonical scientific workflow from current project state.</p>
   </header>
 
   <div class="action-grid">
-    <section class="action-card" aria-labelledby="report-action-heading">
-      <div class="card-heading">
-        <div>
-          <span class="eyebrow">Transient deterministic output</span>
-          <h3 id="report-action-heading">Scientific report</h3>
-        </div>
-      </div>
-      <p class="authority-note">
-        Delegates to <code>ProjectApplicationService.report()</code>. No project entity is created.
-      </p>
-
-      <form
-        onsubmit={(event) => {
-          event.preventDefault();
-          void generateReport();
-        }}
-      >
+    <section class="action-card">
+      <h3>Scientific report</h3>
+      <form onsubmit={(event) => { event.preventDefault(); void generateReport(); }}>
         <label for="report-format">Format</label>
         <select id="report-format" bind:value={reportFormat} disabled={disabled || reportBusy}>
-          <option value="json">JSON manifest</option>
-          <option value="csv">Inventory CSV</option>
-          <option value="markdown">Markdown</option>
+          <option value="json">JSON</option><option value="csv">CSV</option><option value="markdown">Markdown</option>
         </select>
-        <button type="submit" class="primary-action" disabled={disabled || reportBusy}>
-          {reportBusy ? "Generating…" : "Generate current report"}
-        </button>
+        <button type="submit" disabled={disabled || reportBusy}>{reportBusy ? "Generating…" : "Generate report"}</button>
       </form>
-
-      {#if reportError.length > 0}
-        <div class="action-error" role="alert">{reportError}</div>
-      {/if}
-
+      {#if reportError}<div class="error" role="alert">{reportError}</div>{/if}
       {#if reportReceipt !== null}
-        <div class="receipt" aria-live="polite">
-          <div class="receipt-grid">
-            <div>
-              <span>Report hash</span>
-              <code title={reportReceipt.report_hash}>{shortHash(reportReceipt.report_hash)}</code>
-            </div>
-            <div>
-              <span>Content hash</span>
-              <code title={reportReceipt.content_sha256}>{shortHash(reportReceipt.content_sha256)}</code>
-            </div>
-          </div>
+        <div class="receipt">
+          <div><span>Report hash</span><code title={reportReceipt.report_hash}>{shortHash(reportReceipt.report_hash)}</code></div>
           <pre>{reportReceipt.content}</pre>
-
-          <div class="export-panel">
-            <p class="authority-note">
-              Export persists these exact generated bytes. It does not regenerate the report, refresh
-              scientific freshness, or derive scientific meaning from the filename.
-            </p>
-            <form
-              onsubmit={(event) => {
-                event.preventDefault();
-                void exportReport();
-              }}
-            >
-              <label for="export-directory">Existing absolute export directory</label>
-              <input
-                id="export-directory"
-                bind:value={exportDirectory}
-                autocomplete="off"
-                disabled={exportBusy}
-                placeholder="C:\\Research\\exports or /work/exports"
-              />
-              <button
-                type="submit"
-                class="primary-action"
-                disabled={exportBusy || exportDirectory.trim().length === 0}
-              >
-                {exportBusy ? "Exporting…" : "Export exact report"}
-              </button>
-            </form>
-
-            {#if exportError.length > 0}
-              <div class="action-error" role="alert">{exportError}</div>
-            {/if}
-            {#if exportReceipt !== null}
-              <div class="export-receipt" aria-live="polite">
-                <strong>{exportReceipt.reused ? "Exact file already existed" : "Exact report exported"}</strong>
-                <code>{exportReceipt.file_name}</code>
-                <small>
-                  {exportReceipt.bytes_written} bytes · {shortHash(exportReceipt.content_sha256)}
-                </small>
-              </div>
-            {/if}
-          </div>
+          <form onsubmit={(event) => { event.preventDefault(); void exportReport(); }}>
+            <label for="export-dir">Export directory</label>
+            <input id="export-dir" bind:value={exportDirectory} placeholder="Existing absolute directory" />
+            <button type="submit" disabled={exportBusy || !exportDirectory.trim()}>{exportBusy ? "Exporting…" : "Export exact report"}</button>
+          </form>
+          {#if exportError}<div class="error">{exportError}</div>{/if}
+          {#if exportReceipt !== null}<small>{exportReceipt.reused ? "Existing exact file" : "Exported"} · {exportReceipt.file_name}</small>{/if}
         </div>
       {/if}
     </section>
 
-    <section class="action-card" aria-labelledby="workflow-action-heading">
-      <div class="card-heading">
-        <div>
-          <span class="eyebrow">Durable workflow intent</span>
-          <h3 id="workflow-action-heading">Prepare scientific workflow</h3>
-        </div>
-      </div>
-      <p class="authority-note">
-        Recipe identities come from the Python health catalog. The selected root is an exact persisted
-        <code>StructureSnapshot</code> UUID.
-      </p>
-
-      {#if workflowRecipes.length === 0}
-        <div class="action-error" role="alert">No canonical workflow recipes were advertised.</div>
-      {:else if structureSnapshots.length === 0}
-        <div class="empty-action">This project has no StructureSnapshot available as a workflow root.</div>
+    <section class="action-card">
+      <h3>Prepare scientific workflow</h3>
+      {#if structureSnapshots.length === 0}
+        <p class="muted">Create or import a structure in Model Studio first.</p>
       {:else}
-        <form
-          onsubmit={(event) => {
-            event.preventDefault();
-            void prepareWorkflow();
-          }}
-        >
-          <label for="workflow-recipe">Canonical workflow recipe</label>
+        <form onsubmit={(event) => { event.preventDefault(); void prepareWorkflow(); }}>
+          <label for="workflow-recipe">Workflow recipe</label>
           <select id="workflow-recipe" bind:value={recipeKey} disabled={disabled || workflowBusy}>
-            <option value="">Select a recipe explicitly</option>
+            <option value="">Select recipe</option>
             {#each workflowRecipes as recipe (`${recipe.recipe_id}@${recipe.version}`)}
-              <option value={`${recipe.recipe_id}@${recipe.version}`}>
-                {recipe.recipe_id} @ {recipe.version}
-              </option>
+              <option value={`${recipe.recipe_id}@${recipe.version}`}>{recipe.recipe_id} @ {recipe.version}</option>
             {/each}
           </select>
-          {#if selectedRecipe?.description}
-            <p class="field-help">{selectedRecipe.description}</p>
-          {/if}
-
-          <label for="workflow-root">Root StructureSnapshot</label>
+          <label for="workflow-root">Structure</label>
           <select id="workflow-root" bind:value={rootSnapshotId} disabled={disabled || workflowBusy}>
-            <option value="">Select an exact snapshot</option>
+            <option value="">Select structure</option>
             {#each structureSnapshots as row (row.entity_id)}
-              <option value={row.entity_id}>
-                {row.display_label} — {row.entity_id} — {row.freshness.state}
-              </option>
+              <option value={row.entity_id}>{row.display_label} · {row.freshness.state}</option>
             {/each}
           </select>
-
-          <label for="parameters-hash">Parameters hash <span>(optional)</span></label>
-          <input
-            id="parameters-hash"
-            bind:value={parametersHash}
-            autocomplete="off"
-            disabled={disabled || workflowBusy}
-            placeholder="64-character SHA-256 only"
-            aria-invalid={!parametersHashValid}
-          />
-          {#if !parametersHashValid}
-            <p class="field-error">Parameters hash must be an exact SHA-256 digest.</p>
-          {/if}
-
-          <button type="submit" class="primary-action" disabled={!prepareReady}>
-            {workflowBusy ? "Preparing…" : "Prepare / reuse workflow plan"}
-          </button>
+          <details>
+            <summary>Advanced parameters</summary>
+            <label for="parameters-hash">Parameters hash</label>
+            <input id="parameters-hash" bind:value={parametersHash} placeholder="Optional SHA-256" aria-invalid={!parametersHashValid} />
+            {#if !parametersHashValid}<p class="error">Parameters hash must be SHA-256.</p>{/if}
+          </details>
+          <button type="submit" disabled={!prepareReady}>{workflowBusy ? "Preparing…" : "Prepare workflow"}</button>
         </form>
       {/if}
-
-      {#if workflowError.length > 0}
-        <div class="action-error" role="alert">{workflowError}</div>
-      {/if}
-
+      {#if workflowError}<div class="error" role="alert">{workflowError}</div>{/if}
       {#if workflowReceipt !== null}
-        <div class="receipt" aria-live="polite">
-          <dl>
-            <div>
-              <dt>Workflow plan</dt>
-              <dd>{workflowReceipt.workflow_plan_id}</dd>
-            </div>
-            <div>
-              <dt>Plan hash</dt>
-              <dd title={workflowReceipt.plan_hash}>{shortHash(workflowReceipt.plan_hash)}</dd>
-            </div>
-            <div>
-              <dt>Planning hash</dt>
-              <dd title={workflowReceipt.planning_hash}>{shortHash(workflowReceipt.planning_hash)}</dd>
-            </div>
-            <div>
-              <dt>Persistence</dt>
-              <dd>{workflowReceipt.reused ? "Reused exact existing plan" : "Persisted new plan"}</dd>
-            </div>
-          </dl>
-          <p class="refresh-note">
-            The workspace above was reloaded from ProjectStore after this mutation; the receipt was not
-            used to patch scientific state locally.
-          </p>
+        <div class="receipt">
+          <strong>{workflowReceipt.reused ? "Exact workflow reused" : "Workflow prepared"}</strong>
+          <small>Plan {shortHash(workflowReceipt.plan_hash)}</small>
         </div>
       {/if}
     </section>
@@ -324,172 +187,20 @@
 </section>
 
 <style>
-  .actions-workspace {
-    display: grid;
-    gap: 1.25rem;
-  }
-
-  .actions-header h2,
-  .action-card h3 {
-    margin: 0.2rem 0 0.45rem;
-  }
-
-  .actions-header p,
-  .authority-note,
-  .field-help,
-  .refresh-note {
-    margin: 0;
-    color: var(--muted-text, #5d6470);
-    line-height: 1.55;
-  }
-
-  .eyebrow {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted-text, #5d6470);
-  }
-
-  .action-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
-    gap: 1rem;
-  }
-
-  .action-card {
-    border: 1px solid rgba(100, 110, 125, 0.24);
-    border-radius: 12px;
-    padding: 1rem;
-    background: rgba(255, 255, 255, 0.42);
-    min-width: 0;
-  }
-
-  .action-card form {
-    display: grid;
-    gap: 0.55rem;
-    margin-top: 1rem;
-  }
-
-  label {
-    font-weight: 650;
-  }
-
-  label span {
-    font-weight: 400;
-    color: var(--muted-text, #5d6470);
-  }
-
-  select,
-  input {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0.65rem 0.7rem;
-    border: 1px solid rgba(100, 110, 125, 0.34);
-    border-radius: 8px;
-    background: inherit;
-    color: inherit;
-  }
-
-  .primary-action {
-    justify-self: start;
-    margin-top: 0.35rem;
-    padding: 0.65rem 0.85rem;
-    border: 0;
-    border-radius: 8px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .primary-action:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-
-  .action-error,
-  .empty-action,
-  .receipt,
-  .export-receipt {
-    margin-top: 0.9rem;
-    border: 1px solid rgba(100, 110, 125, 0.24);
-    border-radius: 8px;
-    padding: 0.75rem;
-  }
-
-  .action-error,
-  .field-error {
-    color: #8b1f2d;
-  }
-
-  .field-error {
-    margin: 0;
-    font-size: 0.86rem;
-  }
-
-  .receipt-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .receipt-grid > div,
-  .export-receipt {
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  .receipt-grid span,
-  dt {
-    color: var(--muted-text, #5d6470);
-    font-size: 0.8rem;
-  }
-
-  pre {
-    max-height: 22rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    margin: 0;
-    padding: 0.75rem;
-    border-radius: 6px;
-    background: rgba(20, 25, 32, 0.06);
-    font-size: 0.78rem;
-  }
-
-  .export-panel {
-    display: grid;
-    gap: 0.65rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(100, 110, 125, 0.2);
-  }
-
-  .export-panel form,
-  .export-panel .action-error,
-  .export-panel .export-receipt {
-    margin-top: 0;
-  }
-
-  .export-receipt code,
-  .export-receipt small {
-    overflow-wrap: anywhere;
-  }
-
-  dl {
-    display: grid;
-    gap: 0.6rem;
-    margin: 0 0 0.75rem;
-  }
-
-  dl > div {
-    display: grid;
-    grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr);
-    gap: 0.5rem;
-  }
-
-  dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
+  .actions-workspace { display: grid; gap: 1rem; }
+  header h2, .action-card h3 { margin: .2rem 0 .35rem; }
+  header p, .muted { margin: 0; color: var(--muted-text,#5d6470); }
+  .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-text,#5d6470); }
+  .action-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(310px,1fr)); gap: 1rem; }
+  .action-card { border: 1px solid rgba(100,110,125,.22); border-radius: 12px; padding: 1rem; min-width: 0; }
+  form { display: grid; gap: .55rem; margin-top: .8rem; }
+  select, input { width: 100%; box-sizing: border-box; padding: .6rem .65rem; border: 1px solid rgba(100,110,125,.32); border-radius: 8px; background: inherit; color: inherit; }
+  button { justify-self: start; border: 0; border-radius: 8px; padding: .62rem .8rem; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .error { margin-top: .7rem; color: #8b1f2d; }
+  .receipt { display: grid; gap: .65rem; margin-top: .8rem; padding: .7rem; border: 1px solid rgba(100,110,125,.2); border-radius: 8px; }
+  .receipt > div { display: flex; justify-content: space-between; gap: .5rem; }
+  pre { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: .65rem; border-radius: 6px; background: rgba(20,25,32,.06); font-size: .76rem; }
+  code { overflow-wrap: anywhere; }
+  details { margin-top: .3rem; }
 </style>
