@@ -1,6 +1,4 @@
-import type { DesktopBackendClient } from "../backend/client";
-import type { OpenProjectPayload } from "../backend/contracts";
-import type { DesktopPreferencesClient } from "../preferences/client";
+import type { DesktopSuccessResponse, OpenProjectPayload } from "../backend/contracts";
 import {
   type DesktopPreferences,
   defaultDesktopPreferences,
@@ -8,6 +6,15 @@ import {
   withoutCurrentProject,
   withoutRecentProject,
 } from "../preferences/contracts";
+
+export interface ProjectBackendPort {
+  openProject(projectRoot: string): Promise<DesktopSuccessResponse<OpenProjectPayload>>;
+}
+
+export interface PreferencesPort {
+  load(): Promise<DesktopPreferences>;
+  save(preferences: DesktopPreferences): Promise<void>;
+}
 
 export interface ProjectLifecycleSnapshot {
   preferences: DesktopPreferences;
@@ -17,28 +24,32 @@ export interface ProjectLifecycleSnapshot {
 
 export class DesktopProjectLifecycle {
   private preferences = defaultDesktopPreferences();
+  private project: OpenProjectPayload | null = null;
 
   constructor(
-    private readonly backend: DesktopBackendClient,
-    private readonly preferencesClient: DesktopPreferencesClient,
+    private readonly backend: ProjectBackendPort,
+    private readonly preferencesClient: PreferencesPort,
   ) {}
 
   async restore(): Promise<ProjectLifecycleSnapshot> {
     this.preferences = await this.preferencesClient.load();
     const root = this.preferences.current_project_root;
     if (root === null) {
-      return this.snapshot(null, null);
+      this.project = null;
+      return this.snapshot(null);
     }
 
     try {
       const response = await this.backend.openProject(root);
+      this.project = response.payload;
       this.preferences = withOpenedProject(this.preferences, response.payload.project_root);
       await this.preferencesClient.save(this.preferences);
-      return this.snapshot(response.payload, null);
+      return this.snapshot(null);
     } catch (error: unknown) {
+      this.project = null;
       this.preferences = withoutCurrentProject(this.preferences);
       await this.preferencesClient.save(this.preferences);
-      return this.snapshot(null, describeError(error));
+      return this.snapshot(describeError(error));
     }
   }
 
@@ -48,37 +59,40 @@ export class DesktopProjectLifecycle {
       throw new Error("project root must not be blank");
     }
     const response = await this.backend.openProject(root);
+    this.project = response.payload;
     this.preferences = withOpenedProject(this.preferences, response.payload.project_root);
     await this.preferencesClient.save(this.preferences);
-    return this.snapshot(response.payload, null);
+    return this.snapshot(null);
   }
 
   async close(): Promise<ProjectLifecycleSnapshot> {
+    this.project = null;
     this.preferences = withoutCurrentProject(this.preferences);
     await this.preferencesClient.save(this.preferences);
-    return this.snapshot(null, null);
+    return this.snapshot(null);
   }
 
   async forget(projectRoot: string): Promise<ProjectLifecycleSnapshot> {
+    const wasCurrent = this.preferences.current_project_root === projectRoot;
     this.preferences = withoutRecentProject(this.preferences, projectRoot);
+    if (wasCurrent) {
+      this.project = null;
+    }
     await this.preferencesClient.save(this.preferences);
-    return this.snapshot(null, null);
+    return this.snapshot(null);
   }
 
-  currentPreferences(): DesktopPreferences {
-    return {
-      ...this.preferences,
-      recent_project_roots: [...this.preferences.recent_project_roots],
-    };
+  currentSnapshot(): ProjectLifecycleSnapshot {
+    return this.snapshot(null);
   }
 
-  private snapshot(
-    project: OpenProjectPayload | null,
-    restoreError: string | null,
-  ): ProjectLifecycleSnapshot {
+  private snapshot(restoreError: string | null): ProjectLifecycleSnapshot {
     return {
-      preferences: this.currentPreferences(),
-      project,
+      preferences: {
+        ...this.preferences,
+        recent_project_roots: [...this.preferences.recent_project_roots],
+      },
+      project: this.project === null ? null : { ...this.project },
       restore_error: restoreError,
     };
   }
