@@ -18,7 +18,6 @@ from ecatvasp.desktop.protocol import (
     encode_desktop_response,
 )
 from ecatvasp.desktop.protocol_v2 import (
-    DESKTOP_IPC_V2_CONTRACT_VERSION,
     DesktopBackendV2,
     DesktopV2Request,
     DesktopV2Response,
@@ -26,6 +25,7 @@ from ecatvasp.desktop.protocol_v2 import (
     encode_desktop_v2_response,
     is_desktop_v2_request,
 )
+from ecatvasp.desktop.protocol_v2_common import DESKTOP_IPC_V2_CONTRACT_VERSION
 
 DESKTOP_HOST_CONTRACT_VERSION = "ecatvasp-desktop-host-v1"
 HOST_EXIT_OK = 0
