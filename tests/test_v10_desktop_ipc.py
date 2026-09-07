@@ -56,7 +56,7 @@ def test_desktop_ipc_health_is_versioned_stateless_and_deterministic() -> None:
 
     assert response.ok is True
     assert response.payload is not None
-    assert response.payload["backend_version"] == "1.0.0.dev0"
+    assert response.payload["backend_version"] == "1.1.0.dev0"
     assert (
         response.payload["frontend_handoff_contract_version"]
         == FRONTEND_HANDOFF_CONTRACT_VERSION
@@ -71,7 +71,7 @@ def test_desktop_ipc_health_is_versioned_stateless_and_deterministic() -> None:
         WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION,
     }
     assert all(item["version"] == "1" for item in recipes)
-    assert __version__ == "1.0.0.dev0"
+    assert __version__ == "1.1.0.dev0"
     assert SCHEMA_VERSION == 3
     assert encode_desktop_response(response) == encode_desktop_response(response)
     assert encode_desktop_response(response).endswith("\n")

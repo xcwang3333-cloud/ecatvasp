@@ -192,7 +192,7 @@ def test_v10_production_desktop_cross_layer_e2e_and_scientific_drift(
     first = _run_sidecar(first_requests)
 
     health = _payload(first[0])
-    assert health["backend_version"] == __version__ == "1.0.0.dev0"
+    assert health["backend_version"] == __version__ == "1.1.0.dev0"
     assert health["stateless_project_requests"] is True
     assert health["operations"] == [operation.value for operation in DesktopOperation]
 

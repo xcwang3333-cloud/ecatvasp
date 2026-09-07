@@ -16,9 +16,9 @@ def test_block8_keeps_python_scientific_and_storage_contracts_frozen() -> None:
         pyproject = tomllib.load(stream)
 
     project = pyproject["project"]
-    assert project["version"] == "1.0.0.dev0"
+    assert project["version"] == "1.1.0.dev0"
     assert project["dependencies"] == ["ase>=3.29,<4", "numpy>=1.26"]
-    assert __version__ == "1.0.0.dev0"
+    assert __version__ == "1.1.0.dev0"
     assert SCHEMA_VERSION == 3
     assert {operation.value for operation in DesktopOperation} == {
         "health",
