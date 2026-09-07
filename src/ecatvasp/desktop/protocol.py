@@ -11,9 +11,24 @@ from typing import Any
 from ecatvasp import __version__
 from ecatvasp.api import open_project
 from ecatvasp.frontend import FRONTEND_HANDOFF_CONTRACT_VERSION
-from ecatvasp.storage import ProjectStorageError, ProjectStore
+from ecatvasp.storage import (
+    MigrationPathError,
+    ProjectIntegrityError,
+    ProjectStorageError,
+    ProjectStore,
+    StorageCodecError,
+    UnsupportedSchemaVersionError,
+)
 
 DESKTOP_IPC_CONTRACT_VERSION = "ecatvasp-desktop-ipc-v1"
+
+_PROJECT_READ_ERRORS = (
+    MigrationPathError,
+    ProjectIntegrityError,
+    ProjectStorageError,
+    StorageCodecError,
+    UnsupportedSchemaVersionError,
+)
 
 
 class DesktopIPCError(ValueError):
@@ -172,7 +187,7 @@ class DesktopBackend:
                         "handoff": handoff.to_dict(),
                     },
                 )
-        except ProjectStorageError as error:
+        except _PROJECT_READ_ERRORS as error:
             return self._failure(
                 request,
                 code="project_unavailable",
