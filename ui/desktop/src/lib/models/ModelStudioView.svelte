@@ -7,7 +7,6 @@
     DesktopStructurePresentationPayload,
     ModelActiveSiteSummary,
     ModelAdsorbateTemplateSummary,
-    ModelVariantSummary,
   } from "../backend/contracts-v2";
   import ModelStructureSelector from "./ModelStructureSelector.svelte";
 
@@ -99,11 +98,6 @@
   $: if (activeSiteId.length > 0 && !activeSites.some((item) => item.active_site_id === activeSiteId)) {
     activeSiteId = "";
   }
-  $: if (selectedTemplate !== null) {
-    contactAtomKeys = selectedAtomUids.map(
-      (_, index) => contactAtomKeys[index] ?? selectedTemplate.primary_anchor_atom_key,
-    );
-  }
 
   onMount(() => {
     void refreshCatalog();
@@ -113,12 +107,36 @@
     return error instanceof Error ? error.message : fallback;
   }
 
-  function catalystLabel(catalystId: string): string {
-    return catalog?.catalysts.find((item) => item.catalyst_id === catalystId)?.name ?? "Catalyst";
-  }
-
   function siteLabel(site: ModelActiveSiteSummary, index: number): string {
     return `Site ${index + 1} · ${site.center_atom_uids.length} center${site.center_atom_uids.length === 1 ? "" : "s"}`;
+  }
+
+  function resetStructureBoundState(): void {
+    selectedAtomUids = [];
+    multiAnchors = [[], [], []];
+    activeSiteId = "";
+    contactAtomKeys = [];
+  }
+
+  function updateAtomSelection(values: string[]): void {
+    selectedAtomUids = values;
+    const template = (catalog?.adsorbate_templates ?? []).find((item) => item.key === templateKey);
+    if (template === undefined) {
+      contactAtomKeys = [];
+      return;
+    }
+    contactAtomKeys = values.map((_, index) => {
+      const current = contactAtomKeys[index];
+      return current !== undefined && template.anchor_atom_keys.includes(current)
+        ? current
+        : template.primary_anchor_atom_key;
+    });
+  }
+
+  function selectAdsorbateTemplate(key: string): void {
+    templateKey = key;
+    contactAtomKeys = [];
+    updateAtomSelection(selectedAtomUids);
   }
 
   async function refreshCatalog(): Promise<void> {
@@ -146,9 +164,10 @@
   async function loadSelectedPresentation(): Promise<void> {
     const snapshotId = currentSnapshotId;
     const sequence = ++presentationSequence;
-    selectedAtomUids = [];
+    resetStructureBoundState();
     presentation = null;
     presentationError = "";
+    presentationBusy = false;
     if (snapshotId === null) return;
     presentationBusy = true;
     try {
@@ -163,9 +182,15 @@
     }
   }
 
+  async function selectCatalyst(catalystId: string): Promise<void> {
+    selectedCatalystId = catalystId;
+    const candidate = (catalog?.variants ?? []).find((item) => item.catalyst_id === catalystId) ?? null;
+    selectedVariantId = candidate?.structure_variant_id ?? "";
+    await loadSelectedPresentation();
+  }
+
   async function selectVariant(variantId: string): Promise<void> {
     selectedVariantId = variantId;
-    activeSiteId = "";
     await loadSelectedPresentation();
   }
 
@@ -177,7 +202,7 @@
     try {
       await action();
       actionMessage = label;
-      selectedAtomUids = [];
+      resetStructureBoundState();
       await refreshCatalog();
       await onMutation();
     } catch (error: unknown) {
@@ -288,7 +313,6 @@
         ...(multiTopology.trim() ? { metal_metal_topology_intent: multiTopology } : {}),
       });
       selectedVariantId = response.payload.structure_variant_id;
-      multiAnchors = [[], [], []];
       variantName = "";
     });
   }
@@ -363,7 +387,11 @@
   <div class="catalog-row">
     <label>
       Catalyst
-      <select bind:value={selectedCatalystId} disabled={catalogBusy || actionBusy}>
+      <select
+        value={selectedCatalystId}
+        disabled={catalogBusy || actionBusy}
+        onchange={(event) => void selectCatalyst(event.currentTarget.value)}
+      >
         <option value="">Select catalyst</option>
         {#each catalysts as catalyst (catalyst.catalyst_id)}
           <option value={catalyst.catalyst_id}>{catalyst.name}{catalyst.formula_label ? ` · ${catalyst.formula_label}` : ""}</option>
@@ -401,7 +429,7 @@
         <ModelStructureSelector
           presentation={presentation.presentation}
           {selectedAtomUids}
-          onSelectionChange={(values) => (selectedAtomUids = values)}
+          onSelectionChange={updateAtomSelection}
         />
       {:else}
         <div class="empty">Select or create a structure model to begin atom-level operations.</div>
@@ -510,7 +538,10 @@
             <option value="">Select active site</option>
             {#each activeSites as site, index (site.active_site_id)}<option value={site.active_site_id}>{siteLabel(site, index)}</option>{/each}
           </select>
-          <select bind:value={templateKey}>
+          <select
+            value={templateKey}
+            onchange={(event) => selectAdsorbateTemplate(event.currentTarget.value)}
+          >
             {#each catalog?.adsorbate_templates ?? [] as template (template.key)}<option value={template.key}>{templateLabel(template)}</option>{/each}
           </select>
           <div class="two-col">
