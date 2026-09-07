@@ -153,6 +153,12 @@ dependencies do not change.
 Exact lockfile/distribution reproducibility is finalized with the packaging pipeline in Block 7. Block
 3 pins direct desktop package versions and verifies installation/build from the declared manifest.
 
+Tauri's compile-time context requires a PNG default window icon on Unix even while bundle output is
+disabled. Block 3 therefore carries `src-tauri/icons/icon.png` only as a minimal development placeholder
+needed to compile and test the shell. It is explicitly not the product branding or release icon set.
+Multi-size Windows/macOS/Linux application icons, signing-facing assets, and their reproducible generation
+remain part of Block 7 packaging.
+
 ### 9. Block 3 shell is intentionally minimal
 
 The visible Svelte shell displays only backend connection/compatibility information. It does not yet
