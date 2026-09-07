@@ -43,7 +43,8 @@ def test_runtime_recovery_and_exports_stay_in_desktop_boundary() -> None:
     assert 'record_backend_failure(state, "transport")' in tauri_source
     assert 'record_backend_failure(state, "compatibility")' in tauri_source
     assert "exports::desktop_export_report" in tauri_source
-    assert "ecatvasp-report-{content_sha256}" in export_source
+    assert 'Sha256::digest(content)' in export_source
+    assert "ecatvasp-report-{actual_sha256}" in export_source
     assert ".create_new(true)" in export_source
     assert "project_root" not in export_source
 
