@@ -57,6 +57,20 @@ def test_windows_packaging_tools_are_pinned_outside_scientific_runtime() -> None
     assert SCHEMA_VERSION == 3
 
 
+def test_frozen_sidecar_collects_supported_ase_structure_io_adapters() -> None:
+    build_script = (
+        _DESKTOP_ROOT / "packaging" / "build_windows_sidecar.py"
+    ).read_text(encoding="utf-8")
+    assert '"--hidden-import"' in build_script
+    for module in (
+        "ase.io.vasp",
+        "ase.io.cif",
+        "ase.io.xyz",
+        "ase.io.extxyz",
+    ):
+        assert f'"{module}"' in build_script
+
+
 def test_desktop_package_scripts_build_sidecar_before_windows_package() -> None:
     package = _json(_DESKTOP_ROOT / "package.json")
     scripts = package["scripts"]
