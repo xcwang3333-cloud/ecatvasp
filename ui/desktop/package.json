@@ -1,0 +1,28 @@
+{
+  "name": "@ecatvasp/desktop",
+  "private": true,
+  "version": "1.0.0-dev.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "svelte": "5.57.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "@tauri-apps/cli": "2.11.4",
+    "svelte-check": "4.7.6",
+    "typescript": "7.0.2",
+    "vite": "8.1.0",
+    "vitest": "5.0.0"
+  }
+}
