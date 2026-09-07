@@ -2,12 +2,10 @@
   import { onMount } from "svelte";
 
   import ApplicationActionsView from "./lib/actions/ApplicationActionsView.svelte";
-  import { DesktopBackendClient } from "./lib/backend/client";
-  import type {
-    BackendRuntimeDiagnostics,
-    HealthPayload,
-    OpenProjectPayload,
-  } from "./lib/backend/contracts";
+  import { DesktopBackendClientV2 } from "./lib/backend/client-v2";
+  import type { BackendRuntimeDiagnostics, OpenProjectPayload } from "./lib/backend/contracts";
+  import type { DesktopV2HealthPayload } from "./lib/backend/contracts-v2";
+  import ModelStudioView from "./lib/models/ModelStudioView.svelte";
   import { DesktopPreferencesClient } from "./lib/preferences/client";
   import {
     type DesktopPreferences,
@@ -24,13 +22,13 @@
   } from "./lib/workspace/contracts";
   import { LatestWorkspaceLoad } from "./lib/workspace/load_guard";
 
-  const client = new DesktopBackendClient();
+  const client = new DesktopBackendClientV2();
   const preferencesClient = new DesktopPreferencesClient();
   const workspaceLoads = new LatestWorkspaceLoad();
 
   let lifecycle: DesktopProjectLifecycle | null = null;
   let connectionState: "connecting" | "ready" | "error" = "connecting";
-  let health: HealthPayload | null = null;
+  let health: DesktopV2HealthPayload | null = null;
   let runtimeDiagnostics: BackendRuntimeDiagnostics | null = null;
   let project: OpenProjectPayload | null = null;
   let preferences: DesktopPreferences = defaultDesktopPreferences();
@@ -43,6 +41,12 @@
   let projectError = "";
   let workspaceError = "";
 
+  let createProjectOpen = false;
+  let newProjectRoot = "";
+  let newProjectName = "";
+  let newProjectSlug = "";
+  let newProjectDescription = "";
+
   function describeError(error: unknown, fallback: string): string {
     return error instanceof Error ? error.message : fallback;
   }
@@ -50,9 +54,7 @@
   function applySnapshot(snapshot: ProjectLifecycleSnapshot): void {
     project = snapshot.project;
     preferences = snapshot.preferences;
-    if (snapshot.project !== null) {
-      projectRootInput = snapshot.project.project_root;
-    }
+    if (snapshot.project !== null) projectRootInput = snapshot.project.project_root;
     if (snapshot.restore_error !== null) {
       projectError = `Saved project could not be reopened: ${snapshot.restore_error}`;
     }
@@ -94,12 +96,10 @@
       workspace = parsed;
     } catch (error: unknown) {
       if (!workspaceLoads.isCurrent(loadToken)) return;
-      workspaceError = describeError(error, "scientific workspace could not be loaded");
+      workspaceError = describeError(error, "Scientific workspace could not be loaded");
       await refreshDiagnostics();
     } finally {
-      if (workspaceLoads.isCurrent(loadToken)) {
-        workspaceBusy = false;
-      }
+      if (workspaceLoads.isCurrent(loadToken)) workspaceBusy = false;
     }
   }
 
@@ -112,8 +112,34 @@
       applySnapshot(snapshot);
       await loadWorkspace(snapshot.project);
     } catch (error: unknown) {
-      projectError = describeError(error, "project could not be opened");
+      projectError = describeError(error, "Project could not be opened");
       await refreshDiagnostics();
+    } finally {
+      projectBusy = false;
+    }
+  }
+
+  async function createProject(): Promise<void> {
+    if (lifecycle === null || projectBusy) return;
+    projectBusy = true;
+    projectError = "";
+    try {
+      await client.createProject({
+        project_root: newProjectRoot,
+        name: newProjectName,
+        slug: newProjectSlug,
+        ...(newProjectDescription.trim() ? { description: newProjectDescription } : {}),
+      });
+      const snapshot = await lifecycle.open(newProjectRoot);
+      applySnapshot(snapshot);
+      await loadWorkspace(snapshot.project);
+      createProjectOpen = false;
+      newProjectRoot = "";
+      newProjectName = "";
+      newProjectSlug = "";
+      newProjectDescription = "";
+    } catch (error: unknown) {
+      projectError = describeError(error, "Project could not be created");
     } finally {
       projectBusy = false;
     }
@@ -129,7 +155,7 @@
       await loadWorkspace(null);
       projectRootInput = "";
     } catch (error: unknown) {
-      projectError = describeError(error, "project could not be closed");
+      projectError = describeError(error, "Project could not be closed");
     } finally {
       projectBusy = false;
     }
@@ -138,19 +164,13 @@
   async function forgetRecent(root: string): Promise<void> {
     if (lifecycle === null || projectBusy) return;
     projectBusy = true;
-    projectError = "";
     const wasCurrent = project?.project_root === root;
     try {
       const snapshot = await lifecycle.forget(root);
       applySnapshot(snapshot);
-      if (wasCurrent) {
-        await loadWorkspace(snapshot.project);
-      }
-      if (project === null && projectRootInput === root) {
-        projectRootInput = "";
-      }
+      if (wasCurrent) await loadWorkspace(snapshot.project);
     } catch (error: unknown) {
-      projectError = describeError(error, "recent project could not be removed");
+      projectError = describeError(error, "Recent project could not be removed");
     } finally {
       projectBusy = false;
     }
@@ -162,9 +182,8 @@
   }
 
   async function refreshCurrentProjectAfterAction(): Promise<void> {
-    const selectedProject = project;
-    if (selectedProject === null) return;
-    await loadWorkspace(selectedProject, true);
+    if (project === null) return;
+    await loadWorkspace(project, true);
     await refreshDiagnostics();
   }
 
@@ -174,10 +193,9 @@
     projectBusy = true;
     projectError = "";
     try {
-      const restored =
-        project === null
-          ? await projectLifecycle.restore()
-          : await projectLifecycle.open(project.project_root);
+      const restored = project === null
+        ? await projectLifecycle.restore()
+        : await projectLifecycle.open(project.project_root);
       applySnapshot(restored);
       await loadWorkspace(restored.project);
     } catch (error: unknown) {
@@ -202,7 +220,7 @@
       connectionState = "ready";
       await restoreProjectAfterHandshake();
     } catch (error: unknown) {
-      connectionError = describeError(error, "desktop backend restart failed");
+      connectionError = describeError(error, "Desktop backend restart failed");
       connectionState = "error";
     } finally {
       await refreshDiagnostics();
@@ -212,14 +230,12 @@
 
   onMount(() => {
     let disposed = false;
-
     void (async () => {
       try {
         const response = await client.connect();
         if (disposed) return;
         health = response.payload;
         connectionState = "ready";
-
         const projectLifecycle = new DesktopProjectLifecycle(client, preferencesClient);
         lifecycle = projectLifecycle;
         projectBusy = true;
@@ -229,19 +245,12 @@
             applySnapshot(restored);
             await loadWorkspace(restored.project);
           }
-        } catch (error: unknown) {
-          if (!disposed) {
-            projectError = `Desktop preferences unavailable: ${describeError(
-              error,
-              "local preferences could not be loaded",
-            )}`;
-          }
         } finally {
           if (!disposed) projectBusy = false;
         }
       } catch (error: unknown) {
         if (disposed) return;
-        connectionError = describeError(error, "desktop backend connection failed");
+        connectionError = describeError(error, "Desktop backend connection failed");
         connectionState = "error";
       } finally {
         if (!disposed) await refreshDiagnostics();
@@ -256,9 +265,7 @@
   });
 </script>
 
-<svelte:head>
-  <title>ECatVASP</title>
-</svelte:head>
+<svelte:head><title>ECatVASP</title></svelte:head>
 
 <main class="app-shell">
   <header class="topbar">
@@ -266,155 +273,64 @@
       <h1>ECatVASP</h1>
       <p>An Electrocatalysis-oriented VASP Research Workbench</p>
     </div>
-    <div
-      class:ready={connectionState === "ready"}
-      class:error={connectionState === "error"}
-      class="connection-indicator"
-    >
+    <div class:ready={connectionState === "ready"} class:error={connectionState === "error"} class="connection-indicator">
       <span aria-hidden="true"></span>
-      {connectionState === "connecting"
-        ? "Connecting"
-        : connectionState === "ready"
-          ? "Backend ready"
-          : "Backend unavailable"}
+      {connectionState === "connecting" ? "Connecting" : connectionState === "ready" ? "Backend ready" : "Backend unavailable"}
     </div>
   </header>
 
   {#if connectionState === "connecting"}
-    <section class="workspace-frame" aria-live="polite">
-      <div class="runtime-state">
-        <strong>Establishing health handshake</strong>
-        <p>No project state is opened or cached while compatibility is being verified.</p>
-      </div>
-    </section>
+    <section class="workspace-frame"><div class="runtime-state"><strong>Starting scientific backend</strong><p>Compatibility is verified before project state is opened.</p></div></section>
   {:else if connectionState === "error"}
-    <section class="workspace-frame" aria-live="assertive">
-      <div class="runtime-state runtime-error">
-        <strong>Compatibility handshake failed</strong>
-        <p>{connectionError}</p>
-        <button type="button" class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>
-          {recoveryBusy ? "Restarting…" : "Restart backend"}
-        </button>
-      </div>
-    </section>
+    <section class="workspace-frame"><div class="runtime-state runtime-error"><strong>Backend unavailable</strong><p>{connectionError}</p><button class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>{recoveryBusy ? "Restarting…" : "Restart backend"}</button></div></section>
   {:else}
-    <section class="workspace-frame project-lifecycle" aria-live="polite">
+    <section class="workspace-frame project-lifecycle">
       <div class="section-heading">
-        <div>
-          <h2>Project workspace</h2>
-          <p>
-            Open or switch a ProjectStore by path. Current/recent paths are desktop-local preferences;
-            every project open is revalidated by the Python backend.
-          </p>
-        </div>
+        <div><h2>Projects</h2><p>Create a new research project or open an existing ProjectStore.</p></div>
+        <button class="primary-button" type="button" onclick={() => (createProjectOpen = !createProjectOpen)}>{createProjectOpen ? "Cancel new project" : "New project"}</button>
       </div>
 
-      <form
-        class="project-open-form"
-        onsubmit={(event) => {
-          event.preventDefault();
-          void openProject();
-        }}
-      >
-        <label for="project-root">Project root</label>
-        <div class="project-open-row">
-          <input
-            id="project-root"
-            bind:value={projectRootInput}
-            autocomplete="off"
-            disabled={projectBusy}
-            placeholder="C:\\Research\\ECatVASP\\project or /work/ecatvasp/project"
-          />
-          <button type="submit" class="primary-button" disabled={projectBusy || projectRootInput.trim().length === 0}>
-            {projectBusy ? "Working…" : "Open project"}
-          </button>
-        </div>
-      </form>
-
-      {#if projectError.length > 0}
-        <div class="project-error" role="alert">{projectError}</div>
+      {#if createProjectOpen}
+        <form class="project-create-form" onsubmit={(event) => { event.preventDefault(); void createProject(); }}>
+          <label>Project folder<input bind:value={newProjectRoot} placeholder="C:\\Research\\ECatVASP\\FeNC-ORR" /></label>
+          <label>Name<input bind:value={newProjectName} placeholder="Fe–N–C ORR project" /></label>
+          <label>Slug<input bind:value={newProjectSlug} placeholder="fenc-orr" /></label>
+          <label>Description<input bind:value={newProjectDescription} placeholder="Optional" /></label>
+          <button class="primary-button" type="submit" disabled={projectBusy || !newProjectRoot.trim() || !newProjectName.trim() || !newProjectSlug.trim()}>{projectBusy ? "Creating…" : "Create project"}</button>
+        </form>
       {/if}
 
-      <div class="project-columns">
-        <section class="project-panel" aria-labelledby="current-project-heading">
-          <div class="panel-heading">
-            <div>
-              <span class="eyebrow">Current</span>
-              <h3 id="current-project-heading">Validated project</h3>
-            </div>
-            {#if project !== null}
-              <button type="button" class="text-button" disabled={projectBusy} onclick={() => void closeProject()}>
-                Close
-              </button>
-            {/if}
-          </div>
+      <form class="project-open-form" onsubmit={(event) => { event.preventDefault(); void openProject(); }}>
+        <label for="project-root">Open project folder</label>
+        <div class="project-open-row">
+          <input id="project-root" bind:value={projectRootInput} autocomplete="off" disabled={projectBusy} placeholder="Project folder path" />
+          <button type="submit" class="primary-button" disabled={projectBusy || !projectRootInput.trim()}>Open project</button>
+        </div>
+      </form>
+      {#if projectError}<div class="project-error" role="alert">{projectError}</div>{/if}
 
+      <div class="project-columns">
+        <section class="project-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Current</span><h3>Research project</h3></div>{#if project}<button class="text-button" onclick={() => void closeProject()}>Close</button>{/if}</div>
           {#if project === null}
-            <div class="empty-state">
-              <strong>No project selected</strong>
-              <p>Choose a validated recent path or enter a project root above.</p>
-            </div>
+            <div class="empty-state"><strong>No project selected</strong><p>Create or open a project to enter Model Studio.</p></div>
           {:else}
             <dl class="project-metadata">
-              <div>
-                <dt>Name</dt>
-                <dd>{project.project_name}</dd>
-              </div>
-              <div>
-                <dt>Project ID</dt>
-                <dd>{project.project_id}</dd>
-              </div>
-              <div>
-                <dt>Schema</dt>
-                <dd>v{project.schema_version}</dd>
-              </div>
-              <div class="project-root-row">
-                <dt>Root</dt>
-                <dd>{project.project_root}</dd>
-              </div>
+              <div><dt>Name</dt><dd>{project.project_name}</dd></div>
+              <div><dt>Schema</dt><dd>v{project.schema_version}</dd></div>
+              <div class="project-root-row"><dt>Root</dt><dd>{project.project_root}</dd></div>
             </dl>
+            <details><summary>Advanced project identity</summary><code>{project.project_id}</code></details>
           {/if}
         </section>
-
-        <section class="project-panel" aria-labelledby="recent-projects-heading">
-          <div class="panel-heading">
-            <div>
-              <span class="eyebrow">Local only</span>
-              <h3 id="recent-projects-heading">Recent projects</h3>
-            </div>
-            <span class="recent-count">{preferences.recent_project_roots.length}/8</span>
-          </div>
-
-          {#if preferences.recent_project_roots.length === 0}
-            <div class="empty-state">
-              <strong>No recent projects</strong>
-              <p>Validated project paths will appear here after a successful open.</p>
-            </div>
-          {:else}
+        <section class="project-panel">
+          <div class="panel-heading"><div><span class="eyebrow">Recent</span><h3>Recent projects</h3></div></div>
+          {#if preferences.recent_project_roots.length === 0}<div class="empty-state">No recent projects</div>{:else}
             <ul class="recent-list">
               {#each preferences.recent_project_roots as root (root)}
                 <li class:active={project?.project_root === root}>
-                  <button
-                    class="recent-open"
-                    type="button"
-                    disabled={projectBusy}
-                    onclick={() => {
-                      projectRootInput = root;
-                      void openProject(root);
-                    }}
-                  >
-                    <span>{root}</span>
-                    <small>{project?.project_root === root ? "Current" : "Open"}</small>
-                  </button>
-                  <button
-                    class="recent-forget"
-                    type="button"
-                    aria-label={`Forget ${root}`}
-                    disabled={projectBusy}
-                    onclick={() => void forgetRecent(root)}
-                  >
-                    ×
-                  </button>
+                  <button class="recent-open" onclick={() => { projectRootInput = root; void openProject(root); }}><span>{root}</span><small>{project?.project_root === root ? "Current" : "Open"}</small></button>
+                  <button class="recent-forget" aria-label={`Forget ${root}`} onclick={() => void forgetRecent(root)}>×</button>
                 </li>
               {/each}
             </ul>
@@ -424,91 +340,51 @@
     </section>
 
     {#if project !== null}
+      <section class="workspace-frame">
+        {#key project.project_id}
+          <ModelStudioView client={client} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
+        {/key}
+      </section>
+    {/if}
+
+    {#if project !== null}
       <section class="workspace-frame" aria-live="polite">
         {#if workspaceBusy && workspace === null}
-          <div class="runtime-state">
-            <strong>Reading current scientific workspace</strong>
-            <p>The handoff is being rebuilt from the explicit current ProjectStore path.</p>
-          </div>
-        {:else if workspaceError.length > 0}
-          <div class="runtime-state runtime-error" role="alert">
-            <strong>Scientific workspace unavailable</strong>
-            <p>{workspaceError}</p>
-            <button type="button" class="primary-button" onclick={refreshWorkspace}>Retry current project</button>
-          </div>
+          <div class="runtime-state"><strong>Reading project state</strong></div>
+        {:else if workspaceError}
+          <div class="runtime-state runtime-error"><strong>Scientific workspace unavailable</strong><p>{workspaceError}</p><button class="primary-button" onclick={refreshWorkspace}>Retry</button></div>
         {:else if workspace !== null}
-          <WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} />
+          <details class="advanced-workspace"><summary>Advanced scientific inventory & provenance</summary><WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} /></details>
         {/if}
       </section>
     {/if}
 
     {#if project !== null && workspace !== null && health !== null}
-      <section class="workspace-frame" aria-live="polite">
-        {#key project.project_id}
-          <ApplicationActionsView
-            {client}
-            projectRoot={project.project_root}
-            projectId={project.project_id}
-            workflowRecipes={health.workflow_recipes}
-            {workspace}
-            disabled={projectBusy || workspaceBusy}
-            onMutation={refreshCurrentProjectAfterAction}
-          />
-        {/key}
+      <section class="workspace-frame">
+        <ApplicationActionsView
+          client={client}
+          projectRoot={project.project_root}
+          projectId={project.project_id}
+          workflowRecipes={health.workflow_recipes}
+          {workspace}
+          disabled={projectBusy || workspaceBusy}
+          onMutation={refreshCurrentProjectAfterAction}
+        />
       </section>
     {/if}
 
     {#if health !== null}
       <section class="workspace-frame runtime-contract">
-        <div class="section-heading compact-heading">
-          <div>
-            <h2>Runtime contract</h2>
-            <p>Compatibility and recovery diagnostics remain independent from project scientific state.</p>
-          </div>
-          <div>
-            <button type="button" class="text-button" onclick={() => void refreshDiagnostics()}>
-              Refresh diagnostics
-            </button>
-            <button type="button" class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>
-              {recoveryBusy ? "Restarting…" : "Restart backend"}
-            </button>
-          </div>
-        </div>
-        <dl class="runtime-grid">
-          <div>
-            <dt>Backend package</dt>
-            <dd>{health.backend_version}</dd>
-          </div>
-          <div>
-            <dt>IPC contract</dt>
-            <dd>ecatvasp-desktop-ipc-v1</dd>
-          </div>
-          <div>
-            <dt>Frontend handoff</dt>
-            <dd>{health.frontend_handoff_contract_version}</dd>
-          </div>
-          <div>
-            <dt>Project requests</dt>
-            <dd>{health.stateless_project_requests ? "Stateless" : "Unsupported"}</dd>
-          </div>
-          <div>
-            <dt>Runtime state</dt>
-            <dd>{runtimeDiagnostics?.backend_state ?? "Unavailable"}</dd>
-          </div>
-          <div>
-            <dt>Successful restarts</dt>
-            <dd>{runtimeDiagnostics?.restart_count ?? 0}</dd>
-          </div>
-          <div>
-            <dt>Last runtime failure</dt>
-            <dd>{runtimeDiagnostics?.last_failure_kind ?? "None"}</dd>
-          </div>
-        </dl>
-        <p>
-          Runtime diagnostics intentionally omit process IDs, executable/project paths, environment
-          values, request bodies, and scientific data. Restart only re-establishes transport; the
-          current project is reopened from ProjectStore before workspace state is shown again.
-        </p>
+        <details>
+          <summary>Runtime & compatibility diagnostics</summary>
+          <div class="section-heading compact-heading"><div><h2>Runtime contract</h2></div><div><button class="text-button" onclick={() => void refreshDiagnostics()}>Refresh</button><button class="primary-button" disabled={recoveryBusy} onclick={() => void restartBackend()}>{recoveryBusy ? "Restarting…" : "Restart backend"}</button></div></div>
+          <dl class="runtime-grid">
+            <div><dt>Backend</dt><dd>{health.backend_version}</dd></div>
+            <div><dt>Production IPC</dt><dd>ecatvasp-desktop-ipc-v2</dd></div>
+            <div><dt>Compatibility</dt><dd>{health.supported_protocol_versions.join(" · ")}</dd></div>
+            <div><dt>Runtime</dt><dd>{runtimeDiagnostics?.backend_state ?? "Unavailable"}</dd></div>
+          </dl>
+        </details>
       </section>
     {/if}
   {/if}
