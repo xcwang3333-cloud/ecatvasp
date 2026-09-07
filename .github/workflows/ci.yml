@@ -123,7 +123,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build frozen Windows backend
         run: npm run build:windows-sidecar
-      - name: Smoke frozen backend health and ProjectStore open
+      - name: Final E2E smoke of frozen backend and ProjectStore drift
         run: >-
           python packaging/smoke_frozen_backend.py
           src-tauri/binaries/ecatvasp-desktop-backend-x86_64-pc-windows-msvc.exe
