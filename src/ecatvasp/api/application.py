@@ -17,6 +17,7 @@ from ecatvasp.domain import (
     MethodFingerprint,
     MethodFingerprintId,
     ProjectId,
+    ScientificWorkflowPlan,
     StructureSnapshot,
     StructureSnapshotId,
     StructureVariant,
@@ -39,6 +40,7 @@ from ecatvasp.vasp import (
     ProjectNumericalLock,
     VaspConvergenceAssessment,
     VaspConvergenceEvidence,
+    VaspResultArtifactIntake,
     VaspResultDocument,
     VaspScientificResultIntake,
     VaspScientificResultMaterialization,
@@ -193,9 +195,7 @@ class ProjectApplicationService:
         bundle = self._store.open()
         plan = _require_workflow_plan(bundle, workflow_plan_id)
         fingerprint = _require_method_fingerprint(bundle, method_fingerprint_id)
-        incoming = tuple(
-            edge for edge in plan.edges if edge.downstream_step_key == step_key
-        )
+        incoming = tuple(edge for edge in plan.edges if edge.downstream_step_key == step_key)
         root_snapshot: StructureSnapshot | None = None
         if not incoming:
             if accepted_structure_source is not None:
@@ -257,6 +257,15 @@ class ProjectApplicationService:
 
         bundle = self._store.open()
         calculation = _require_calculation(bundle, calculation_id)
+        uid_bound = (
+            result.forces is not None
+            or result.magnetization is not None
+            or result.frequencies is not None
+        )
+        if uid_bound and execution_plan is None:
+            raise ApplicationServiceError(
+                "UID-bound VASP result requires the exact managed ExecutionPlan"
+            )
         materialization = materialize_vasp_scientific_result(
             project_root=self._store.root,
             calculation=calculation,
@@ -264,16 +273,8 @@ class ProjectApplicationService:
             result=result,
             assessment=assessment,
         )
-        uid_bound = (
-            result.forces is not None
-            or result.magnetization is not None
-            or result.frequencies is not None
-        )
         if uid_bound:
-            if execution_plan is None:
-                raise ApplicationServiceError(
-                    "UID-bound VASP result requires the exact managed ExecutionPlan"
-                )
+            assert execution_plan is not None
             materialization = bind_vasp_atom_identity_result_provenance(
                 plan=execution_plan,
                 result=result,
@@ -326,26 +327,17 @@ class ProjectApplicationService:
         calculation_id: CalculationId,
         method_fingerprint_id: MethodFingerprintId,
         execution_plan: ExecutionPlan,
-        intake: object,
+        intake: VaspResultArtifactIntake,
         evidence: VaspConvergenceEvidence,
         label: str | None = None,
     ) -> ApplicationStructurePromotionResult:
         """Reconstruct, gate, and atomically persist one explicit converged CONTCAR promotion."""
 
-        from ecatvasp.vasp import VaspResultArtifactIntake
-
-        if not isinstance(intake, VaspResultArtifactIntake):
-            raise ApplicationServiceError(
-                "structure promotion requires a managed VaspResultArtifactIntake"
-            )
         bundle = self._store.open()
         variant = _require_structure_variant(bundle, structure_variant_id)
         calculation = _require_calculation(bundle, calculation_id)
         fingerprint = _require_method_fingerprint(bundle, method_fingerprint_id)
-        input_snapshot = _require_snapshot(
-            bundle,
-            calculation.input_structure_snapshot_id,
-        )
+        input_snapshot = _require_snapshot(bundle, calculation.input_structure_snapshot_id)
         reconstruction = reconstruct_vasp_contcar_snapshot(
             project_root=self._store.root,
             calculation=calculation,
@@ -383,10 +375,7 @@ class ProjectApplicationService:
                 bundle.structure_variants,
                 promotion.updated_variant,
             ),
-            structure_snapshots=(
-                *bundle.structure_snapshots,
-                reconstruction.snapshot,
-            ),
+            structure_snapshots=(*bundle.structure_snapshots, reconstruction.snapshot),
             provenance_records=(
                 *bundle.provenance_records,
                 provenance.provenance_record,
@@ -443,7 +432,10 @@ class ProjectApplicationService:
         )
 
 
-def _require_workflow_plan(bundle: ProjectBundle, plan_id: WorkflowPlanId):
+def _require_workflow_plan(
+    bundle: ProjectBundle,
+    plan_id: WorkflowPlanId,
+) -> ScientificWorkflowPlan:
     for item in bundle.workflow_plans:
         if item.id == plan_id:
             return item
