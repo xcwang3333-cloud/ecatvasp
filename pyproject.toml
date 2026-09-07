@@ -29,6 +29,7 @@ dependencies = [
 
 [project.scripts]
 ecatvasp = "ecatvasp.cli:main"
+ecatvasp-desktop-backend = "ecatvasp.desktop.host:main"
 
 [project.optional-dependencies]
 dev = [
