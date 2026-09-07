@@ -157,7 +157,7 @@ def test_desktop_frontend_handoff_reuses_existing_v09_contract(tmp_path: Path) -
     encoded = json.loads(encode_desktop_response(response))
     assert encoded["protocol_version"] == DESKTOP_IPC_CONTRACT_VERSION
     assert encoded["payload"]["handoff"]["contract_version"] == FRONTEND_HANDOFF_CONTRACT_VERSION
-    assert encoded["payload"]["handoff"]["report"]["projection"]["project_name"] == (
+    assert encoded["payload"]["handoff"]["report"]["project"]["project_name"] == (
         "Desktop handoff"
     )
 
