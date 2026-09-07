@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
 
+  import ApplicationActionsView from "./lib/actions/ApplicationActionsView.svelte";
   import { DesktopBackendClient } from "./lib/backend/client";
   import type { HealthPayload, OpenProjectPayload } from "./lib/backend/contracts";
   import { DesktopPreferencesClient } from "./lib/preferences/client";
@@ -51,7 +52,10 @@
     }
   }
 
-  async function loadWorkspace(selectedProject: OpenProjectPayload | null): Promise<void> {
+  async function loadWorkspace(
+    selectedProject: OpenProjectPayload | null,
+    preserveCurrent = false,
+  ): Promise<void> {
     const loadToken = workspaceLoads.begin();
     if (selectedProject === null) {
       workspace = null;
@@ -62,7 +66,7 @@
 
     workspaceBusy = true;
     workspaceError = "";
-    workspace = null;
+    if (!preserveCurrent) workspace = null;
     try {
       const response = await client.frontendHandoff(selectedProject.project_root);
       if (!workspaceLoads.isCurrent(loadToken)) return;
@@ -139,6 +143,12 @@
   function refreshWorkspace(): void {
     if (project === null || workspaceBusy) return;
     void loadWorkspace(project);
+  }
+
+  async function refreshCurrentProjectAfterAction(): Promise<void> {
+    const selectedProject = project;
+    if (selectedProject === null) return;
+    await loadWorkspace(selectedProject, true);
   }
 
   onMount(() => {
@@ -351,7 +361,7 @@
 
     {#if project !== null}
       <section class="workspace-frame" aria-live="polite">
-        {#if workspaceBusy}
+        {#if workspaceBusy && workspace === null}
           <div class="runtime-state">
             <strong>Reading current scientific workspace</strong>
             <p>The handoff is being rebuilt from the explicit current ProjectStore path.</p>
@@ -365,6 +375,22 @@
         {:else if workspace !== null}
           <WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} />
         {/if}
+      </section>
+    {/if}
+
+    {#if project !== null && workspace !== null && health !== null}
+      <section class="workspace-frame" aria-live="polite">
+        {#key project.project_id}
+          <ApplicationActionsView
+            {client}
+            projectRoot={project.project_root}
+            projectId={project.project_id}
+            workflowRecipes={health.workflow_recipes}
+            {workspace}
+            disabled={projectBusy || workspaceBusy}
+            onMutation={refreshCurrentProjectAfterAction}
+          />
+        {/key}
       </section>
     {/if}
 
