@@ -19,6 +19,7 @@ htmlcov/
 ui/desktop/.packaging-build/
 ui/desktop/src-tauri/binaries/
 ui/desktop/src-tauri/target/
+ui/desktop/src-tauri/icons/icon.ico
 
 # ECatVASP local/project runtime data
 .workbench/
