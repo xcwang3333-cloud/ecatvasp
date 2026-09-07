@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 const MAX_EXPORT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -45,8 +46,12 @@ fn export_report(
     if content.len() > MAX_EXPORT_BYTES {
         return Err("desktop report export exceeds the local size limit".to_string());
     }
+    let actual_sha256 = format!("{:x}", Sha256::digest(content));
+    if content_sha256 != actual_sha256 {
+        return Err("desktop report export content hash does not match exact bytes".to_string());
+    }
 
-    let file_name = format!("ecatvasp-report-{content_sha256}.{extension}");
+    let file_name = format!("ecatvasp-report-{actual_sha256}.{extension}");
     let destination = output_directory.join(&file_name);
     let reused = match OpenOptions::new().write(true).create_new(true).open(&destination) {
         Ok(mut file) => {
@@ -69,7 +74,7 @@ fn export_report(
     Ok(json!({
         "file_name": file_name,
         "report_format": report_format,
-        "content_sha256": content_sha256,
+        "content_sha256": actual_sha256,
         "bytes_written": content.len(),
         "reused": reused,
     }))
@@ -103,11 +108,11 @@ mod tests {
     #[test]
     fn report_export_is_hash_named_and_idempotent() {
         let root = temporary_export_dir("deterministic");
-        let digest = "a".repeat(64);
+        let digest = "f9497d656cead2a39ca3f15f578a9512a5e9feb8cab200e420e297e5d1afa28d";
         let content = b"{\"project\":\"fixture\"}\n";
 
-        let first = export_report(&root, "json", &digest, content).expect("first export");
-        let second = export_report(&root, "json", &digest, content).expect("reused export");
+        let first = export_report(&root, "json", digest, content).expect("first export");
+        let second = export_report(&root, "json", digest, content).expect("reused export");
 
         assert_eq!(first["file_name"], format!("ecatvasp-report-{digest}.json"));
         assert_eq!(first["reused"], false);
@@ -123,11 +128,11 @@ mod tests {
     #[test]
     fn report_export_never_overwrites_different_content() {
         let root = temporary_export_dir("collision");
-        let digest = "b".repeat(64);
+        let digest = "97b0560280ed60a5a1eaa1bc45492543c8a986ad5a25b468c427eb83c3e88191";
         let destination = root.join(format!("ecatvasp-report-{digest}.csv"));
         fs::write(&destination, b"different").expect("write collision fixture");
 
-        let error = export_report(&root, "csv", &digest, b"current")
+        let error = export_report(&root, "csv", digest, b"current")
             .expect_err("different existing content must fail closed");
 
         assert!(error.contains("different content"));
@@ -139,10 +144,15 @@ mod tests {
     fn report_export_rejects_unsafe_or_untyped_inputs() {
         let root = temporary_export_dir("guards");
         let relative = Path::new("relative-export");
+        let empty_object_hash =
+            "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
 
-        assert!(export_report(relative, "json", &"c".repeat(64), b"{}").is_err());
-        assert!(export_report(&root, "html", &"c".repeat(64), b"{}").is_err());
+        assert!(export_report(relative, "json", empty_object_hash, b"{}").is_err());
+        assert!(export_report(&root, "html", empty_object_hash, b"{}").is_err());
         assert!(export_report(&root, "json", "not-a-hash", b"{}").is_err());
+        let mismatch = export_report(&root, "json", empty_object_hash, b"[]")
+            .expect_err("mismatched content hash must fail closed");
+        assert!(mismatch.contains("does not match exact bytes"));
 
         fs::remove_dir_all(root).expect("remove export test directory");
     }
