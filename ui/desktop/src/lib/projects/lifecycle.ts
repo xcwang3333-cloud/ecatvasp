@@ -40,13 +40,9 @@ export class DesktopProjectLifecycle {
       return this.snapshot(null);
     }
 
+    let response: DesktopSuccessResponse<OpenProjectPayload>;
     try {
-      const response = await this.backend.openProject(root);
-      const next = withOpenedProject(loaded, response.payload.project_root);
-      await this.preferencesClient.save(next);
-      this.preferences = next;
-      this.project = response.payload;
-      return this.snapshot(null);
+      response = await this.backend.openProject(root);
     } catch (error: unknown) {
       const next = withoutCurrentProject(loaded);
       await this.preferencesClient.save(next);
@@ -54,6 +50,12 @@ export class DesktopProjectLifecycle {
       this.project = null;
       return this.snapshot(describeError(error));
     }
+
+    const next = withOpenedProject(loaded, response.payload.project_root);
+    await this.preferencesClient.save(next);
+    this.preferences = next;
+    this.project = response.payload;
+    return this.snapshot(null);
   }
 
   async open(projectRoot: string): Promise<ProjectLifecycleSnapshot> {
