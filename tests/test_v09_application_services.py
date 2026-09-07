@@ -12,7 +12,9 @@ from ecatvasp.domain import (
     Artifact,
     ArtifactAvailability,
     ArtifactId,
+    ArtifactType,
     Calculation,
+    CalculationId,
     CalculationScientificStatus,
     CalculationType,
     Catalyst,
@@ -56,6 +58,7 @@ from ecatvasp.provenance import (
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp import (
+    ConvergenceVerdict,
     ExecutionPlan,
     PotcarResolutionEntry,
     PotcarResolutionRequest,
@@ -69,6 +72,7 @@ from ecatvasp.vasp import (
     VaspResultSource,
     VaspResultSourceRole,
     VaspRuntimeConstraints,
+    VaspScientificResultIntake,
     VaspStructurePromotionError,
     VaspSystemContext,
     VaspSystemKind,
@@ -136,11 +140,7 @@ def _lock(project: Project, fingerprint: MethodFingerprint) -> ProjectNumericalL
     )
 
 
-def _materialization_orchestration(
-    *,
-    plan_id,
-    root_id,
-) -> WorkflowOrchestrationEvaluation:
+def _materialization_orchestration(*, plan_id, root_id) -> WorkflowOrchestrationEvaluation:
     return WorkflowOrchestrationEvaluation(
         workflow_plan_id=plan_id,
         step_handoffs=(
@@ -319,7 +319,7 @@ def test_prepare_materialize_and_run_are_durable_and_replay_safe(tmp_path: Path)
 
 @dataclass(frozen=True, slots=True)
 class _ScientificIntake:
-    calculation_id: object
+    calculation_id: CalculationId
     calculation_type: CalculationType
     recipe_id: str
     files: tuple[VaspResultInputFile, ...]
@@ -352,7 +352,7 @@ def test_analyze_persists_only_preclassified_vasp_scientific_result(tmp_path: Pa
         status=ExecutionAttemptStatus.PARSED,
     )
     outcar = Artifact(
-        artifact_type=application_module.ArtifactType.OUTCAR,
+        artifact_type=ArtifactType.OUTCAR,
         producer=ExecutionAttemptProducerRef(attempt.id),
         availability=ArtifactAvailability.LOCAL,
         retrieval_policy=RetrievalPolicy.ALWAYS,
@@ -389,9 +389,9 @@ def test_analyze_persists_only_preclassified_vasp_scientific_result(tmp_path: Pa
     )
     assessment = VaspConvergenceAssessment(
         calculation_type=CalculationType.STATIC,
-        electronic=application_module.ConvergenceVerdict.CONVERGED,
-        ionic=application_module.ConvergenceVerdict.NOT_APPLICABLE,
-        overall=application_module.ConvergenceVerdict.CONVERGED,
+        electronic=ConvergenceVerdict.CONVERGED,
+        ionic=ConvergenceVerdict.NOT_APPLICABLE,
+        overall=ConvergenceVerdict.CONVERGED,
         evidence_codes=("application.preclassified",),
     )
     store = ProjectStore(tmp_path)
@@ -408,7 +408,7 @@ def test_analyze_persists_only_preclassified_vasp_scientific_result(tmp_path: Pa
 
     receipt = ProjectApplicationService(store).analyze_vasp_result(
         calculation_id=calculation.id,
-        intake=cast(application_module.VaspScientificResultIntake, intake),
+        intake=cast(VaspScientificResultIntake, intake),
         result=result,
         assessment=assessment,
     )
@@ -430,7 +430,7 @@ def test_uid_bound_analysis_fails_before_materialization_without_execution_plan(
     project, root, fingerprint, store = _workflow_store(tmp_path)
     calculation = Calculation(
         project_id=project.id,
-        calculation_type=CalculationType.STATIC,
+        calculation_type=CalculationType.RELAX,
         input_structure_snapshot_id=root.id,
         recipe_id=fingerprint.recipe.recipe_id,
         method_fingerprint_id=fingerprint.id,
@@ -460,7 +460,7 @@ def test_uid_bound_analysis_fails_before_materialization_without_execution_plan(
     with pytest.raises(ApplicationServiceError, match="ExecutionPlan"):
         ProjectApplicationService(store).analyze_vasp_result(
             calculation_id=calculation.id,
-            intake=cast(application_module.VaspScientificResultIntake, object()),
+            intake=cast(VaspScientificResultIntake, object()),
             result=uid_result,
             assessment=cast(VaspConvergenceAssessment, object()),
         )
@@ -518,9 +518,9 @@ def test_promote_persists_exact_lower_layer_receipts_and_failure_does_not_mutate
     )
     convergence = VaspConvergenceAssessment(
         calculation_type=CalculationType.RELAX,
-        electronic=application_module.ConvergenceVerdict.CONVERGED,
-        ionic=application_module.ConvergenceVerdict.CONVERGED,
-        overall=application_module.ConvergenceVerdict.CONVERGED,
+        electronic=ConvergenceVerdict.CONVERGED,
+        ionic=ConvergenceVerdict.CONVERGED,
+        overall=ConvergenceVerdict.CONVERGED,
         evidence_codes=("application.promoted",),
     )
     promotion = VaspStructurePromotionResult(
