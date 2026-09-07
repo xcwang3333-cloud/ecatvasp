@@ -12,6 +12,11 @@
     DesktopProjectLifecycle,
     type ProjectLifecycleSnapshot,
   } from "./lib/projects/lifecycle";
+  import WorkspaceView from "./lib/workspace/WorkspaceView.svelte";
+  import {
+    type ScientificWorkspace,
+    parseScientificWorkspace,
+  } from "./lib/workspace/contracts";
 
   const client = new DesktopBackendClient();
   const preferencesClient = new DesktopPreferencesClient();
@@ -21,10 +26,13 @@
   let health: HealthPayload | null = null;
   let project: OpenProjectPayload | null = null;
   let preferences: DesktopPreferences = defaultDesktopPreferences();
+  let workspace: ScientificWorkspace | null = null;
   let projectRootInput = "";
   let projectBusy = false;
+  let workspaceBusy = false;
   let connectionError = "";
   let projectError = "";
+  let workspaceError = "";
 
   function describeError(error: unknown, fallback: string): string {
     return error instanceof Error ? error.message : fallback;
@@ -41,12 +49,42 @@
     }
   }
 
+  async function loadWorkspace(selectedProject: OpenProjectPayload | null): Promise<void> {
+    if (selectedProject === null) {
+      workspace = null;
+      workspaceError = "";
+      workspaceBusy = false;
+      return;
+    }
+
+    workspaceBusy = true;
+    workspaceError = "";
+    workspace = null;
+    try {
+      const response = await client.frontendHandoff(selectedProject.project_root);
+      if (response.payload.project_root !== selectedProject.project_root) {
+        throw new Error("desktop workspace handoff returned a different project root");
+      }
+      const parsed = parseScientificWorkspace(response.payload.handoff);
+      if (parsed.project.project_id !== selectedProject.project_id) {
+        throw new Error("desktop workspace handoff belongs to a different project");
+      }
+      workspace = parsed;
+    } catch (error: unknown) {
+      workspaceError = describeError(error, "scientific workspace could not be loaded");
+    } finally {
+      workspaceBusy = false;
+    }
+  }
+
   async function openProject(root: string = projectRootInput): Promise<void> {
     if (lifecycle === null || projectBusy) return;
     projectBusy = true;
     projectError = "";
     try {
-      applySnapshot(await lifecycle.open(root));
+      const snapshot = await lifecycle.open(root);
+      applySnapshot(snapshot);
+      await loadWorkspace(snapshot.project);
     } catch (error: unknown) {
       projectError = describeError(error, "project could not be opened");
     } finally {
@@ -59,7 +97,9 @@
     projectBusy = true;
     projectError = "";
     try {
-      applySnapshot(await lifecycle.close());
+      const snapshot = await lifecycle.close();
+      applySnapshot(snapshot);
+      await loadWorkspace(null);
       projectRootInput = "";
     } catch (error: unknown) {
       projectError = describeError(error, "project could not be closed");
@@ -72,8 +112,13 @@
     if (lifecycle === null || projectBusy) return;
     projectBusy = true;
     projectError = "";
+    const wasCurrent = project?.project_root === root;
     try {
-      applySnapshot(await lifecycle.forget(root));
+      const snapshot = await lifecycle.forget(root);
+      applySnapshot(snapshot);
+      if (wasCurrent) {
+        await loadWorkspace(snapshot.project);
+      }
       if (project === null && projectRootInput === root) {
         projectRootInput = "";
       }
@@ -82,6 +127,11 @@
     } finally {
       projectBusy = false;
     }
+  }
+
+  function refreshWorkspace(): void {
+    if (project === null || workspaceBusy) return;
+    void loadWorkspace(project);
   }
 
   onMount(() => {
@@ -99,7 +149,10 @@
         projectBusy = true;
         try {
           const restored = await projectLifecycle.restore();
-          if (!disposed) applySnapshot(restored);
+          if (!disposed) {
+            applySnapshot(restored);
+            await loadWorkspace(restored.project);
+          }
         } catch (error: unknown) {
           if (!disposed) {
             projectError = `Desktop preferences unavailable: ${describeError(
@@ -287,6 +340,25 @@
         </section>
       </div>
     </section>
+
+    {#if project !== null}
+      <section class="workspace-frame" aria-live="polite">
+        {#if workspaceBusy}
+          <div class="runtime-state">
+            <strong>Reading current scientific workspace</strong>
+            <p>The handoff is being rebuilt from the explicit current ProjectStore path.</p>
+          </div>
+        {:else if workspaceError.length > 0}
+          <div class="runtime-state runtime-error" role="alert">
+            <strong>Scientific workspace unavailable</strong>
+            <p>{workspaceError}</p>
+            <button type="button" class="primary-button" onclick={refreshWorkspace}>Retry current project</button>
+          </div>
+        {:else if workspace !== null}
+          <WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} />
+        {/if}
+      </section>
+    {/if}
 
     {#if health !== null}
       <section class="workspace-frame runtime-contract">
