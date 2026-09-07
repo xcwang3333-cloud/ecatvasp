@@ -1,4 +1,4 @@
-import type { DesktopSuccessResponse, OpenProjectPayload } from "../backend/contracts";
+import type { OpenProjectPayload } from "../backend/contracts";
 import {
   type DesktopPreferences,
   defaultDesktopPreferences,
@@ -7,8 +7,12 @@ import {
   withoutRecentProject,
 } from "../preferences/contracts";
 
+export interface ProjectOpenResponse {
+  payload: OpenProjectPayload;
+}
+
 export interface ProjectBackendPort {
-  openProject(projectRoot: string): Promise<DesktopSuccessResponse<OpenProjectPayload>>;
+  openProject(projectRoot: string): Promise<ProjectOpenResponse>;
 }
 
 export interface PreferencesPort {
@@ -40,7 +44,7 @@ export class DesktopProjectLifecycle {
       return this.snapshot(null);
     }
 
-    let response: DesktopSuccessResponse<OpenProjectPayload>;
+    let response: ProjectOpenResponse;
     try {
       response = await this.backend.openProject(root);
     } catch (error: unknown) {
