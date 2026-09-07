@@ -4,6 +4,7 @@ use std::{
     env,
     ffi::OsString,
     io::{BufRead, BufReader, Write},
+    path::Path,
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -19,6 +20,10 @@ const DESKTOP_IPC_CONTRACT_VERSION: &str = "ecatvasp-desktop-ipc-v1";
 const FRONTEND_HANDOFF_CONTRACT_VERSION: &str = "ecatvasp-frontend-handoff-v1";
 const BACKEND_EXECUTABLE_ENV: &str = "ECATVASP_DESKTOP_BACKEND";
 const DEFAULT_BACKEND_EXECUTABLE: &str = "ecatvasp-desktop-backend";
+#[cfg(target_os = "windows")]
+const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
+#[cfg(not(target_os = "windows"))]
+const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 const PROJECT_OPERATIONS: [&str; 5] = [
     "open_project",
     "status",
@@ -56,8 +61,7 @@ struct BackendProcess {
 
 impl BackendProcess {
     fn spawn() -> Result<Self, String> {
-        let executable = env::var_os(BACKEND_EXECUTABLE_ENV)
-            .unwrap_or_else(|| OsString::from(DEFAULT_BACKEND_EXECUTABLE));
+        let executable = backend_executable();
         let mut child = Command::new(executable)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -127,6 +131,29 @@ impl Drop for BackendProcess {
             let _ = self.child.wait();
         }
     }
+}
+
+fn backend_executable() -> OsString {
+    resolve_backend_executable(
+        env::var_os(BACKEND_EXECUTABLE_ENV),
+        env::current_exe().ok().as_deref(),
+    )
+}
+
+fn resolve_backend_executable(
+    explicit_override: Option<OsString>,
+    current_executable: Option<&Path>,
+) -> OsString {
+    if let Some(executable) = explicit_override {
+        return executable;
+    }
+    if let Some(parent) = current_executable.and_then(Path::parent) {
+        let bundled = parent.join(BUNDLED_BACKEND_FILENAME);
+        if bundled.is_file() {
+            return bundled.into_os_string();
+        }
+    }
+    OsString::from(DEFAULT_BACKEND_EXECUTABLE)
 }
 
 #[tauri::command]
@@ -395,6 +422,41 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf};
+
+    fn temporary_runtime_dir(name: &str) -> PathBuf {
+        env::temp_dir().join(format!("ecatvasp-{name}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn bundled_backend_is_preferred_but_explicit_override_wins() {
+        let runtime_dir = temporary_runtime_dir("bundled-backend");
+        fs::create_dir_all(&runtime_dir).expect("create runtime test directory");
+        let app = runtime_dir.join("ECatVASP-test-app");
+        let bundled = runtime_dir.join(BUNDLED_BACKEND_FILENAME);
+        fs::write(&bundled, b"test").expect("create bundled backend marker");
+
+        let resolved = resolve_backend_executable(None, Some(&app));
+        assert_eq!(resolved, bundled.as_os_str());
+
+        let explicit = OsString::from("C:/explicit/ecatvasp-backend.exe");
+        let resolved = resolve_backend_executable(Some(explicit.clone()), Some(&app));
+        assert_eq!(resolved, explicit);
+
+        fs::remove_dir_all(runtime_dir).expect("remove runtime test directory");
+    }
+
+    #[test]
+    fn backend_resolution_falls_back_to_development_command() {
+        let runtime_dir = temporary_runtime_dir("backend-fallback");
+        fs::create_dir_all(&runtime_dir).expect("create runtime test directory");
+        let app = runtime_dir.join("ECatVASP-test-app");
+
+        let resolved = resolve_backend_executable(None, Some(&app));
+        assert_eq!(resolved, OsString::from(DEFAULT_BACKEND_EXECUTABLE));
+
+        fs::remove_dir_all(runtime_dir).expect("remove runtime test directory");
+    }
 
     #[test]
     fn frontend_request_rejects_health_and_future_operations() {
