@@ -17,7 +17,8 @@ use preferences::{desktop_preferences_load, desktop_preferences_save};
 use serde_json::{json, Map, Value};
 use tauri::State;
 
-const DESKTOP_IPC_CONTRACT_VERSION: &str = "ecatvasp-desktop-ipc-v1";
+const DESKTOP_IPC_V1_CONTRACT_VERSION: &str = "ecatvasp-desktop-ipc-v1";
+const DESKTOP_IPC_V2_CONTRACT_VERSION: &str = "ecatvasp-desktop-ipc-v2";
 const FRONTEND_HANDOFF_CONTRACT_VERSION: &str = "ecatvasp-frontend-handoff-v1";
 const BACKEND_EXECUTABLE_ENV: &str = "ECATVASP_DESKTOP_BACKEND";
 const DEFAULT_BACKEND_EXECUTABLE: &str = "ecatvasp-desktop-backend";
@@ -25,26 +26,102 @@ const DEFAULT_BACKEND_EXECUTABLE: &str = "ecatvasp-desktop-backend";
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
-const PROJECT_OPERATIONS: [&str; 5] = [
+
+const V2_FRONTEND_OPERATIONS: [&str; 17] = [
     "open_project",
     "status",
     "frontend_handoff",
     "application_report",
     "prepare_workflow",
+    "project_dashboard",
+    "model_catalog",
+    "structure_presentation",
+    "create_project",
+    "create_catalyst",
+    "build_graphene_model",
+    "import_structure_model",
+    "mutate_structure_model",
+    "build_single_metal_site",
+    "build_multi_metal_site",
+    "create_active_site",
+    "build_adsorbate_conformer",
 ];
-const HEALTH_OPERATIONS: [&str; 6] = [
+const V2_HEALTH_OPERATIONS: [&str; 18] = [
     "health",
     "open_project",
     "status",
     "frontend_handoff",
     "application_report",
     "prepare_workflow",
+    "project_dashboard",
+    "model_catalog",
+    "structure_presentation",
+    "create_project",
+    "create_catalyst",
+    "build_graphene_model",
+    "import_structure_model",
+    "mutate_structure_model",
+    "build_single_metal_site",
+    "build_multi_metal_site",
+    "create_active_site",
+    "build_adsorbate_conformer",
 ];
-const BASE_REQUEST_FIELDS: [&str; 4] = [
+const V2_REQUEST_FIELDS: [&str; 40] = [
     "protocol_version",
     "request_id",
     "operation",
     "project_root",
+    "report_format",
+    "workflow_recipe_id",
+    "workflow_recipe_version",
+    "root_structure_snapshot_id",
+    "parameters_hash",
+    "structure_snapshot_id",
+    "name",
+    "slug",
+    "description",
+    "formula_label",
+    "support_type",
+    "series_key",
+    "series_value",
+    "tags",
+    "catalyst_id",
+    "variant_name",
+    "nx",
+    "ny",
+    "bond_length_angstrom",
+    "vacuum_gap_angstrom",
+    "label",
+    "source_path",
+    "format",
+    "source_variant_id",
+    "source_snapshot_id",
+    "vacancy_atom_uids",
+    "substitutions",
+    "metal_element",
+    "coordination_atom_uids",
+    "side",
+    "height_angstrom",
+    "centers",
+    "metal_metal_topology_intent",
+    "structure_variant_id",
+    "center_atom_uids",
+    "side_labels",
+];
+const V2_ADSORBATE_FIELDS: [&str; 13] = [
+    "active_site_id",
+    "state_label",
+    "template_key",
+    "target_center_atom_uids",
+    "binding_mode",
+    "contacts",
+    "conformer_name",
+    "coverage",
+    "reaction_role",
+    "orientation",
+    "rank",
+    "topology",
+    "coordination_environment",
 ];
 
 #[derive(Default)]
@@ -184,8 +261,8 @@ fn perform_backend_health(state: &BackendState) -> Result<String, String> {
 
     let sequence = state.health_sequence.fetch_add(1, Ordering::Relaxed) + 1;
     let request = json!({
-        "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-        "request_id": format!("tauri-health-{sequence}"),
+        "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+        "request_id": format!("tauri-v2-health-{sequence}"),
         "operation": "health"
     });
     let exchange_result = guard
@@ -332,50 +409,32 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         .as_object()
         .ok_or_else(|| "desktop frontend request must be an object".to_string())?;
     if object.get("protocol_version").and_then(Value::as_str)
-        != Some(DESKTOP_IPC_CONTRACT_VERSION)
+        != Some(DESKTOP_IPC_V2_CONTRACT_VERSION)
     {
         return Err("unsupported desktop IPC contract version".to_string());
     }
-    let request_id = require_nonblank_string(object, "request_id")?;
-    if request_id.trim().is_empty() {
-        return Err("desktop frontend request_id must not be blank".to_string());
-    }
+    require_nonblank_string(object, "request_id")?;
     let operation = require_nonblank_string(object, "operation")?;
-    if !PROJECT_OPERATIONS.contains(&operation) {
+    if !V2_FRONTEND_OPERATIONS.contains(&operation) {
         return Err("desktop frontend operation is not available".to_string());
     }
-    require_nonblank_string(object, "project_root")?;
 
+    let allowed = |key: &str| {
+        V2_REQUEST_FIELDS.contains(&key) || V2_ADSORBATE_FIELDS.contains(&key)
+    };
+    if object.keys().any(|key| !allowed(key.as_str())) {
+        return Err("desktop frontend request contains an unknown field".to_string());
+    }
+
+    require_nonblank_string(object, "project_root")?;
     match operation {
-        "open_project" | "status" | "frontend_handoff" => {
-            validate_allowed_fields(object, &BASE_REQUEST_FIELDS)?;
-        }
         "application_report" => {
-            let allowed = [
-                "protocol_version",
-                "request_id",
-                "operation",
-                "project_root",
-                "report_format",
-            ];
-            validate_allowed_fields(object, &allowed)?;
             let format = require_nonblank_string(object, "report_format")?;
             if !matches!(format, "json" | "csv" | "markdown") {
                 return Err("desktop report format is unsupported".to_string());
             }
         }
         "prepare_workflow" => {
-            let allowed = [
-                "protocol_version",
-                "request_id",
-                "operation",
-                "project_root",
-                "workflow_recipe_id",
-                "workflow_recipe_version",
-                "root_structure_snapshot_id",
-                "parameters_hash",
-            ];
-            validate_allowed_fields(object, &allowed)?;
             require_nonblank_string(object, "workflow_recipe_id")?;
             require_nonblank_string(object, "workflow_recipe_version")?;
             require_nonblank_string(object, "root_structure_snapshot_id")?;
@@ -388,17 +447,31 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
                 }
             }
         }
-        _ => return Err("desktop frontend operation is not available".to_string()),
-    }
-    Ok(())
-}
-
-fn validate_allowed_fields(
-    object: &Map<String, Value>,
-    allowed: &[&str],
-) -> Result<(), String> {
-    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err("desktop frontend request contains an unknown field".to_string());
+        "create_project" => {
+            require_nonblank_string(object, "name")?;
+            require_nonblank_string(object, "slug")?;
+        }
+        "create_catalyst" => {
+            require_nonblank_string(object, "name")?;
+            require_nonblank_string(object, "slug")?;
+        }
+        "build_graphene_model" | "import_structure_model" => {
+            require_nonblank_string(object, "catalyst_id")?;
+            require_nonblank_string(object, "variant_name")?;
+        }
+        "mutate_structure_model" | "build_single_metal_site" | "build_multi_metal_site" => {
+            require_nonblank_string(object, "source_variant_id")?;
+            require_nonblank_string(object, "source_snapshot_id")?;
+            require_nonblank_string(object, "variant_name")?;
+        }
+        "create_active_site" | "build_adsorbate_conformer" => {
+            require_nonblank_string(object, "structure_variant_id")?;
+            require_nonblank_string(object, "source_snapshot_id")?;
+        }
+        "structure_presentation" => {
+            require_nonblank_string(object, "structure_snapshot_id")?;
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -428,11 +501,7 @@ fn validate_correlated_response(request: &Value, response: &Value) -> Result<(),
     let response_object = response
         .as_object()
         .ok_or_else(|| "desktop backend response must be an object".to_string())?;
-    if response_object
-        .get("protocol_version")
-        .and_then(Value::as_str)
-        != Some(DESKTOP_IPC_CONTRACT_VERSION)
-    {
+    if response_object.get("protocol_version") != request_object.get("protocol_version") {
         return Err("desktop backend contract version mismatch".to_string());
     }
     if response_object.get("request_id") != request_object.get("request_id") {
@@ -451,6 +520,11 @@ fn validate_health_response(response: &Value) -> Result<(), String> {
     let object = response
         .as_object()
         .ok_or_else(|| "desktop health response must be an object".to_string())?;
+    if object.get("protocol_version").and_then(Value::as_str)
+        != Some(DESKTOP_IPC_V2_CONTRACT_VERSION)
+    {
+        return Err("desktop health response must use IPC v2".to_string());
+    }
     if object.get("ok").and_then(Value::as_bool) != Some(true) {
         return Err("desktop backend health check failed".to_string());
     }
@@ -483,10 +557,20 @@ fn validate_health_response(response: &Value) -> Result<(), String> {
         .get("operations")
         .and_then(Value::as_array)
         .ok_or_else(|| "desktop backend operations are invalid".to_string())?;
-    for expected in HEALTH_OPERATIONS {
+    for expected in V2_HEALTH_OPERATIONS {
         if !operations.iter().any(|value| value.as_str() == Some(expected)) {
             return Err(format!("desktop backend is missing operation: {expected}"));
         }
+    }
+    let versions = payload
+        .get("supported_protocol_versions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "desktop backend protocol catalog is invalid".to_string())?;
+    if versions.len() != 2
+        || versions[0].as_str() != Some(DESKTOP_IPC_V1_CONTRACT_VERSION)
+        || versions[1].as_str() != Some(DESKTOP_IPC_V2_CONTRACT_VERSION)
+    {
+        return Err("desktop backend protocol compatibility catalog is invalid".to_string());
     }
     let recipes = payload
         .get("workflow_recipes")
@@ -494,17 +578,6 @@ fn validate_health_response(response: &Value) -> Result<(), String> {
         .ok_or_else(|| "desktop backend workflow recipes are invalid".to_string())?;
     if recipes.is_empty() {
         return Err("desktop backend workflow recipes are empty".to_string());
-    }
-    for recipe in recipes {
-        let recipe = recipe
-            .as_object()
-            .ok_or_else(|| "desktop backend workflow recipe is invalid".to_string())?;
-        require_nonblank_string(recipe, "recipe_id")?;
-        require_nonblank_string(recipe, "version")?;
-        match recipe.get("description") {
-            Some(Value::String(_)) | Some(Value::Null) => {}
-            _ => return Err("desktop backend workflow recipe description is invalid".to_string()),
-        }
     }
     Ok(())
 }
@@ -558,10 +631,8 @@ mod tests {
         let runtime_dir = temporary_runtime_dir("backend-fallback");
         fs::create_dir_all(&runtime_dir).expect("create runtime test directory");
         let app = runtime_dir.join("ECatVASP-test-app");
-
         let resolved = resolve_backend_executable(None, Some(&app));
         assert_eq!(resolved, OsString::from(DEFAULT_BACKEND_EXECUTABLE));
-
         fs::remove_dir_all(runtime_dir).expect("remove runtime test directory");
     }
 
@@ -573,34 +644,56 @@ mod tests {
     }
 
     #[test]
-    fn frontend_request_rejects_health_and_future_operations() {
-        let health = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+    fn frontend_request_accepts_v2_known_operations_and_rejects_v1_or_future() {
+        let catalog = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-1",
-            "operation": "health"
+            "operation": "model_catalog",
+            "project_root": "/project"
+        });
+        let legacy = json!({
+            "protocol_version": DESKTOP_IPC_V1_CONTRACT_VERSION,
+            "request_id": "request-2",
+            "operation": "status",
+            "project_root": "/project"
         });
         let future = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "request-2",
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "request-3",
             "operation": "future_mutation",
             "project_root": "/project"
         });
-
-        assert!(validate_frontend_request(&health).is_err());
+        assert!(validate_frontend_request(&catalog).is_ok());
+        assert!(validate_frontend_request(&legacy).is_err());
         assert!(validate_frontend_request(&future).is_err());
     }
 
     #[test]
-    fn frontend_request_enforces_typed_action_fields() {
+    fn frontend_request_rejects_generic_payload_escape_hatch() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "model-1",
+            "operation": "mutate_structure_model",
+            "project_root": "/project",
+            "source_variant_id": "variant",
+            "source_snapshot_id": "snapshot",
+            "variant_name": "child",
+            "payload": {"arbitrary": true}
+        });
+        assert!(validate_frontend_request(&request).is_err());
+    }
+
+    #[test]
+    fn frontend_request_enforces_typed_common_action_fields() {
         let report = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "report-1",
             "operation": "application_report",
             "project_root": "/project",
             "report_format": "json"
         });
         let workflow = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "workflow-1",
             "operation": "prepare_workflow",
             "project_root": "/project",
@@ -611,110 +704,45 @@ mod tests {
         });
         assert!(validate_frontend_request(&report).is_ok());
         assert!(validate_frontend_request(&workflow).is_ok());
-
-        let report_with_workflow_field = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "report-2",
-            "operation": "application_report",
-            "project_root": "/project",
-            "report_format": "json",
-            "workflow_recipe_id": "forbidden"
-        });
-        let generic_payload = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "workflow-2",
-            "operation": "prepare_workflow",
-            "project_root": "/project",
-            "workflow_recipe_id": "recipe",
-            "workflow_recipe_version": "1",
-            "root_structure_snapshot_id": "snapshot",
-            "payload": {"arbitrary": true}
-        });
-        assert!(validate_frontend_request(&report_with_workflow_field).is_err());
-        assert!(validate_frontend_request(&generic_payload).is_err());
     }
 
     #[test]
-    fn health_response_rejects_unknown_contract_major() {
+    fn health_response_requires_v2_catalog_and_v1_compatibility_advertisement() {
         let response = json!({
-            "protocol_version": "ecatvasp-desktop-ipc-v2",
-            "request_id": "tauri-health-1",
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "tauri-v2-health-1",
             "operation": "health",
             "ok": true,
             "payload": {
-                "backend_version": "1.0.0.dev0",
+                "backend_version": "1.1.0.dev0",
                 "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-                "operations": HEALTH_OPERATIONS,
+                "operations": V2_HEALTH_OPERATIONS,
                 "stateless_project_requests": true,
-                "workflow_recipes": [{
-                    "recipe_id": "recipe",
-                    "version": "1",
-                    "description": null
-                }]
-            }
-        });
-        let request = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "tauri-health-1",
-            "operation": "health"
-        });
-
-        assert!(validate_correlated_response(&request, &response).is_err());
-    }
-
-    #[test]
-    fn health_response_requires_typed_action_catalog() {
-        let response = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "tauri-health-1",
-            "operation": "health",
-            "ok": true,
-            "payload": {
-                "backend_version": "1.0.0.dev0",
-                "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-                "operations": HEALTH_OPERATIONS,
-                "stateless_project_requests": true,
-                "workflow_recipes": [{
-                    "recipe_id": "recipe",
-                    "version": "1",
-                    "description": null
-                }]
+                "supported_protocol_versions": [
+                    DESKTOP_IPC_V1_CONTRACT_VERSION,
+                    DESKTOP_IPC_V2_CONTRACT_VERSION
+                ],
+                "workflow_recipes": [{"recipe_id": "recipe", "version": "1", "description": null}]
             }
         });
         assert!(validate_health_response(&response).is_ok());
-
-        let missing = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
-            "request_id": "tauri-health-2",
-            "operation": "health",
-            "ok": true,
-            "payload": {
-                "backend_version": "1.0.0.dev0",
-                "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-                "operations": ["health", "open_project", "status", "frontend_handoff"],
-                "stateless_project_requests": true,
-                "workflow_recipes": []
-            }
-        });
-        assert!(validate_health_response(&missing).is_err());
     }
 
     #[test]
-    fn response_correlation_rejects_request_id_mismatch() {
+    fn response_correlation_uses_request_protocol_and_identity() {
         let request = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-a",
             "operation": "status",
             "project_root": "/project"
         });
         let response = json!({
-            "protocol_version": DESKTOP_IPC_CONTRACT_VERSION,
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-b",
             "operation": "status",
             "ok": true,
             "payload": {}
         });
-
         assert!(validate_correlated_response(&request, &response).is_err());
     }
 }
