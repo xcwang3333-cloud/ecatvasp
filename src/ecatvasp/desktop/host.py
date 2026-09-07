@@ -52,6 +52,8 @@ class _VersionedDesktopBackend:
     def handle(self, request: DesktopAnyRequest) -> DesktopAnyResponse:
         if is_desktop_v2_request(request):
             return self._v2.handle(request)
+        if not isinstance(request, DesktopRequest):
+            raise DesktopIPCError("desktop request family is unsupported")
         return self._v1.handle(request)
 
 
