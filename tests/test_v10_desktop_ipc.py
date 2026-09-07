@@ -19,7 +19,11 @@ from ecatvasp.desktop import (
 from ecatvasp.domain import Project
 from ecatvasp.frontend import FRONTEND_HANDOFF_CONTRACT_VERSION
 from ecatvasp.schema.version import SCHEMA_VERSION
-from ecatvasp.storage import ProjectBundle, ProjectStore
+from ecatvasp.storage import (
+    ProjectBundle,
+    ProjectStore,
+    UnsupportedSchemaVersionError,
+)
 
 
 def _project_store(root: Path, *, name: str, slug: str) -> tuple[ProjectStore, Project]:
@@ -170,3 +174,22 @@ def test_desktop_missing_project_fails_closed_without_fake_payload(tmp_path: Pat
     encoded = json.loads(encode_desktop_response(response))
     assert "payload" not in encoded
     assert encoded["error"]["code"] == "project_unavailable"
+
+
+def test_desktop_recognized_schema_error_is_structured_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_open(_store: ProjectStore) -> ProjectBundle:
+        raise UnsupportedSchemaVersionError("project schema is newer than this backend")
+
+    monkeypatch.setattr(ProjectStore, "open", reject_open)
+    response = DesktopBackend().handle(
+        _request("schema-1", DesktopOperation.OPEN_PROJECT, tmp_path / "future-project")
+    )
+
+    assert response.ok is False
+    assert response.payload is None
+    assert response.error is not None
+    assert response.error.code == "project_unavailable"
+    assert "newer" in response.error.message
