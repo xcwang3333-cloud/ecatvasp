@@ -106,7 +106,7 @@ def test_cli_report_reuses_exact_application_report_rendering(tmp_path: Path) ->
     assert code == 0
     assert output.getvalue() == expected
     payload = json.loads(output.getvalue())
-    assert payload["workspace"]["schema_version"] == SCHEMA_VERSION
+    assert payload["project"]["schema_version"] == SCHEMA_VERSION
     assert payload["contract_version"] == "ecatvasp-scientific-report-v1"
 
 
