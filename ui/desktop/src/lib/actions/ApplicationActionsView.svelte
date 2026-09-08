@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ElectronicAnalysisClient } from "../analysis/client";
+  import ElectronicAnalysisView from "../analysis/ElectronicAnalysisView.svelte";
   import type { DesktopBackendClientV2 } from "../backend/client-v2";
   import type {
     ApplicationReportPayload,
@@ -20,6 +22,7 @@
   export let onMutation: () => Promise<void>;
 
   const resultCenterClient = new ResultCenterClient();
+  const electronicAnalysisClient = new ElectronicAnalysisClient();
 
   let reportFormat: ReportFormat = "json";
   let reportBusy = false;
@@ -191,6 +194,13 @@
 
   <ResultCenterView
     client={resultCenterClient}
+    {projectRoot}
+    {disabled}
+    {onMutation}
+  />
+
+  <ElectronicAnalysisView
+    client={electronicAnalysisClient}
     {projectRoot}
     {disabled}
     {onMutation}
