@@ -27,7 +27,7 @@ const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 
-const V2_FRONTEND_OPERATIONS: [&str; 26] = [
+const V2_FRONTEND_OPERATIONS: [&str; 29] = [
     "open_project",
     "status",
     "frontend_handoff",
@@ -54,8 +54,11 @@ const V2_FRONTEND_OPERATIONS: [&str; 26] = [
     "refresh_slurm_job",
     "cancel_slurm_job",
     "retrieve_job_outputs",
+    "result_catalog",
+    "analyze_result",
+    "promote_result_structure",
 ];
-const V2_HEALTH_OPERATIONS: [&str; 27] = [
+const V2_HEALTH_OPERATIONS: [&str; 30] = [
     "health",
     "open_project",
     "status",
@@ -83,6 +86,9 @@ const V2_HEALTH_OPERATIONS: [&str; 27] = [
     "refresh_slurm_job",
     "cancel_slurm_job",
     "retrieve_job_outputs",
+    "result_catalog",
+    "analyze_result",
+    "promote_result_structure",
 ];
 const V2_REQUEST_FIELDS: [&str; 40] = [
     "protocol_version",
@@ -593,7 +599,10 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         "structure_presentation" => {
             require_nonblank_string(object, "structure_snapshot_id")?;
         }
-        "calculation_catalog" | "job_catalog" => {}
+        "calculation_catalog" | "job_catalog" | "result_catalog" => {}
+        "analyze_result" | "promote_result_structure" => {
+            require_nonblank_string(object, "calculation_id")?;
+        }
         "prepare_calculation_workflow" => validate_prepare_calculation_request(object)?,
         "materialize_calculation_step" => validate_materialize_calculation_request(object)?,
         "prepare_execution" => validate_prepare_execution_request(object)?,
@@ -1072,6 +1081,19 @@ mod tests {
             "operation": "job_catalog",
             "project_root": "/project"
         });
+        let result_catalog = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "request-result",
+            "operation": "result_catalog",
+            "project_root": "/project"
+        });
+        let analyze = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "request-analyze",
+            "operation": "analyze_result",
+            "project_root": "/project",
+            "calculation_id": "018f0e9e-7c3f-7a11-8b22-123456789abc"
+        });
         let legacy = json!({
             "protocol_version": DESKTOP_IPC_V1_CONTRACT_VERSION,
             "request_id": "request-2",
@@ -1085,6 +1107,8 @@ mod tests {
             "project_root": "/project"
         });
         assert!(validate_frontend_request(&catalog).is_ok());
+        assert!(validate_frontend_request(&result_catalog).is_ok());
+        assert!(validate_frontend_request(&analyze).is_ok());
         assert!(validate_frontend_request(&legacy).is_err());
         assert!(validate_frontend_request(&future).is_err());
     }
@@ -1100,6 +1124,19 @@ mod tests {
             "source_snapshot_id": "snapshot",
             "variant_name": "child",
             "payload": {"arbitrary": true}
+        });
+        assert!(validate_frontend_request(&request).is_err());
+    }
+
+    #[test]
+    fn result_center_request_rejects_scientific_escape_hatches() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "result-escape",
+            "operation": "analyze_result",
+            "project_root": "/project",
+            "calculation_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "convergence_verdict": "converged"
         });
         assert!(validate_frontend_request(&request).is_err());
     }
