@@ -417,7 +417,7 @@ def canonical_analysis_payload(
 
     if analysis.analysis_type is not AnalysisType.THERMOCHEMISTRY:
         raise ApplicationServiceError("Analysis is not a thermochemistry/reaction Analysis")
-    variants = {
+    variants: dict[tuple[str | None, str | None], tuple[str, str, int]] = {
         (HARMONIC_THERMOCHEMISTRY_TOOL_NAME, HARMONIC_THERMOCHEMISTRY_TOOL_VERSION): (
             HARMONIC_OUTPUT,
             CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT,
