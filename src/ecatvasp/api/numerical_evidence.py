@@ -20,8 +20,11 @@ from ecatvasp.domain import (
     Artifact,
     ArtifactAvailability,
     ArtifactType,
+    Calculation,
     CalculationId,
     CalculationProducerRef,
+    MethodFingerprint,
+    MethodFingerprintId,
     RetrievalPolicy,
     canonical_json,
     canonical_sha256,
@@ -254,14 +257,20 @@ def _relative_path(calculation_id: CalculationId) -> Path:
     return Path("artifacts") / "calculations" / str(calculation_id) / _EVIDENCE_FILENAME
 
 
-def _require_calculation(bundle: ProjectBundle, calculation_id: CalculationId):
+def _require_calculation(
+    bundle: ProjectBundle,
+    calculation_id: CalculationId,
+) -> Calculation:
     matches = tuple(item for item in bundle.calculations if item.id == calculation_id)
     if len(matches) != 1:
         raise ApplicationServiceError("Calculation is absent or duplicated")
     return matches[0]
 
 
-def _require_fingerprint(bundle: ProjectBundle, fingerprint_id):
+def _require_fingerprint(
+    bundle: ProjectBundle,
+    fingerprint_id: MethodFingerprintId,
+) -> MethodFingerprint:
     matches = tuple(item for item in bundle.method_fingerprints if item.id == fingerprint_id)
     if len(matches) != 1:
         raise ApplicationServiceError("MethodFingerprint is absent or duplicated")
