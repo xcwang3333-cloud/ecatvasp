@@ -620,14 +620,67 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         "structure_presentation" => {
             require_nonblank_string(object, "structure_snapshot_id")?;
         }
-        "calculation_catalog" | "job_catalog" | "result_catalog" | "electronic_analysis_catalog" => {}
-        "analyze_result" | "promote_result_structure" | "materialize_dos_analysis" => {
+        "calculation_catalog" | "job_catalog" | "result_catalog" => {}
+        "electronic_analysis_catalog" => {
+            reject_unknown_nested(
+                object,
+                &["protocol_version", "request_id", "operation", "project_root"],
+                "electronic analysis catalog request",
+            )?;
+        }
+        "analyze_result" | "promote_result_structure" => {
+            require_nonblank_string(object, "calculation_id")?;
+        }
+        "materialize_dos_analysis" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "calculation_id",
+                ],
+                "DOS materialization request",
+            )?;
             require_nonblank_string(object, "calculation_id")?;
         }
         "electronic_analysis_view" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "analysis_id",
+                ],
+                "electronic analysis view request",
+            )?;
             require_nonblank_string(object, "analysis_id")?;
         }
-        "materialize_band_center" => validate_band_center_request(object)?,
+        "materialize_band_center" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "source_analysis_id",
+                    "kind",
+                    "scope",
+                    "spin",
+                    "atom_uid",
+                    "element",
+                    "energy_reference",
+                    "window_lower_ev",
+                    "window_upper_ev",
+                ],
+                "band-center materialization request",
+            )?;
+            validate_band_center_request(object)?;
+        }
         "prepare_calculation_workflow" => validate_prepare_calculation_request(object)?,
         "materialize_calculation_step" => validate_materialize_calculation_request(object)?,
         "prepare_execution" => validate_prepare_execution_request(object)?,
