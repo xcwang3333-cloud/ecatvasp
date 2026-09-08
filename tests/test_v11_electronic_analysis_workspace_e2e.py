@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -179,10 +180,9 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
     service = ProjectElectronicAnalysisApplicationService(store)
 
     initial = service.catalog()
-    assert initial["dos_sources"] == [
-        pytest.approx(initial["dos_sources"][0], abs=0)  # type: ignore[index]
-    ]
-    source = initial["dos_sources"][0]  # type: ignore[index]
+    sources = cast(list[dict[str, object]], initial["dos_sources"])
+    assert len(sources) == 1
+    source = sources[0]
     assert source["calculation_id"] == str(calculation.id)
     assert source["materialization_ready"] is True
     assert source["materialized_analysis_id"] is None
@@ -194,14 +194,18 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
 
     dos_view = service.analysis_view(analysis_id=dos_analysis.id)
     assert dos_view["analysis_type"] == "dos"
-    assert dos_view["freshness"]["readiness"] == "satisfied"  # type: ignore[index]
-    view = dos_view["view"]  # type: ignore[assignment]
-    assert view["kind"] == "dos"  # type: ignore[index]
-    assert view["energies_ev_native"] == [-1.0, 1.0]  # type: ignore[index]
-    assert view["energies_ev_relative_to_fermi"] == pytest.approx([-1.2, 0.8])  # type: ignore[index]
+    freshness = cast(dict[str, object], dos_view["freshness"])
+    assert freshness["readiness"] == "satisfied"
+    view = cast(dict[str, object], dos_view["view"])
+    assert view["kind"] == "dos"
+    assert cast(list[float], view["energies_ev_native"]) == [-1.0, 1.0]
+    assert cast(list[float], view["energies_ev_relative_to_fermi"]) == pytest.approx(
+        [-1.2, 0.8]
+    )
+    series = cast(list[dict[str, object]], view["series"])
     projected_uids = {
-        row["atom_uid"]
-        for row in view["series"]  # type: ignore[index]
+        cast(str, row["atom_uid"])
+        for row in series
         if row["scope"] == "atom"
     }
     assert projected_uids == {atom_uid}
@@ -211,12 +215,13 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
     assert second["analysis_id"] == first["analysis_id"]
     assert second["artifact_id"] == first["artifact_id"]
 
+    atom_id = store.open().structure_snapshots[0].sites[0].atom_uid
     descriptor = service.materialize_band_center(
         source_analysis_id=dos_analysis.id,
         kind=BandCenterKind.D_BAND,
         scope=ProjectionScope.ATOM,
         spin=BandCenterSpinMode.TOTAL,
-        atom_uid=store.open().structure_snapshots[0].sites[0].atom_uid,
+        atom_uid=atom_id,
         element="C",
         energy_reference=BandCenterEnergyReference.VASP_NATIVE,
         window_lower_ev=-1.0,
@@ -227,15 +232,17 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
         item for item in store.open().analyses if str(item.id) == descriptor["analysis_id"]
     )
     descriptor_view = service.analysis_view(analysis_id=descriptor_analysis.id)
-    assert descriptor_view["view"]["kind"] == "band_center"  # type: ignore[index]
-    assert descriptor_view["view"]["selector"]["atom_uid"] == atom_uid  # type: ignore[index]
+    descriptor_payload = cast(dict[str, object], descriptor_view["view"])
+    selector = cast(dict[str, object], descriptor_payload["selector"])
+    assert descriptor_payload["kind"] == "band_center"
+    assert selector["atom_uid"] == atom_uid
 
     descriptor_reuse = service.materialize_band_center(
         source_analysis_id=dos_analysis.id,
         kind=BandCenterKind.D_BAND,
         scope=ProjectionScope.ATOM,
         spin=BandCenterSpinMode.TOTAL,
-        atom_uid=store.open().structure_snapshots[0].sites[0].atom_uid,
+        atom_uid=atom_id,
         element="C",
         energy_reference=BandCenterEnergyReference.VASP_NATIVE,
         window_lower_ev=-1.0,
@@ -253,11 +260,11 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
     doscar_path.write_bytes(doscar_path.read_bytes() + b"drift\n")
 
     drifted = service.catalog()
-    dos_row = next(
-        item for item in drifted["analyses"] if item["analysis_id"] == first["analysis_id"]  # type: ignore[index]
-    )
-    assert dos_row["freshness"]["scientific_state"] == "stale"
-    assert dos_row["freshness"]["readiness"] == "blocked"
+    analysis_rows = cast(list[dict[str, object]], drifted["analyses"])
+    dos_row = next(item for item in analysis_rows if item["analysis_id"] == first["analysis_id"])
+    drift_freshness = cast(dict[str, object], dos_row["freshness"])
+    assert drift_freshness["scientific_state"] == "stale"
+    assert drift_freshness["readiness"] == "blocked"
 
     with pytest.raises(ApplicationServiceError, match="local byte size changed"):
         service.materialize_dos(calculation_id=calculation.id)
@@ -267,7 +274,7 @@ def test_block6_application_e2e_materializes_reuses_reopens_and_blocks_drift(
             kind=BandCenterKind.D_BAND,
             scope=ProjectionScope.ATOM,
             spin=BandCenterSpinMode.TOTAL,
-            atom_uid=store.open().structure_snapshots[0].sites[0].atom_uid,
+            atom_uid=atom_id,
             element="C",
             energy_reference=BandCenterEnergyReference.VASP_NATIVE,
             window_lower_ev=-1.0,
