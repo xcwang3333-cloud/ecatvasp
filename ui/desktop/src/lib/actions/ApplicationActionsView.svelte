@@ -7,6 +7,8 @@
     ReportFormat,
     WorkflowRecipeSummary,
   } from "../backend/contracts";
+  import { ResultCenterClient } from "../results/client";
+  import ResultCenterView from "../results/ResultCenterView.svelte";
   import type { ScientificWorkspace } from "../workspace/contracts";
 
   export let client: DesktopBackendClientV2;
@@ -16,6 +18,8 @@
   export let workspace: ScientificWorkspace;
   export let disabled = false;
   export let onMutation: () => Promise<void>;
+
+  const resultCenterClient = new ResultCenterClient();
 
   let reportFormat: ReportFormat = "json";
   let reportBusy = false;
@@ -117,7 +121,7 @@
   <header>
     <span class="eyebrow">Calculations and outputs</span>
     <h2 id="actions-heading">Project actions</h2>
-    <p>Generate reports or prepare a canonical scientific workflow from current project state.</p>
+    <p>Generate reports, prepare canonical workflows, and convert retrieved VASP outputs into explicit scientific results.</p>
   </header>
 
   <div class="action-grid">
@@ -184,10 +188,17 @@
       {/if}
     </section>
   </div>
+
+  <ResultCenterView
+    client={resultCenterClient}
+    {projectRoot}
+    {disabled}
+    {onMutation}
+  />
 </section>
 
 <style>
-  .actions-workspace { display: grid; gap: 1rem; }
+  .actions-workspace { display: grid; gap: 1.25rem; }
   header h2, .action-card h3 { margin: .2rem 0 .35rem; }
   header p, .muted { margin: 0; color: var(--muted-text,#5d6470); }
   .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-text,#5d6470); }
