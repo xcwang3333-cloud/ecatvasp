@@ -97,7 +97,7 @@ def materialize_calculation_step_action(
         task=CalculationWizardTask(task),
         method_settings=_method_settings(method),
         protocol_settings=_protocol_settings(protocol),
-        numerical_evidence=_numerical_evidence(numerical_evidence),
+        numerical_evidence=numerical_evidence_from_payload(numerical_evidence),
     )
     return {
         "project_root": str(Path(project_root)),
@@ -172,7 +172,9 @@ def _recipe_settings(raw: dict[str, Any]) -> WizardRecipeSettings:
     )
 
 
-def _numerical_evidence(raw: dict[str, Any]) -> WizardNumericalEvidence:
+def numerical_evidence_from_payload(raw: dict[str, Any]) -> WizardNumericalEvidence:
+    """Decode one already-validated desktop numerical-evidence payload."""
+
     encut_raw = raw["encut"]
     if not isinstance(encut_raw, dict):
         raise ValueError("numerical_evidence.encut must be an object")
@@ -225,3 +227,11 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("integer value must be an integer and not boolean")
     return value
+
+
+__all__ = [
+    "calculation_catalog_action",
+    "materialize_calculation_step_action",
+    "numerical_evidence_from_payload",
+    "prepare_calculation_workflow_action",
+]
