@@ -56,10 +56,14 @@
   let selectedPlanHash = "";
   let kpointAnalysisHash = "";
 
+  let presentationSequence = 0;
+
   $: roots = catalog?.catalog.roots ?? [];
   $: selectedRoot = roots.find((item) => item.structure_snapshot_id === selectedRootId) ?? null;
   $: task = selectedRoot?.eligible_task ?? null;
-  $: rootStep = preparation?.steps.find((item) => isRootStep(item)) ?? null;
+  $: rootStep = preparation?.steps.find((item) =>
+    item.blocker_codes.includes("validated_numerical_evidence_required"),
+  ) ?? null;
   $: if (selectedRoot !== null) synchronizeSymbols(selectedRoot);
 
   function describeError(value: unknown, fallback: string): string {
@@ -169,10 +173,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  function isRootStep(step: WizardStepSummary): boolean {
-    return !step.blocker_codes.includes("accepted_structure_required");
   }
 
   function blockerLabel(code: string): string {
