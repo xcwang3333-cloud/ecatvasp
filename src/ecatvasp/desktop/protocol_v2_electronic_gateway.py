@@ -8,7 +8,7 @@ Analysis Workspace operations are decoded and handled here.
 from __future__ import annotations
 
 import json
-from typing import Any, TypeAlias, TypeGuard
+from typing import Any, TypeAlias, TypeGuard, cast
 
 from ecatvasp.desktop.electronic_analysis import (
     electronic_analysis_catalog_action,
@@ -102,7 +102,7 @@ class DesktopBackendV2Block6:
 
     def handle(self, request: DesktopV2Block6Request) -> DesktopV2Response:
         if not is_desktop_v2_electronic_analysis_request(request):
-            return self._base.handle(request)
+            return self._base.handle(cast(DesktopV2Request, request))
         try:
             if isinstance(request, DesktopV2ElectronicAnalysisCatalogRequest):
                 payload = electronic_analysis_catalog_action(request.project_root)
