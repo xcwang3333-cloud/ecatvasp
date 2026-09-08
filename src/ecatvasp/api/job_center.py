@@ -18,6 +18,7 @@ from uuid import UUID
 from ecatvasp.api.application import ApplicationServiceError, ProjectApplicationService
 from ecatvasp.api.calculation_wizard import WizardNumericalEvidence
 from ecatvasp.api.execution_plan_resolver import resolve_execution_plan
+from ecatvasp.api.remote_stage_resolver import resolve_remote_stage_package
 from ecatvasp.api.workflow_runtime import build_current_workflow_orchestration
 from ecatvasp.domain import (
     Artifact,
@@ -47,7 +48,11 @@ from ecatvasp.execution.monitoring import (
     cancel_remote_slurm,
     monitor_remote_slurm,
 )
-from ecatvasp.execution.remote import RemotePotcarLibrary, stage_remote_runtime
+from ecatvasp.execution.remote import (
+    RemotePotcarLibrary,
+    RemoteStagePackage,
+    stage_remote_runtime,
+)
 from ecatvasp.execution.retrieval import RemoteRetrievalPackage, retrieve_remote_outputs
 from ecatvasp.execution.slurm import (
     SlurmAdapter,
@@ -109,12 +114,19 @@ _ANALYSIS_RECIPES = frozenset(
         RECIPE_LOBSTER_PREREQUISITE,
     }
 )
+_ALREADY_SUBMITTED_ATTEMPT_STATUSES = frozenset(
+    {
+        ExecutionAttemptStatus.QUEUED,
+        ExecutionAttemptStatus.RUNNING,
+        ExecutionAttemptStatus.EXITED,
+        ExecutionAttemptStatus.RETRIEVING,
+        ExecutionAttemptStatus.PARSED,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class JobCenterExecutionPreparation:
-    """Exact execution-ready plan derived from current durable scientific state."""
-
     calculation_id: CalculationId
     workflow_plan_id: WorkflowPlanId
     step_key: str
@@ -124,8 +136,6 @@ class JobCenterExecutionPreparation:
 
 @dataclass(frozen=True, slots=True)
 class JobCenterSubmissionReceipt:
-    """Durable receipt after CREATED -> STAGING -> QUEUED Slurm submission."""
-
     calculation_id: CalculationId
     attempt_id: ExecutionAttemptId
     remote_job_id: RemoteJobId
@@ -137,8 +147,6 @@ class JobCenterSubmissionReceipt:
 
 @dataclass(frozen=True, slots=True)
 class JobCenterObservationReceipt:
-    """One persisted scheduler observation without scientific convergence inference."""
-
     calculation_id: CalculationId
     attempt_id: ExecutionAttemptId
     remote_job_id: RemoteJobId
@@ -150,8 +158,6 @@ class JobCenterObservationReceipt:
 
 @dataclass(frozen=True, slots=True)
 class JobCenterRetrievalReceipt:
-    """Persisted retrieval receipt; VASP parsing remains Block 5 scope."""
-
     calculation_id: CalculationId
     attempt_id: ExecutionAttemptId
     remote_job_id: RemoteJobId
@@ -164,8 +170,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
     """Durable application seam for HPC preparation, submission and observation."""
 
     def catalog(self) -> dict[str, object]:
-        """Return execution state without collapsing scientific and scheduler status."""
-
         bundle = self.store.open()
         attempts_by_calculation: dict[CalculationId, list[ExecutionAttempt]] = {}
         for attempt in bundle.execution_attempts:
@@ -222,8 +226,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         execution_settings: ExecutionSettings,
         frequency_atom_uids: tuple[str, ...] = (),
     ) -> JobCenterExecutionPreparation:
-        """Materialize verified VASP inputs and build one exact Slurm ExecutionPlan."""
-
         bundle = self.store.open()
         calculation = _require_calculation(bundle, calculation_id)
         fingerprint = _require_fingerprint(bundle, calculation)
@@ -255,7 +257,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             store=self.store,
             candidate=materialized,
         )
-
         portable_settings = replace(
             execution_settings,
             nodes=None,
@@ -291,8 +292,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         remote_potcars: RemotePotcarLibrary,
         transport: TransportAdapter,
     ) -> JobCenterSubmissionReceipt:
-        """Persist CREATED before SSH staging, then persist STAGING before sbatch."""
-
         if (
             target.transport is not TransportKind.SSH
             or target.scheduler is not SchedulerType.SLURM
@@ -308,6 +307,49 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             preparation.workflow_plan_id,
             preparation.step_key,
         )
+        latest = _latest_attempt(bundle, calculation.id)
+        if latest is not None and latest.execution_plan_hash == preparation.plan.plan_hash:
+            existing = _existing_submission_receipt(
+                bundle=bundle,
+                calculation=calculation,
+                attempt=latest,
+                plan_hash=preparation.plan.plan_hash,
+            )
+            if existing is not None:
+                return existing
+            if latest.status is ExecutionAttemptStatus.STAGING:
+                staged = resolve_remote_stage_package(
+                    project_root=self.store.root,
+                    bundle=bundle,
+                    attempt_id=latest.id,
+                    target=target,
+                )
+                if staged.plan.plan_hash != preparation.plan.plan_hash:
+                    raise ApplicationServiceError(
+                        "persisted remote stage does not match current preparation"
+                    )
+                return self._submit_staged(
+                    calculation=calculation,
+                    staged=staged,
+                    transport=transport,
+                )
+            if latest.status in {
+                ExecutionAttemptStatus.FAILED,
+                ExecutionAttemptStatus.CANCELLED,
+            }:
+                raise ApplicationServiceError(
+                    "terminal failed/cancelled attempt requires explicit recovery decision"
+                )
+        elif latest is not None and latest.status not in {
+            ExecutionAttemptStatus.EXITED,
+            ExecutionAttemptStatus.PARSED,
+            ExecutionAttemptStatus.FAILED,
+            ExecutionAttemptStatus.CANCELLED,
+        }:
+            raise ApplicationServiceError(
+                "current non-terminal ExecutionAttempt pins a different ExecutionPlan"
+            )
+
         source = WorkflowExecutionSource(
             step_key=preparation.step_key,
             binding=current_binding,
@@ -344,7 +386,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             raise ApplicationServiceError(
                 "dispatch ticket ExecutionPlan changed before staging"
             )
-
         staged = stage_remote_runtime(
             project_root=self.store.root,
             plan=preparation.plan,
@@ -364,12 +405,23 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             raise ApplicationServiceError(
                 "staged ExecutionAttempt failed durable verification"
             )
-        persisted_stage = replace(staged, attempt=persisted_attempt)
-        scheduler = SlurmAdapter(transport)
-        submitted = submit_remote_slurm(
-            staged=persisted_stage,
+        return self._submit_staged(
+            calculation=calculation,
+            staged=replace(staged, attempt=persisted_attempt),
             transport=transport,
-            scheduler=scheduler,
+        )
+
+    def _submit_staged(
+        self,
+        *,
+        calculation: Calculation,
+        staged: RemoteStagePackage,
+        transport: TransportAdapter,
+    ) -> JobCenterSubmissionReceipt:
+        submitted = submit_remote_slurm(
+            staged=staged,
+            transport=transport,
+            scheduler=SlurmAdapter(transport),
         )
         _persist_execution_phase(
             store=self.store,
@@ -391,7 +443,7 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             attempt_status=attempt.status,
             scheduler_state=remote_job.state,
             scheduler_job_id=remote_job.scheduler_job_id,
-            plan_hash=preparation.plan.plan_hash,
+            plan_hash=staged.plan.plan_hash,
         )
 
     def refresh_job(
@@ -505,7 +557,6 @@ def _prepare_inputs(
             kpoint_evidence=evidence.kpoints,
         )
         return core_result.materialized, core_result.resolved_potcars
-
     if recipe_id in _FREQUENCY_RECIPES:
         selection: FrequencySelection | None = None
         if recipe_id == RECIPE_SELECTED_ATOM_FREQUENCY:
@@ -538,7 +589,6 @@ def _prepare_inputs(
             selection=selection,
         )
         return frequency_result.materialized, frequency_result.resolved_potcars
-
     if recipe_id in _ANALYSIS_RECIPES:
         if frequency_atom_uids:
             raise ApplicationServiceError(
@@ -556,7 +606,6 @@ def _prepare_inputs(
             kpoint_evidence=evidence.kpoints,
         )
         return analysis_result.materialized, analysis_result.resolved_potcars
-
     raise ApplicationServiceError(f"recipe is not supported by Job Center: {recipe_id}")
 
 
@@ -673,7 +722,6 @@ def _persist_or_reuse_input_materialization(
             ),
             True,
         )
-
     known_ids = {getattr(item, "id", None) for item in bundle.entities()}
     new_entities = (
         *candidate.artifacts,
@@ -870,6 +918,50 @@ def _require_attempt_target(
         raise ApplicationServiceError(
             "current execution target does not match staged target identity"
         )
+
+
+def _latest_attempt(
+    bundle: ProjectBundle,
+    calculation_id: CalculationId,
+) -> ExecutionAttempt | None:
+    attempts = tuple(
+        item
+        for item in bundle.execution_attempts
+        if item.calculation_id == calculation_id
+    )
+    if not attempts:
+        return None
+    return max(attempts, key=lambda item: item.attempt_number)
+
+
+def _existing_submission_receipt(
+    *,
+    bundle: ProjectBundle,
+    calculation: Calculation,
+    attempt: ExecutionAttempt,
+    plan_hash: str,
+) -> JobCenterSubmissionReceipt | None:
+    if attempt.status not in _ALREADY_SUBMITTED_ATTEMPT_STATUSES:
+        return None
+    jobs = tuple(
+        item
+        for item in bundle.remote_jobs
+        if item.execution_attempt_id == attempt.id
+    )
+    if not jobs:
+        raise ApplicationServiceError(
+            "already-submitted ExecutionAttempt is missing durable RemoteJob"
+        )
+    latest_job = max(jobs, key=lambda item: str(item.id))
+    return JobCenterSubmissionReceipt(
+        calculation_id=calculation.id,
+        attempt_id=attempt.id,
+        remote_job_id=latest_job.id,
+        attempt_status=attempt.status,
+        scheduler_state=latest_job.state,
+        scheduler_job_id=latest_job.scheduler_job_id,
+        plan_hash=plan_hash,
+    )
 
 
 def _observation_receipt(
