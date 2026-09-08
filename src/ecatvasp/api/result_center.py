@@ -165,6 +165,7 @@ class ProjectResultCenterApplicationService(ProjectApplicationService):
     ) -> ResultCenterAnalysisReceipt:
         resolved = self._resolve_parseable_result(calculation_id)
         if _has_exact_result_analysis(resolved.bundle, resolved.intake):
+            _mark_attempt_parsed(self.store, resolved.attempt.id)
             raise ApplicationServiceError("exact latest VASP result is already analyzed")
 
         result = parse_vasp_energy_metadata(
