@@ -8,10 +8,13 @@ exact-result reuse, persistence, and presentation only.
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from ecatvasp.api.application import ApplicationServiceError, ProjectApplicationService
 from ecatvasp.api.thermochemistry_workspace_support import (
     GAS_OUTPUT,
     HARMONIC_OUTPUT,
+    ResolvedFrequencySource,
     canonical_analysis_payload,
     find_existing_thermochemistry,
     observed_artifact_state,
@@ -30,6 +33,7 @@ from ecatvasp.domain import (
     CalculationId,
     CalculationType,
 )
+from ecatvasp.storage import ProjectBundle
 from ecatvasp.thermo import (
     CANONICAL_HARMONIC_THERMOCHEMISTRY_FORMAT,
     CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION,
@@ -76,6 +80,7 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
         ]
         analyses = [
             self._analysis_catalog_row(
+                bundle=bundle,
                 analysis=analysis,
                 observations=observations,
                 invalid_ids=invalid_ids,
@@ -350,20 +355,17 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
     def _analysis_catalog_row(
         self,
         *,
+        bundle: ProjectBundle,
         analysis: Analysis,
-        observations: dict[object, str],
-        invalid_ids: set[object],
+        observations: dict[UUID, str],
+        invalid_ids: set[UUID],
     ) -> dict[str, object]:
-        typed_observations = {
-            key: value for key, value in observations.items() if hasattr(key, "hex")
-        }
-        typed_invalid = {key for key in invalid_ids if hasattr(key, "hex")}
         freshness = thermochemistry_projection_payload(
             store=self.store,
-            bundle=self.store.open(),
+            bundle=bundle,
             analysis=analysis,
-            current_hash_overrides=typed_observations,  # type: ignore[arg-type]
-            invalid_ids=typed_invalid,  # type: ignore[arg-type]
+            current_hash_overrides=observations,
+            invalid_ids=invalid_ids,
         )
         return {
             "analysis_id": str(analysis.id),
@@ -379,11 +381,11 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
     def _persist_harmonic(
         self,
         *,
-        source: object,
+        source: ResolvedFrequencySource,
         materialization: DurableHarmonicThermochemistry,
     ) -> None:
         current = self.store.open()
-        if not source_is_unchanged(current, source):  # type: ignore[arg-type]
+        if not source_is_unchanged(current, source):
             raise ApplicationServiceError(
                 "frequency source changed while harmonic thermochemistry was materializing"
             )
@@ -399,11 +401,11 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
     def _persist_gas(
         self,
         *,
-        source: object,
+        source: ResolvedFrequencySource,
         materialization: DurableGasThermochemistry,
     ) -> None:
         current = self.store.open()
-        if not source_is_unchanged(current, source):  # type: ignore[arg-type]
+        if not source_is_unchanged(current, source):
             raise ApplicationServiceError(
                 "frequency source changed while gas reference was materializing"
             )
