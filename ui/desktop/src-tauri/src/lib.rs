@@ -525,6 +525,19 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         return Err("desktop frontend operation is not available".to_string());
     }
 
+    if matches!(
+        operation,
+        "job_catalog"
+            | "prepare_execution"
+            | "submit_slurm_job"
+            | "refresh_slurm_job"
+            | "cancel_slurm_job"
+            | "retrieve_job_outputs"
+    ) && object.contains_key("numerical_evidence")
+    {
+        return Err("desktop Job Center requests must resolve numerical evidence from ProjectStore".to_string());
+    }
+
     let allowed = |key: &str| {
         V2_REQUEST_FIELDS.contains(&key)
             || V2_ADSORBATE_FIELDS.contains(&key)
