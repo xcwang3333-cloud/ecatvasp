@@ -17,7 +17,7 @@ from ecatvasp.api.calculation_wizard import (
     WizardRecipeSettings,
 )
 from ecatvasp.api.model_studio import ProjectModelStudioApplicationService, create_project_store
-from ecatvasp.domain import KPointPolicyKind, StructureSnapshot, StructureSnapshotId
+from ecatvasp.domain import KPointPolicyKind, StructureSnapshot
 from ecatvasp.storage import ProjectStore
 from ecatvasp.structures import GrapheneBuildSpec
 from ecatvasp.vasp import (
@@ -196,7 +196,9 @@ def test_root_step_materializes_only_with_matching_real_numerical_evidence(tmp_p
     assert relax.method_fingerprint_id is not None
     fingerprint_id = UUID(relax.method_fingerprint_id)
     bundle = store.open()
-    fingerprint = next(item for item in bundle.method_fingerprints if item.id == fingerprint_id)
+    fingerprint = next(
+        item for item in bundle.method_fingerprints if item.id == fingerprint_id
+    )
     resolved = LocalPotcarLibrary(
         family=method_settings.potcar_family,
         root=method_settings.potcar_root,
@@ -262,7 +264,9 @@ def test_materialization_rejects_missing_solid_kpoint_evidence(tmp_path: Path) -
         recipe_settings=WizardRecipeSettings(lobster_nbands=96),
     )
     fingerprint_id = UUID(prepared.steps[0].method_fingerprint_id or "")
-    fingerprint = next(item for item in store.open().method_fingerprints if item.id == fingerprint_id)
+    fingerprint = next(
+        item for item in store.open().method_fingerprints if item.id == fingerprint_id
+    )
     resolved = LocalPotcarLibrary(
         family=method_settings.potcar_family,
         root=method_settings.potcar_root,
