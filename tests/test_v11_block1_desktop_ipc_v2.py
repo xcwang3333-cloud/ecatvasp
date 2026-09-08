@@ -66,6 +66,12 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "calculation_catalog",
         "prepare_calculation_workflow",
         "materialize_calculation_step",
+        "job_catalog",
+        "prepare_execution",
+        "submit_slurm_job",
+        "refresh_slurm_job",
+        "cancel_slurm_job",
+        "retrieve_job_outputs",
     ]
     assert SCHEMA_VERSION == 3
 
