@@ -44,3 +44,7 @@ class DesktopV2Operation(StrEnum):
     MATERIALIZE_DOS_ANALYSIS = "materialize_dos_analysis"
     ELECTRONIC_ANALYSIS_VIEW = "electronic_analysis_view"
     MATERIALIZE_BAND_CENTER = "materialize_band_center"
+    THERMOCHEMISTRY_CATALOG = "thermochemistry_catalog"
+    MATERIALIZE_HARMONIC_THERMOCHEMISTRY = "materialize_harmonic_thermochemistry"
+    MATERIALIZE_GAS_REFERENCE = "materialize_gas_reference"
+    THERMOCHEMISTRY_VIEW = "thermochemistry_view"
