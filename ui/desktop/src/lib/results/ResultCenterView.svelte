@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-
   import type { ResultCenterClient } from "./client";
   import type {
     AnalyzeResultPayload,
@@ -15,6 +13,7 @@
   export let onMutation: () => Promise<void>;
 
   let catalog: ResultCatalogPayload | null = null;
+  let loadedProjectRoot = "";
   let busyCalculationId = "";
   let error = "";
   let message = "";
@@ -22,6 +21,16 @@
   let lastPromotion: PromoteResultPayload | null = null;
 
   $: calculations = catalog?.calculations ?? [];
+  $: if (projectRoot.trim() && projectRoot !== loadedProjectRoot) {
+    loadedProjectRoot = projectRoot;
+    catalog = null;
+    busyCalculationId = "";
+    error = "";
+    message = "";
+    lastAnalysis = null;
+    lastPromotion = null;
+    void loadCatalog(projectRoot);
+  }
 
   function describeError(value: unknown, fallback: string): string {
     return value instanceof Error ? value.message : fallback;
@@ -35,54 +44,63 @@
     return value === null ? "not reported" : `${value.toFixed(6)} eV`;
   }
 
-  async function loadCatalog(): Promise<void> {
+  async function loadCatalog(root: string = projectRoot): Promise<void> {
     error = "";
     try {
-      catalog = await client.catalog(projectRoot);
+      const next = await client.catalog(root);
+      if (root !== projectRoot) return;
+      catalog = next;
     } catch (value: unknown) {
+      if (root !== projectRoot) return;
       error = describeError(value, "Result Center could not be loaded");
     }
   }
 
   async function analyze(row: ResultCalculationRow): Promise<void> {
     if (disabled || busyCalculationId || !row.analysis_ready) return;
+    const root = projectRoot;
     busyCalculationId = row.calculation_id;
     error = "";
     message = "";
     lastPromotion = null;
     try {
-      lastAnalysis = await client.analyze(projectRoot, row.calculation_id);
+      const analyzed = await client.analyze(root, row.calculation_id);
+      if (root !== projectRoot) return;
+      lastAnalysis = analyzed;
       message = `Scientific result classified as ${lastAnalysis.scientific_verdict}. Scheduler state was not used as convergence evidence.`;
-      await loadCatalog();
+      await loadCatalog(root);
       await onMutation();
     } catch (value: unknown) {
+      if (root !== projectRoot) return;
       error = describeError(value, "Scientific result analysis was rejected");
     } finally {
-      busyCalculationId = "";
+      if (root === projectRoot) busyCalculationId = "";
     }
   }
 
   async function promote(row: ResultCalculationRow): Promise<void> {
     if (disabled || busyCalculationId || !row.promotion_ready) return;
+    const root = projectRoot;
     busyCalculationId = row.calculation_id;
     error = "";
     message = "";
     lastAnalysis = null;
     try {
-      lastPromotion = await client.promote(projectRoot, {
+      const promoted = await client.promote(root, {
         calculation_id: row.calculation_id,
       });
+      if (root !== projectRoot) return;
+      lastPromotion = promoted;
       message = "Scientifically converged CONTCAR promoted to the current structure snapshot.";
-      await loadCatalog();
+      await loadCatalog(root);
       await onMutation();
     } catch (value: unknown) {
+      if (root !== projectRoot) return;
       error = describeError(value, "Structure promotion was rejected");
     } finally {
-      busyCalculationId = "";
+      if (root === projectRoot) busyCalculationId = "";
     }
   }
-
-  onMount(() => void loadCatalog());
 </script>
 
 <section class="result-center">
