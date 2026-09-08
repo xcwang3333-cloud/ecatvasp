@@ -35,10 +35,30 @@ export const DESKTOP_V2_OPERATIONS = [
   "build_multi_metal_site",
   "create_active_site",
   "build_adsorbate_conformer",
+  "calculation_catalog",
+  "prepare_calculation_workflow",
+  "materialize_calculation_step",
+  "job_catalog",
+  "prepare_execution",
+  "submit_slurm_job",
+  "refresh_slurm_job",
+  "cancel_slurm_job",
+  "retrieve_job_outputs",
+  "result_catalog",
+  "analyze_result",
+  "promote_result_structure",
 ] as const;
 
 export type DesktopV2Operation = (typeof DESKTOP_V2_OPERATIONS)[number];
-export type DesktopV2ProjectOperation = Exclude<DesktopV2Operation, "health" | "create_project">;
+export type DesktopV2ProjectOperation =
+  | "open_project"
+  | "status"
+  | "frontend_handoff"
+  | "application_report"
+  | "prepare_workflow"
+  | "project_dashboard"
+  | "model_catalog"
+  | "structure_presentation";
 
 export interface DesktopV2HealthRequest {
   protocol_version: typeof DESKTOP_IPC_V2_CONTRACT_VERSION;
