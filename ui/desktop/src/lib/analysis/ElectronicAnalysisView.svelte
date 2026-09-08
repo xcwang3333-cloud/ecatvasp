@@ -19,6 +19,7 @@
 
   let observedProjectRoot = "";
   const requestGuard = new LatestElectronicAnalysisLoad();
+  const mutationGuard = new LatestElectronicAnalysisLoad();
   let catalog: ElectronicAnalysisCatalogPayload | null = null;
   let selected: ElectronicAnalysisViewPayload | null = null;
   let busy = false;
@@ -61,6 +62,7 @@
 
   function resetProjectState(): void {
     requestGuard.invalidate();
+    mutationGuard.invalidate();
     catalog = null;
     selected = null;
     busy = false;
@@ -97,22 +99,22 @@
   async function materializeDos(calculationId: string): Promise<void> {
     if (disabled || busyId) return;
     const root = projectRoot;
-    const token = requestGuard.begin(root);
+    const token = mutationGuard.begin(root);
     busyId = calculationId;
     error = "";
     try {
       const receipt = await client.materializeDos(root, calculationId);
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await onMutation();
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await loadCatalog(root);
-      if (root !== projectRoot) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await openAnalysis(receipt.analysis_id);
     } catch (value: unknown) {
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Canonical DOS could not be materialized");
     } finally {
-      if (requestGuard.isCurrent(token, projectRoot)) busyId = "";
+      if (mutationGuard.isCurrent(token, projectRoot)) busyId = "";
     }
   }
 
@@ -140,7 +142,7 @@
   async function createBandCenter(): Promise<void> {
     if (dosView === null || selected === null || !descriptorValid || disabled || busyId) return;
     const root = projectRoot;
-    const token = requestGuard.begin(root);
+    const token = mutationGuard.begin(root);
     const sourceAnalysisId = selected.analysis_id;
     busyId = `descriptor:${sourceAnalysisId}`;
     error = "";
@@ -157,17 +159,17 @@
     };
     try {
       const receipt = await client.materializeBandCenter(root, input);
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await onMutation();
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await loadCatalog(root);
-      if (root !== projectRoot) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       await openAnalysis(receipt.analysis_id);
     } catch (value: unknown) {
-      if (!requestGuard.isCurrent(token, projectRoot)) return;
+      if (!mutationGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Band-center descriptor could not be materialized");
     } finally {
-      if (requestGuard.isCurrent(token, projectRoot)) busyId = "";
+      if (mutationGuard.isCurrent(token, projectRoot)) busyId = "";
     }
   }
 
