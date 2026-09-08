@@ -37,3 +37,6 @@ class DesktopV2Operation(StrEnum):
     REFRESH_SLURM_JOB = "refresh_slurm_job"
     CANCEL_SLURM_JOB = "cancel_slurm_job"
     RETRIEVE_JOB_OUTPUTS = "retrieve_job_outputs"
+    RESULT_CATALOG = "result_catalog"
+    ANALYZE_RESULT = "analyze_result"
+    PROMOTE_RESULT_STRUCTURE = "promote_result_structure"
