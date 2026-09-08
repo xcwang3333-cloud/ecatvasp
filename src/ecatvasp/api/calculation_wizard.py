@@ -258,8 +258,8 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
             "existing_workflows": [
                 {
                     "workflow_plan_id": str(plan.id),
-                    "workflow_recipe_id": plan.recipe.recipe_id,
-                    "workflow_recipe_version": plan.recipe.version,
+                    "workflow_recipe_id": plan.workflow_recipe.recipe_id,
+                    "workflow_recipe_version": plan.workflow_recipe.version,
                     "root_structure_snapshot_id": str(plan.root_structure_snapshot_id),
                     "step_count": len(plan.steps),
                 }
@@ -410,7 +410,7 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
         return CalculationWizardPreparationResult(
             project_id=str(reopened.project.id),
             workflow_plan_id=str(plan.id),
-            workflow_recipe_id=plan.recipe.recipe_id,
+            workflow_recipe_id=plan.workflow_recipe.recipe_id,
             root_structure_snapshot_id=str(plan.root_structure_snapshot_id),
             task=task,
             system_kind=context.kind,
@@ -784,11 +784,18 @@ def _orchestration(
     bundle: ProjectBundle,
     plan: ScientificWorkflowPlan,
 ) -> WorkflowOrchestrationEvaluation:
-    hashes = {
-        entity.id: scientific_hash(entity)
-        for entity in bundle.provenance_entities()
-        if hasattr(entity, "id")
-    }
+    scientific_entities = (
+        *bundle.structure_variants,
+        *bundle.structure_snapshots,
+        *bundle.active_sites,
+        *bundle.adsorption_states,
+        *bundle.state_conformers,
+        *bundle.method_fingerprints,
+        *bundle.calculations,
+        *bundle.artifacts,
+        *bundle.analyses,
+    )
+    hashes = {entity.id: scientific_hash(entity) for entity in scientific_entities}
     freshness = evaluate_workflow_freshness(
         plan=plan,
         bindings=bundle.workflow_step_bindings,
