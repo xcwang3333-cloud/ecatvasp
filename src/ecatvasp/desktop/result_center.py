@@ -42,7 +42,7 @@ def analyze_result_action(
         "termination_observed": receipt.result.termination_observed,
         "evidence_codes": list(receipt.assessment.evidence_codes),
         "force_count": (
-            len(receipt.result.forces.atom_uids)
+            len(receipt.result.forces.site_forces)
             if receipt.result.forces is not None
             else 0
         ),
