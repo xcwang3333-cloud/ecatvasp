@@ -27,7 +27,7 @@ const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 
-const V2_FRONTEND_OPERATIONS: [&str; 17] = [
+const V2_FRONTEND_OPERATIONS: [&str; 20] = [
     "open_project",
     "status",
     "frontend_handoff",
@@ -45,8 +45,11 @@ const V2_FRONTEND_OPERATIONS: [&str; 17] = [
     "build_multi_metal_site",
     "create_active_site",
     "build_adsorbate_conformer",
+    "calculation_catalog",
+    "prepare_calculation_workflow",
+    "materialize_calculation_step",
 ];
-const V2_HEALTH_OPERATIONS: [&str; 18] = [
+const V2_HEALTH_OPERATIONS: [&str; 21] = [
     "health",
     "open_project",
     "status",
@@ -65,6 +68,9 @@ const V2_HEALTH_OPERATIONS: [&str; 18] = [
     "build_multi_metal_site",
     "create_active_site",
     "build_adsorbate_conformer",
+    "calculation_catalog",
+    "prepare_calculation_workflow",
+    "materialize_calculation_step",
 ];
 const V2_REQUEST_FIELDS: [&str; 40] = [
     "protocol_version",
@@ -122,6 +128,60 @@ const V2_ADSORBATE_FIELDS: [&str; 13] = [
     "rank",
     "topology",
     "coordination_environment",
+];
+const V2_CALCULATION_FIELDS: [&str; 8] = [
+    "task",
+    "method",
+    "protocol",
+    "recipe",
+    "workflow_plan_id",
+    "step_key",
+    "method_fingerprint_id",
+    "numerical_evidence",
+];
+const CALCULATION_METHOD_FIELDS: [&str; 7] = [
+    "xc_functional",
+    "potcar_family",
+    "potcar_root",
+    "potcar_symbols",
+    "spin_treatment",
+    "engine_version",
+    "dispersion_model",
+];
+const CALCULATION_PROTOCOL_FIELDS: [&str; 13] = [
+    "encut_ev",
+    "kpoint_kind",
+    "kpoint_mesh",
+    "kpoint_value",
+    "kpoint_centering",
+    "vacuum_axis",
+    "precision",
+    "ediff_ev",
+    "ediffg_ev_per_angstrom",
+    "ismear",
+    "sigma_ev",
+    "isym",
+    "unused_reserved",
+];
+const CALCULATION_RECIPE_FIELDS: [&str; 4] = [
+    "frequency_potim_angstrom",
+    "frequency_atom_uids",
+    "dos_nedos",
+    "lobster_nbands",
+];
+const ENCUT_EVIDENCE_FIELDS: [&str; 5] = [
+    "core_method_hash",
+    "potcar_spec_hash",
+    "tested_encuts_ev",
+    "selected_encut_ev",
+    "analysis_hash",
+];
+const KPOINT_EVIDENCE_FIELDS: [&str; 5] = [
+    "core_method_hash",
+    "system_kind",
+    "tested_plan_hashes",
+    "selected_plan_hash",
+    "analysis_hash",
 ];
 
 #[derive(Default)]
@@ -420,7 +480,9 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
     }
 
     let allowed = |key: &str| {
-        V2_REQUEST_FIELDS.contains(&key) || V2_ADSORBATE_FIELDS.contains(&key)
+        V2_REQUEST_FIELDS.contains(&key)
+            || V2_ADSORBATE_FIELDS.contains(&key)
+            || V2_CALCULATION_FIELDS.contains(&key)
     };
     if object.keys().any(|key| !allowed(key.as_str())) {
         return Err("desktop frontend request contains an unknown field".to_string());
@@ -471,7 +533,168 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         "structure_presentation" => {
             require_nonblank_string(object, "structure_snapshot_id")?;
         }
+        "calculation_catalog" => {}
+        "prepare_calculation_workflow" => validate_prepare_calculation_request(object)?,
+        "materialize_calculation_step" => validate_materialize_calculation_request(object)?,
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_prepare_calculation_request(object: &Map<String, Value>) -> Result<(), String> {
+    validate_calculation_task(object)?;
+    require_nonblank_string(object, "root_structure_snapshot_id")?;
+    validate_calculation_method(require_object(object, "method")?)?;
+    validate_calculation_protocol(require_object(object, "protocol")?)?;
+    validate_calculation_recipe(require_object(object, "recipe")?)
+}
+
+fn validate_materialize_calculation_request(object: &Map<String, Value>) -> Result<(), String> {
+    validate_calculation_task(object)?;
+    require_nonblank_string(object, "workflow_plan_id")?;
+    require_nonblank_string(object, "step_key")?;
+    require_nonblank_string(object, "method_fingerprint_id")?;
+    validate_calculation_method(require_object(object, "method")?)?;
+    validate_calculation_protocol(require_object(object, "protocol")?)?;
+    validate_numerical_evidence(require_object(object, "numerical_evidence")?)
+}
+
+fn validate_calculation_task(object: &Map<String, Value>) -> Result<(), String> {
+    let task = require_nonblank_string(object, "task")?;
+    if !matches!(task, "slab" | "adsorbate" | "gas_reference") {
+        return Err("desktop calculation task is unsupported".to_string());
+    }
+    Ok(())
+}
+
+fn validate_calculation_method(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &CALCULATION_METHOD_FIELDS, "calculation method")?;
+    require_nonblank_string(object, "xc_functional")?;
+    require_nonblank_string(object, "potcar_family")?;
+    require_nonblank_string(object, "potcar_root")?;
+    let symbols = object
+        .get("potcar_symbols")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "desktop calculation POTCAR symbols must be an array".to_string())?;
+    if symbols.is_empty() {
+        return Err("desktop calculation POTCAR symbols must not be empty".to_string());
+    }
+    for symbol in symbols {
+        let entry = symbol
+            .as_object()
+            .ok_or_else(|| "desktop calculation POTCAR symbol must be an object".to_string())?;
+        reject_unknown_nested(entry, &["element", "symbol"], "POTCAR symbol")?;
+        require_nonblank_string(entry, "element")?;
+        require_nonblank_string(entry, "symbol")?;
+    }
+    Ok(())
+}
+
+fn validate_calculation_protocol(object: &Map<String, Value>) -> Result<(), String> {
+    let allowed: Vec<&str> = CALCULATION_PROTOCOL_FIELDS
+        .iter()
+        .copied()
+        .filter(|field| *field != "unused_reserved")
+        .collect();
+    reject_unknown_nested(object, &allowed, "calculation protocol")?;
+    require_number(object, "encut_ev")?;
+    require_nonblank_string(object, "kpoint_kind")?;
+    if let Some(mesh) = object.get("kpoint_mesh") {
+        let values = mesh
+            .as_array()
+            .ok_or_else(|| "desktop calculation k-point mesh must be an array".to_string())?;
+        if values.len() != 3 || values.iter().any(|value| value.as_i64().is_none()) {
+            return Err("desktop calculation k-point mesh must contain three integers".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn validate_calculation_recipe(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &CALCULATION_RECIPE_FIELDS, "calculation recipe")?;
+    if let Some(uids) = object.get("frequency_atom_uids") {
+        let values = uids
+            .as_array()
+            .ok_or_else(|| "desktop frequency atom UIDs must be an array".to_string())?;
+        if values.iter().any(|value| value.as_str().is_none()) {
+            return Err("desktop frequency atom UIDs must be strings".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn validate_numerical_evidence(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &["encut", "kpoints"], "numerical evidence")?;
+    let encut = require_object(object, "encut")?;
+    reject_unknown_nested(encut, &ENCUT_EVIDENCE_FIELDS, "ENCUT evidence")?;
+    for field in ["core_method_hash", "potcar_spec_hash", "analysis_hash"] {
+        require_sha256(encut, field)?;
+    }
+    let tested = encut
+        .get("tested_encuts_ev")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "desktop tested ENCUT values must be an array".to_string())?;
+    if tested.is_empty() || tested.iter().any(|value| value.as_f64().is_none()) {
+        return Err("desktop tested ENCUT values must be a non-empty numeric array".to_string());
+    }
+    require_number(encut, "selected_encut_ev")?;
+
+    if let Some(kpoints_value) = object.get("kpoints") {
+        let kpoints = kpoints_value
+            .as_object()
+            .ok_or_else(|| "desktop k-point evidence must be an object".to_string())?;
+        reject_unknown_nested(kpoints, &KPOINT_EVIDENCE_FIELDS, "k-point evidence")?;
+        for field in ["core_method_hash", "selected_plan_hash", "analysis_hash"] {
+            require_sha256(kpoints, field)?;
+        }
+        require_nonblank_string(kpoints, "system_kind")?;
+        let tested_hashes = kpoints
+            .get("tested_plan_hashes")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "desktop tested k-point plan hashes must be an array".to_string())?;
+        if tested_hashes.is_empty()
+            || tested_hashes
+                .iter()
+                .any(|value| value.as_str().map(is_sha256) != Some(true))
+        {
+            return Err("desktop tested k-point plan hashes are invalid".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn reject_unknown_nested(
+    object: &Map<String, Value>,
+    allowed: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("desktop {label} contains an unknown field"));
+    }
+    Ok(())
+}
+
+fn require_object<'a>(
+    object: &'a Map<String, Value>,
+    field_name: &str,
+) -> Result<&'a Map<String, Value>, String> {
+    object
+        .get(field_name)
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("desktop frontend {field_name} must be an object"))
+}
+
+fn require_number(object: &Map<String, Value>, field_name: &str) -> Result<f64, String> {
+    object
+        .get(field_name)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| format!("desktop frontend {field_name} must be numeric"))
+}
+
+fn require_sha256(object: &Map<String, Value>, field_name: &str) -> Result<(), String> {
+    let value = require_nonblank_string(object, field_name)?;
+    if !is_sha256(value) {
+        return Err(format!("desktop frontend {field_name} must be a SHA-256 digest"));
     }
     Ok(())
 }
@@ -608,6 +831,26 @@ mod tests {
         env::temp_dir().join(format!("ecatvasp-{name}-{}", std::process::id()))
     }
 
+    fn calculation_method() -> Value {
+        json!({
+            "xc_functional": "PBE",
+            "potcar_family": "PBE_54",
+            "potcar_root": "C:/VASP/PBE_54",
+            "potcar_symbols": [{"element": "C", "symbol": "C"}],
+            "spin_treatment": "collinear"
+        })
+    }
+
+    fn calculation_protocol() -> Value {
+        json!({
+            "encut_ev": 450.0,
+            "kpoint_kind": "explicit_mesh",
+            "kpoint_mesh": [3, 3, 1],
+            "kpoint_centering": "gamma",
+            "vacuum_axis": "c"
+        })
+    }
+
     #[test]
     fn bundled_backend_is_preferred_but_explicit_override_wins() {
         let runtime_dir = temporary_runtime_dir("bundled-backend");
@@ -648,7 +891,7 @@ mod tests {
         let catalog = json!({
             "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-1",
-            "operation": "model_catalog",
+            "operation": "calculation_catalog",
             "project_root": "/project"
         });
         let legacy = json!({
@@ -681,6 +924,44 @@ mod tests {
             "payload": {"arbitrary": true}
         });
         assert!(validate_frontend_request(&request).is_err());
+    }
+
+    #[test]
+    fn calculation_request_rejects_nested_escape_hatch() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "calc-1",
+            "operation": "prepare_calculation_workflow",
+            "project_root": "/project",
+            "task": "slab",
+            "root_structure_snapshot_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "method": {
+                "xc_functional": "PBE",
+                "potcar_family": "PBE_54",
+                "potcar_root": "C:/VASP/PBE_54",
+                "potcar_symbols": [{"element": "C", "symbol": "C"}],
+                "payload": {"arbitrary": true}
+            },
+            "protocol": calculation_protocol(),
+            "recipe": {}
+        });
+        assert!(validate_frontend_request(&request).is_err());
+    }
+
+    #[test]
+    fn calculation_prepare_request_accepts_typed_nested_scientific_fields() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "calc-2",
+            "operation": "prepare_calculation_workflow",
+            "project_root": "/project",
+            "task": "slab",
+            "root_structure_snapshot_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "method": calculation_method(),
+            "protocol": calculation_protocol(),
+            "recipe": {"dos_nedos": 2001, "lobster_nbands": 96}
+        });
+        assert!(validate_frontend_request(&request).is_ok());
     }
 
     #[test]
