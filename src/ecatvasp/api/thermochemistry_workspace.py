@@ -2,8 +2,8 @@
 
 The service composes the frozen v0.8 thermochemistry/electrocatalysis authorities. Scientific
 energies, mode policies, gas-reference semantics, CHE/reaction equations, descriptor identity, and
-freshness remain in the pre-existing Python core; this module owns project-scoped evidence resolution,
-exact-result reuse, persistence, and presentation only.
+freshness remain in the pre-existing Python core. This module owns project-scoped evidence
+resolution, exact-result reuse, persistence, and presentation only.
 """
 
 from __future__ import annotations
