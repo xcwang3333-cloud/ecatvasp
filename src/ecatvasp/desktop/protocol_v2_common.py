@@ -28,3 +28,6 @@ class DesktopV2Operation(StrEnum):
     BUILD_MULTI_METAL_SITE = "build_multi_metal_site"
     CREATE_ACTIVE_SITE = "create_active_site"
     BUILD_ADSORBATE_CONFORMER = "build_adsorbate_conformer"
+    CALCULATION_CATALOG = "calculation_catalog"
+    PREPARE_CALCULATION_WORKFLOW = "prepare_calculation_workflow"
+    MATERIALIZE_CALCULATION_STEP = "materialize_calculation_step"
