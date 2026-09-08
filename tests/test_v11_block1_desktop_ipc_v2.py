@@ -72,6 +72,9 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "refresh_slurm_job",
         "cancel_slurm_job",
         "retrieve_job_outputs",
+        "result_catalog",
+        "analyze_result",
+        "promote_result_structure",
     ]
     assert SCHEMA_VERSION == 3
 
