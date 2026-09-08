@@ -20,6 +20,14 @@ from ecatvasp.desktop.calculation_wizard import (
     materialize_calculation_step_action,
     prepare_calculation_workflow_action,
 )
+from ecatvasp.desktop.job_center import (
+    cancel_slurm_job_action,
+    job_catalog_action,
+    prepare_execution_action,
+    refresh_slurm_job_action,
+    retrieve_job_outputs_action,
+    submit_slurm_job_action,
+)
 from ecatvasp.desktop.model_studio import (
     build_adsorbate_conformer_action,
     build_graphene_action,
@@ -49,6 +57,16 @@ from ecatvasp.desktop.protocol_v2_calculation import (
 from ecatvasp.desktop.protocol_v2_common import (
     DESKTOP_IPC_V2_CONTRACT_VERSION,
     DesktopV2Operation,
+)
+from ecatvasp.desktop.protocol_v2_job_center import (
+    DesktopV2JobCatalogRequest,
+    DesktopV2JobCenterRequest,
+    DesktopV2PrepareExecutionRequest,
+    DesktopV2RemoteJobRequest,
+    DesktopV2RetrieveJobOutputsRequest,
+    DesktopV2SubmitSlurmJobRequest,
+    decode_desktop_v2_job_center_request,
+    is_desktop_v2_job_center_request,
 )
 from ecatvasp.desktop.protocol_v2_model import (
     DesktopV2BuildAdsorbateConformerRequest,
@@ -103,6 +121,16 @@ _CALCULATION_OPERATIONS = frozenset(
         DesktopV2Operation.CALCULATION_CATALOG,
         DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW,
         DesktopV2Operation.MATERIALIZE_CALCULATION_STEP,
+    }
+)
+_JOB_CENTER_OPERATIONS = frozenset(
+    {
+        DesktopV2Operation.JOB_CATALOG,
+        DesktopV2Operation.PREPARE_EXECUTION,
+        DesktopV2Operation.SUBMIT_SLURM_JOB,
+        DesktopV2Operation.REFRESH_SLURM_JOB,
+        DesktopV2Operation.CANCEL_SLURM_JOB,
+        DesktopV2Operation.RETRIEVE_JOB_OUTPUTS,
     }
 )
 
@@ -223,6 +251,7 @@ DesktopV2Request: TypeAlias = (
     | DesktopV2PrepareWorkflowRequest
     | DesktopV2ModelRequest
     | DesktopV2CalculationRequest
+    | DesktopV2JobCenterRequest
 )
 
 
@@ -241,6 +270,7 @@ def is_desktop_v2_request(value: object) -> TypeGuard[DesktopV2Request]:
         )
         or is_desktop_v2_model_request(value)
         or is_desktop_v2_calculation_request(value)
+        or is_desktop_v2_job_center_request(value)
     )
 
 
@@ -292,6 +322,9 @@ class DesktopBackendV2:
 
         if is_desktop_v2_calculation_request(request):
             return self._handle_calculation_request(request)
+
+        if is_desktop_v2_job_center_request(request):
+            return self._handle_job_center_request(request)
 
         if isinstance(request, DesktopV2ApplicationReportRequest):
             root = Path(request.project_root)
@@ -397,6 +430,63 @@ class DesktopBackendV2:
             return self._project_failure(request.request_id, request.operation, error)
 
         raise DesktopIPCError(f"unsupported desktop v2 operation: {request.operation.value}")
+
+    def _handle_job_center_request(
+        self,
+        request: DesktopV2JobCenterRequest,
+    ) -> DesktopV2Response:
+        try:
+            if isinstance(request, DesktopV2JobCatalogRequest):
+                payload = job_catalog_action(request.project_root)
+            elif isinstance(request, DesktopV2PrepareExecutionRequest):
+                payload = prepare_execution_action(
+                    project_root=request.project_root,
+                    calculation_id=request.calculation_id,
+                    potcar_root=request.potcar_root,
+                    execution_settings=request.execution_settings,
+                    frequency_atom_uids=request.frequency_atom_uids,
+                )
+            elif isinstance(request, DesktopV2SubmitSlurmJobRequest):
+                payload = submit_slurm_job_action(
+                    project_root=request.project_root,
+                    calculation_id=request.calculation_id,
+                    potcar_root=request.potcar_root,
+                    execution_settings=request.execution_settings,
+                    target=request.target,
+                    remote_potcar=request.remote_potcar,
+                    frequency_atom_uids=request.frequency_atom_uids,
+                )
+            elif isinstance(request, DesktopV2RemoteJobRequest):
+                if request.operation is DesktopV2Operation.REFRESH_SLURM_JOB:
+                    payload = refresh_slurm_job_action(
+                        project_root=request.project_root,
+                        remote_job_id=request.remote_job_id,
+                        target=request.target,
+                    )
+                elif request.operation is DesktopV2Operation.CANCEL_SLURM_JOB:
+                    payload = cancel_slurm_job_action(
+                        project_root=request.project_root,
+                        remote_job_id=request.remote_job_id,
+                        target=request.target,
+                    )
+                else:  # pragma: no cover - request class validates this invariant
+                    raise DesktopIPCError("unsupported remote Job Center request")
+            elif isinstance(request, DesktopV2RetrieveJobOutputsRequest):
+                payload = retrieve_job_outputs_action(
+                    project_root=request.project_root,
+                    remote_job_id=request.remote_job_id,
+                    target=request.target,
+                    requested_roles=request.requested_roles,
+                    release_remote_roles=request.release_remote_roles,
+                    discard_remote_roles=request.discard_remote_roles,
+                )
+            else:  # pragma: no cover - protected by the closed request union
+                raise DesktopIPCError("unsupported Job Center request")
+        except _PROJECT_READ_ERRORS as error:
+            return self._project_failure(request.request_id, request.operation, error)
+        except (OSError, RuntimeError, ValueError) as error:
+            return self._application_failure(request, error)
+        return self._success(request.request_id, request.operation, payload)
 
     def _handle_calculation_request(
         self,
@@ -658,6 +748,13 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
             workflow_recipe_version=_required_string(raw, "workflow_recipe_version"),
             root_structure_snapshot_id=_required_string(raw, "root_structure_snapshot_id"),
             parameters_hash=parameters_hash,
+        )
+
+    if operation in _JOB_CENTER_OPERATIONS:
+        return decode_desktop_v2_job_center_request(
+            raw,
+            operation=operation,
+            request_id=request_id,
         )
 
     if operation in _CALCULATION_OPERATIONS:

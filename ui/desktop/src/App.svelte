@@ -7,6 +7,8 @@
   import type { DesktopV2HealthPayload } from "./lib/backend/contracts-v2";
   import { CalculationWizardClient } from "./lib/calculations/client";
   import CalculationWorkflowWizardView from "./lib/calculations/CalculationWorkflowWizardView.svelte";
+  import { JobCenterClient } from "./lib/jobs/client";
+  import JobCenterView from "./lib/jobs/JobCenterView.svelte";
   import ModelStudioView from "./lib/models/ModelStudioView.svelte";
   import { DesktopPreferencesClient } from "./lib/preferences/client";
   import {
@@ -26,6 +28,7 @@
 
   const client = new DesktopBackendClientV2();
   const calculationClient = new CalculationWizardClient();
+  const jobCenterClient = new JobCenterClient();
   const preferencesClient = new DesktopPreferencesClient();
   const workspaceLoads = new LatestWorkspaceLoad();
 
@@ -351,6 +354,11 @@
       <section class="workspace-frame">
         {#key project.project_id}
           <CalculationWorkflowWizardView client={calculationClient} projectRoot={project.project_root} disabled={projectBusy || workspaceBusy} onMutation={refreshCurrentProjectAfterAction} />
+        {/key}
+      </section>
+      <section class="workspace-frame">
+        {#key project.project_id}
+          <JobCenterView client={jobCenterClient} projectRoot={project.project_root} disabled={projectBusy || workspaceBusy} onMutation={refreshCurrentProjectAfterAction} />
         {/key}
       </section>
     {/if}

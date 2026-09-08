@@ -27,7 +27,7 @@ const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 
-const V2_FRONTEND_OPERATIONS: [&str; 20] = [
+const V2_FRONTEND_OPERATIONS: [&str; 26] = [
     "open_project",
     "status",
     "frontend_handoff",
@@ -48,8 +48,14 @@ const V2_FRONTEND_OPERATIONS: [&str; 20] = [
     "calculation_catalog",
     "prepare_calculation_workflow",
     "materialize_calculation_step",
+    "job_catalog",
+    "prepare_execution",
+    "submit_slurm_job",
+    "refresh_slurm_job",
+    "cancel_slurm_job",
+    "retrieve_job_outputs",
 ];
-const V2_HEALTH_OPERATIONS: [&str; 21] = [
+const V2_HEALTH_OPERATIONS: [&str; 27] = [
     "health",
     "open_project",
     "status",
@@ -71,6 +77,12 @@ const V2_HEALTH_OPERATIONS: [&str; 21] = [
     "calculation_catalog",
     "prepare_calculation_workflow",
     "materialize_calculation_step",
+    "job_catalog",
+    "prepare_execution",
+    "submit_slurm_job",
+    "refresh_slurm_job",
+    "cancel_slurm_job",
+    "retrieve_job_outputs",
 ];
 const V2_REQUEST_FIELDS: [&str; 40] = [
     "protocol_version",
@@ -139,6 +151,18 @@ const V2_CALCULATION_FIELDS: [&str; 8] = [
     "method_fingerprint_id",
     "numerical_evidence",
 ];
+const V2_JOB_FIELDS: [&str; 10] = [
+    "calculation_id",
+    "potcar_root",
+    "execution_settings",
+    "frequency_atom_uids",
+    "target",
+    "remote_potcar",
+    "remote_job_id",
+    "requested_roles",
+    "release_remote_roles",
+    "discard_remote_roles",
+];
 const CALCULATION_METHOD_FIELDS: [&str; 7] = [
     "xc_functional",
     "potcar_family",
@@ -183,6 +207,28 @@ const KPOINT_EVIDENCE_FIELDS: [&str; 5] = [
     "selected_plan_hash",
     "analysis_hash",
 ];
+const EXECUTION_SETTINGS_FIELDS: [&str; 10] = [
+    "ncore",
+    "kpar",
+    "nodes",
+    "cores",
+    "memory_mb",
+    "walltime_seconds",
+    "partition",
+    "mpi_ranks",
+    "omp_threads",
+    "executable",
+];
+const EXECUTION_TARGET_FIELDS: [&str; 7] = [
+    "target_id",
+    "host_alias",
+    "remote_work_root",
+    "potcar_resolver_id",
+    "vasp_executable",
+    "launcher",
+    "module_loads",
+];
+const REMOTE_POTCAR_FIELDS: [&str; 3] = ["resolver_id", "family", "root"];
 
 #[derive(Default)]
 struct BackendState {
@@ -479,10 +525,24 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         return Err("desktop frontend operation is not available".to_string());
     }
 
+    if matches!(
+        operation,
+        "job_catalog"
+            | "prepare_execution"
+            | "submit_slurm_job"
+            | "refresh_slurm_job"
+            | "cancel_slurm_job"
+            | "retrieve_job_outputs"
+    ) && object.contains_key("numerical_evidence")
+    {
+        return Err("desktop Job Center requests must resolve numerical evidence from ProjectStore".to_string());
+    }
+
     let allowed = |key: &str| {
         V2_REQUEST_FIELDS.contains(&key)
             || V2_ADSORBATE_FIELDS.contains(&key)
             || V2_CALCULATION_FIELDS.contains(&key)
+            || V2_JOB_FIELDS.contains(&key)
     };
     if object.keys().any(|key| !allowed(key.as_str())) {
         return Err("desktop frontend request contains an unknown field".to_string());
@@ -533,9 +593,13 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         "structure_presentation" => {
             require_nonblank_string(object, "structure_snapshot_id")?;
         }
-        "calculation_catalog" => {}
+        "calculation_catalog" | "job_catalog" => {}
         "prepare_calculation_workflow" => validate_prepare_calculation_request(object)?,
         "materialize_calculation_step" => validate_materialize_calculation_request(object)?,
+        "prepare_execution" => validate_prepare_execution_request(object)?,
+        "submit_slurm_job" => validate_submit_slurm_request(object)?,
+        "refresh_slurm_job" | "cancel_slurm_job" => validate_remote_job_request(object)?,
+        "retrieve_job_outputs" => validate_retrieve_job_request(object)?,
         _ => {}
     }
     Ok(())
@@ -557,6 +621,108 @@ fn validate_materialize_calculation_request(object: &Map<String, Value>) -> Resu
     validate_calculation_method(require_object(object, "method")?)?;
     validate_calculation_protocol(require_object(object, "protocol")?)?;
     validate_numerical_evidence(require_object(object, "numerical_evidence")?)
+}
+
+fn validate_prepare_execution_request(object: &Map<String, Value>) -> Result<(), String> {
+    require_nonblank_string(object, "calculation_id")?;
+    require_nonblank_string(object, "potcar_root")?;
+    validate_execution_settings(require_object(object, "execution_settings")?)?;
+    validate_optional_string_array(object, "frequency_atom_uids")
+}
+
+fn validate_submit_slurm_request(object: &Map<String, Value>) -> Result<(), String> {
+    validate_prepare_execution_request(object)?;
+    validate_execution_target(require_object(object, "target")?)?;
+    validate_remote_potcar(require_object(object, "remote_potcar")?)
+}
+
+fn validate_remote_job_request(object: &Map<String, Value>) -> Result<(), String> {
+    require_nonblank_string(object, "remote_job_id")?;
+    validate_execution_target(require_object(object, "target")?)
+}
+
+fn validate_retrieve_job_request(object: &Map<String, Value>) -> Result<(), String> {
+    validate_remote_job_request(object)?;
+    for field in [
+        "requested_roles",
+        "release_remote_roles",
+        "discard_remote_roles",
+    ] {
+        validate_optional_string_array(object, field)?;
+    }
+    Ok(())
+}
+
+fn validate_execution_settings(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &EXECUTION_SETTINGS_FIELDS, "execution settings")?;
+    for field in ["nodes", "cores", "mpi_ranks", "walltime_seconds"] {
+        require_positive_integer(object, field)?;
+    }
+    require_nonblank_string(object, "executable")?;
+    for field in ["ncore", "kpar", "memory_mb", "omp_threads"] {
+        if object.contains_key(field) {
+            require_positive_integer(object, field)?;
+        }
+    }
+    if object.contains_key("partition") {
+        require_nonblank_string(object, "partition")?;
+    }
+    Ok(())
+}
+
+fn validate_execution_target(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &EXECUTION_TARGET_FIELDS, "execution target")?;
+    for field in [
+        "target_id",
+        "host_alias",
+        "remote_work_root",
+        "potcar_resolver_id",
+        "vasp_executable",
+    ] {
+        require_nonblank_string(object, field)?;
+    }
+    if object.contains_key("launcher") {
+        require_nonblank_string(object, "launcher")?;
+    }
+    validate_optional_string_array(object, "module_loads")
+}
+
+fn validate_remote_potcar(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(object, &REMOTE_POTCAR_FIELDS, "remote POTCAR")?;
+    for field in REMOTE_POTCAR_FIELDS {
+        require_nonblank_string(object, field)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_string_array(
+    object: &Map<String, Value>,
+    field_name: &str,
+) -> Result<(), String> {
+    let Some(value) = object.get(field_name) else {
+        return Ok(());
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| format!("desktop frontend {field_name} must be an array"))?;
+    if values.iter().any(|item| item.as_str().is_none()) {
+        return Err(format!("desktop frontend {field_name} must contain only strings"));
+    }
+    Ok(())
+}
+
+fn require_positive_integer(
+    object: &Map<String, Value>,
+    field_name: &str,
+) -> Result<u64, String> {
+    let value = object
+        .get(field_name)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("desktop frontend {field_name} must be a positive integer"))?;
+    if value == 0 {
+        return Err(format!("desktop frontend {field_name} must be a positive integer"));
+    }
+    Ok(value)
 }
 
 fn validate_calculation_task(object: &Map<String, Value>) -> Result<(), String> {
@@ -851,6 +1017,18 @@ mod tests {
         })
     }
 
+    fn execution_target() -> Value {
+        json!({
+            "target_id": "cluster-a",
+            "host_alias": "cluster-a",
+            "remote_work_root": "/scratch/ecatvasp",
+            "potcar_resolver_id": "pbe54-remote",
+            "vasp_executable": "vasp_std",
+            "launcher": "srun",
+            "module_loads": ["vasp/6"]
+        })
+    }
+
     #[test]
     fn bundled_backend_is_preferred_but_explicit_override_wins() {
         let runtime_dir = temporary_runtime_dir("bundled-backend");
@@ -891,7 +1069,7 @@ mod tests {
         let catalog = json!({
             "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-1",
-            "operation": "calculation_catalog",
+            "operation": "job_catalog",
             "project_root": "/project"
         });
         let legacy = json!({
@@ -962,6 +1140,70 @@ mod tests {
             "recipe": {"dos_nedos": 2001, "lobster_nbands": 96}
         });
         assert!(validate_frontend_request(&request).is_ok());
+    }
+
+    #[test]
+    fn job_center_request_accepts_typed_noncredential_target() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "job-1",
+            "operation": "submit_slurm_job",
+            "project_root": "/project",
+            "calculation_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "potcar_root": "C:/VASP/PBE_54",
+            "execution_settings": {
+                "nodes": 1,
+                "cores": 32,
+                "mpi_ranks": 32,
+                "walltime_seconds": 3600,
+                "executable": "vasp_std"
+            },
+            "target": execution_target(),
+            "remote_potcar": {
+                "resolver_id": "pbe54-remote",
+                "family": "PBE_54",
+                "root": "/apps/vasp/potpaw_PBE.54"
+            }
+        });
+        assert!(validate_frontend_request(&request).is_ok());
+    }
+
+    #[test]
+    fn job_center_request_rejects_credentials_and_manual_evidence() {
+        let credential_request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "job-secret",
+            "operation": "refresh_slurm_job",
+            "project_root": "/project",
+            "remote_job_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "target": {
+                "target_id": "cluster-a",
+                "host_alias": "cluster-a",
+                "remote_work_root": "/scratch/ecatvasp",
+                "potcar_resolver_id": "pbe54-remote",
+                "vasp_executable": "vasp_std",
+                "module_loads": [],
+                "password": "secret"
+            }
+        });
+        let evidence_request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "job-evidence",
+            "operation": "prepare_execution",
+            "project_root": "/project",
+            "calculation_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "potcar_root": "C:/VASP/PBE_54",
+            "execution_settings": {
+                "nodes": 1,
+                "cores": 32,
+                "mpi_ranks": 32,
+                "walltime_seconds": 3600,
+                "executable": "vasp_std"
+            },
+            "numerical_evidence": {"analysis_hash": "a".repeat(64)}
+        });
+        assert!(validate_frontend_request(&credential_request).is_err());
+        assert!(validate_frontend_request(&evidence_request).is_err());
     }
 
     #[test]
