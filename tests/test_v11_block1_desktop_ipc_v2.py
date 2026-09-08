@@ -63,6 +63,9 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "build_multi_metal_site",
         "create_active_site",
         "build_adsorbate_conformer",
+        "calculation_catalog",
+        "prepare_calculation_workflow",
+        "materialize_calculation_step",
     ]
     assert SCHEMA_VERSION == 3
 
