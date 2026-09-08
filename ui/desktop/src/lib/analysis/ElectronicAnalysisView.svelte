@@ -10,6 +10,7 @@
     ElectronicAnalysisCatalogPayload,
     ElectronicAnalysisViewPayload,
   } from "./contracts";
+  import { LatestElectronicAnalysisLoad } from "./load_guard";
 
   export let client: ElectronicAnalysisClient;
   export let projectRoot: string;
@@ -17,7 +18,7 @@
   export let onMutation: () => Promise<void>;
 
   let observedProjectRoot = "";
-  let requestGeneration = 0;
+  const requestGuard = new LatestElectronicAnalysisLoad();
   let catalog: ElectronicAnalysisCatalogPayload | null = null;
   let selected: ElectronicAnalysisViewPayload | null = null;
   let busy = false;
@@ -59,7 +60,7 @@
   $: selectedCohpSeries = selectedCohpInteraction === null ? null : selectedCohpInteraction.series[cohpSpinIndex] ?? selectedCohpInteraction.series[0] ?? null;
 
   function resetProjectState(): void {
-    requestGeneration += 1;
+    requestGuard.invalidate();
     catalog = null;
     selected = null;
     busy = false;
@@ -78,64 +79,68 @@
 
   async function loadCatalog(root: string = projectRoot): Promise<void> {
     if (!root.trim()) return;
-    const generation = ++requestGeneration;
+    const token = requestGuard.begin(root);
     busy = true;
     error = "";
     try {
       const payload = await client.catalog(root);
-      if (generation !== requestGeneration || root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       catalog = payload;
     } catch (value: unknown) {
-      if (generation !== requestGeneration || root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Electronic analyses could not be loaded");
     } finally {
-      if (generation === requestGeneration && root === projectRoot) busy = false;
+      if (requestGuard.isCurrent(token, projectRoot)) busy = false;
     }
   }
 
   async function materializeDos(calculationId: string): Promise<void> {
     if (disabled || busyId) return;
     const root = projectRoot;
+    const token = requestGuard.begin(root);
     busyId = calculationId;
     error = "";
     try {
       const receipt = await client.materializeDos(root, calculationId);
-      if (root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       await onMutation();
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       await loadCatalog(root);
+      if (root !== projectRoot) return;
       await openAnalysis(receipt.analysis_id);
     } catch (value: unknown) {
-      if (root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Canonical DOS could not be materialized");
     } finally {
-      if (root === projectRoot) busyId = "";
+      if (requestGuard.isCurrent(token, projectRoot)) busyId = "";
     }
   }
 
   async function openAnalysis(analysisId: string): Promise<void> {
     const root = projectRoot;
-    const generation = ++requestGeneration;
+    const token = requestGuard.begin(root);
     busyId = analysisId;
     error = "";
     try {
       const payload = await client.view(root, analysisId);
-      if (generation !== requestGeneration || root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       selected = payload;
       dosSeriesIndex = 0;
       cohpInteractionIndex = 0;
       cohpSpinIndex = 0;
       if (payload.view.kind === "dos") seedDescriptorSelector(payload.view);
     } catch (value: unknown) {
-      if (generation !== requestGeneration || root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Electronic analysis could not be opened");
     } finally {
-      if (generation === requestGeneration && root === projectRoot) busyId = "";
+      if (requestGuard.isCurrent(token, projectRoot)) busyId = "";
     }
   }
 
   async function createBandCenter(): Promise<void> {
     if (dosView === null || selected === null || !descriptorValid || disabled || busyId) return;
     const root = projectRoot;
+    const token = requestGuard.begin(root);
     const sourceAnalysisId = selected.analysis_id;
     busyId = `descriptor:${sourceAnalysisId}`;
     error = "";
@@ -152,15 +157,17 @@
     };
     try {
       const receipt = await client.materializeBandCenter(root, input);
-      if (root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       await onMutation();
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       await loadCatalog(root);
+      if (root !== projectRoot) return;
       await openAnalysis(receipt.analysis_id);
     } catch (value: unknown) {
-      if (root !== projectRoot) return;
+      if (!requestGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Band-center descriptor could not be materialized");
     } finally {
-      if (root === projectRoot) busyId = "";
+      if (requestGuard.isCurrent(token, projectRoot)) busyId = "";
     }
   }
 
