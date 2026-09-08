@@ -8,6 +8,7 @@ from uuid import UUID
 
 from ecatvasp.api.job_center import (
     JobCenterExecutionPreparation,
+    JobCenterObservationReceipt,
     ProjectJobCenterApplicationService,
 )
 from ecatvasp.desktop.calculation_wizard import numerical_evidence_from_payload
@@ -242,23 +243,19 @@ def _remote_potcar_library(raw: dict[str, Any]) -> RemotePotcarLibrary:
     )
 
 
-def _observation_payload(project_root: Path | str, receipt: object) -> dict[str, object]:
-    calculation_id = getattr(receipt, "calculation_id")
-    attempt_id = getattr(receipt, "attempt_id")
-    remote_job_id = getattr(receipt, "remote_job_id")
-    attempt_status = getattr(receipt, "attempt_status")
-    scheduler_state = getattr(receipt, "scheduler_state")
-    ionic_step = getattr(receipt, "ionic_step")
-    electronic_iteration = getattr(receipt, "electronic_iteration")
+def _observation_payload(
+    project_root: Path | str,
+    receipt: JobCenterObservationReceipt,
+) -> dict[str, object]:
     return {
         "project_root": str(Path(project_root)),
-        "calculation_id": str(calculation_id),
-        "attempt_id": str(attempt_id),
-        "remote_job_id": str(remote_job_id),
-        "attempt_status": attempt_status.value,
-        "scheduler_state": scheduler_state.value,
-        "ionic_step": ionic_step,
-        "electronic_iteration": electronic_iteration,
+        "calculation_id": str(receipt.calculation_id),
+        "attempt_id": str(receipt.attempt_id),
+        "remote_job_id": str(receipt.remote_job_id),
+        "attempt_status": receipt.attempt_status.value,
+        "scheduler_state": receipt.scheduler_state.value,
+        "ionic_step": receipt.ionic_step,
+        "electronic_iteration": receipt.electronic_iteration,
     }
 
 
