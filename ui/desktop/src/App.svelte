@@ -5,6 +5,8 @@
   import { DesktopBackendClientV2 } from "./lib/backend/client-v2";
   import type { BackendRuntimeDiagnostics, OpenProjectPayload } from "./lib/backend/contracts";
   import type { DesktopV2HealthPayload } from "./lib/backend/contracts-v2";
+  import { CalculationWizardClient } from "./lib/calculations/client";
+  import CalculationWorkflowWizardView from "./lib/calculations/CalculationWorkflowWizardView.svelte";
   import ModelStudioView from "./lib/models/ModelStudioView.svelte";
   import { DesktopPreferencesClient } from "./lib/preferences/client";
   import {
@@ -23,6 +25,7 @@
   import { LatestWorkspaceLoad } from "./lib/workspace/load_guard";
 
   const client = new DesktopBackendClientV2();
+  const calculationClient = new CalculationWizardClient();
   const preferencesClient = new DesktopPreferencesClient();
   const workspaceLoads = new LatestWorkspaceLoad();
 
@@ -343,6 +346,11 @@
       <section class="workspace-frame">
         {#key project.project_id}
           <ModelStudioView client={client} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
+        {/key}
+      </section>
+      <section class="workspace-frame">
+        {#key project.project_id}
+          <CalculationWorkflowWizardView client={calculationClient} projectRoot={project.project_root} disabled={projectBusy || workspaceBusy} onMutation={refreshCurrentProjectAfterAction} />
         {/key}
       </section>
     {/if}
