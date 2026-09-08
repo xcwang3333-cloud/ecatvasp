@@ -11,7 +11,7 @@ from ecatvasp.api.job_center import (
     JobCenterObservationReceipt,
     ProjectJobCenterApplicationService,
 )
-from ecatvasp.desktop.calculation_wizard import numerical_evidence_from_payload
+from ecatvasp.api.numerical_evidence import resolve_validated_numerical_evidence
 from ecatvasp.domain import (
     CalculationId,
     ExecutionSettings,
@@ -40,7 +40,6 @@ def prepare_execution_action(
     project_root: Path | str,
     calculation_id: str,
     potcar_root: str,
-    numerical_evidence: dict[str, Any],
     execution_settings: dict[str, Any],
     frequency_atom_uids: tuple[str, ...] = (),
 ) -> dict[str, object]:
@@ -50,7 +49,6 @@ def prepare_execution_action(
         project_root=project_root,
         calculation_id=calculation_id,
         potcar_root=potcar_root,
-        numerical_evidence=numerical_evidence,
         execution_settings=execution_settings,
         frequency_atom_uids=frequency_atom_uids,
     )
@@ -81,7 +79,6 @@ def submit_slurm_job_action(
     project_root: Path | str,
     calculation_id: str,
     potcar_root: str,
-    numerical_evidence: dict[str, Any],
     execution_settings: dict[str, Any],
     target: dict[str, Any],
     remote_potcar: dict[str, Any],
@@ -93,7 +90,6 @@ def submit_slurm_job_action(
         project_root=project_root,
         calculation_id=calculation_id,
         potcar_root=potcar_root,
-        numerical_evidence=numerical_evidence,
         execution_settings=execution_settings,
         frequency_atom_uids=frequency_atom_uids,
     )
@@ -186,15 +182,21 @@ def _prepare_execution(
     project_root: Path | str,
     calculation_id: str,
     potcar_root: str,
-    numerical_evidence: dict[str, Any],
     execution_settings: dict[str, Any],
     frequency_atom_uids: tuple[str, ...],
 ) -> JobCenterExecutionPreparation:
-    service = ProjectJobCenterApplicationService(ProjectStore(project_root))
+    calculation_uuid = CalculationId(UUID(calculation_id))
+    store = ProjectStore(project_root)
+    evidence = resolve_validated_numerical_evidence(
+        project_root=store.root,
+        bundle=store.open(),
+        calculation_id=calculation_uuid,
+    )
+    service = ProjectJobCenterApplicationService(store)
     return service.prepare_execution(
-        calculation_id=CalculationId(UUID(calculation_id)),
+        calculation_id=calculation_uuid,
         potcar_root=Path(potcar_root),
-        numerical_evidence=numerical_evidence_from_payload(numerical_evidence),
+        numerical_evidence=evidence,
         execution_settings=_execution_settings(execution_settings),
         frequency_atom_uids=frequency_atom_uids,
     )
