@@ -13,7 +13,6 @@
     WizardMethodInput,
     WizardProtocolInput,
     WizardRecipeInput,
-    WizardStepSummary,
   } from "./contracts";
 
   export let client: CalculationWizardClient;
@@ -55,8 +54,6 @@
   let testedPlanHashes = "";
   let selectedPlanHash = "";
   let kpointAnalysisHash = "";
-
-  let presentationSequence = 0;
 
   $: roots = catalog?.catalog.roots ?? [];
   $: selectedRoot = roots.find((item) => item.structure_snapshot_id === selectedRootId) ?? null;
