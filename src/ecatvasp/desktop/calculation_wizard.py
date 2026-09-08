@@ -15,7 +15,9 @@ from ecatvasp.api.calculation_wizard import (
     WizardProtocolSettings,
     WizardRecipeSettings,
 )
+from ecatvasp.api.numerical_evidence import persist_validated_numerical_evidence
 from ecatvasp.domain import (
+    CalculationId,
     KPointPolicyKind,
     MethodFingerprintId,
     SpinTreatment,
@@ -89,7 +91,9 @@ def materialize_calculation_step_action(
     protocol: dict[str, Any],
     numerical_evidence: dict[str, Any],
 ) -> dict[str, object]:
-    service = ProjectCalculationWizardApplicationService(ProjectStore(project_root))
+    store = ProjectStore(project_root)
+    service = ProjectCalculationWizardApplicationService(store)
+    evidence = numerical_evidence_from_payload(numerical_evidence)
     receipt = service.materialize_root_step(
         workflow_plan_id=WorkflowPlanId(UUID(workflow_plan_id)),
         step_key=step_key,
@@ -97,7 +101,12 @@ def materialize_calculation_step_action(
         task=CalculationWizardTask(task),
         method_settings=_method_settings(method),
         protocol_settings=_protocol_settings(protocol),
-        numerical_evidence=numerical_evidence_from_payload(numerical_evidence),
+        numerical_evidence=evidence,
+    )
+    persist_validated_numerical_evidence(
+        store=store,
+        calculation_id=CalculationId(UUID(receipt.calculation_id)),
+        evidence=evidence,
     )
     return {
         "project_root": str(Path(project_root)),
