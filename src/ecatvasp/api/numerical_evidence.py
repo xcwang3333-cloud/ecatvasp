@@ -23,12 +23,12 @@ from ecatvasp.domain import (
     CalculationId,
     CalculationProducerRef,
     RetrievalPolicy,
-    VaspSystemKind,
     canonical_json,
     canonical_sha256,
 )
 from ecatvasp.provenance import ProvenanceRecord
 from ecatvasp.storage import ProjectBundle, ProjectStore
+from ecatvasp.vasp.contracts import VaspSystemKind
 from ecatvasp.vasp.kpoints import KPointValidationEvidence
 from ecatvasp.vasp.potcar import EncCutValidationEvidence
 
