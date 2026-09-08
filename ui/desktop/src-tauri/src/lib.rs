@@ -1460,7 +1460,7 @@ mod tests {
             "payload": {
                 "backend_version": "1.1.0.dev0",
                 "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-                "operations": V2_HEALTH_OPERATIONS,
+                "operations": V2_HEALTH_OPERATIONS.to_vec(),
                 "stateless_project_requests": true,
                 "supported_protocol_versions": [
                     DESKTOP_IPC_V1_CONTRACT_VERSION,
