@@ -130,7 +130,7 @@ def test_validated_numerical_evidence_reuse_is_idempotent_and_rejects_drift(
 
     assert first.local_path is not None
     (store.root / first.local_path).write_text("{}\n", encoding="utf-8")
-    with pytest.raises(ApplicationServiceError, match="SHA-256 drift"):
+    with pytest.raises(ApplicationServiceError, match="drift detected"):
         resolve_validated_numerical_evidence(
             project_root=store.root,
             bundle=store.open(),
