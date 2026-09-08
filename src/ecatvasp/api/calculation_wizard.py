@@ -784,18 +784,25 @@ def _orchestration(
     bundle: ProjectBundle,
     plan: ScientificWorkflowPlan,
 ) -> WorkflowOrchestrationEvaluation:
-    scientific_entities = (
-        *bundle.structure_variants,
-        *bundle.structure_snapshots,
-        *bundle.active_sites,
-        *bundle.adsorption_states,
-        *bundle.state_conformers,
-        *bundle.method_fingerprints,
-        *bundle.calculations,
-        *bundle.artifacts,
-        *bundle.analyses,
-    )
-    hashes = {entity.id: scientific_hash(entity) for entity in scientific_entities}
+    hashes: dict[UUID, str] = {}
+    for variant in bundle.structure_variants:
+        hashes[variant.id] = scientific_hash(variant)
+    for snapshot in bundle.structure_snapshots:
+        hashes[snapshot.id] = scientific_hash(snapshot)
+    for active_site in bundle.active_sites:
+        hashes[active_site.id] = scientific_hash(active_site)
+    for adsorption_state in bundle.adsorption_states:
+        hashes[adsorption_state.id] = scientific_hash(adsorption_state)
+    for conformer in bundle.state_conformers:
+        hashes[conformer.id] = scientific_hash(conformer)
+    for fingerprint in bundle.method_fingerprints:
+        hashes[fingerprint.id] = scientific_hash(fingerprint)
+    for calculation in bundle.calculations:
+        hashes[calculation.id] = scientific_hash(calculation)
+    for artifact in bundle.artifacts:
+        hashes[artifact.id] = scientific_hash(artifact)
+    for analysis in bundle.analyses:
+        hashes[analysis.id] = scientific_hash(analysis)
     freshness = evaluate_workflow_freshness(
         plan=plan,
         bindings=bundle.workflow_step_bindings,
