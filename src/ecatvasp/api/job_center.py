@@ -17,11 +17,12 @@ from uuid import UUID
 
 from ecatvasp.api.application import ApplicationServiceError, ProjectApplicationService
 from ecatvasp.api.calculation_wizard import WizardNumericalEvidence
+from ecatvasp.api.execution_plan_resolver import resolve_execution_plan
 from ecatvasp.api.workflow_runtime import build_current_workflow_orchestration
 from ecatvasp.domain import (
     Artifact,
-    ArtifactAvailability,
     ArtifactType,
+    AtomUid,
     Calculation,
     CalculationId,
     ExecutionAttempt,
@@ -30,13 +31,14 @@ from ecatvasp.domain import (
     ExecutionAttemptStatus,
     ExecutionSettings,
     MethodFingerprint,
-    ParameterEntry,
     RemoteJob,
     RemoteJobId,
     SchedulerState,
     SchedulerType,
+    ScientificWorkflowPlan,
     StructureSnapshot,
     WorkflowPlanId,
+    WorkflowStepBinding,
 )
 from ecatvasp.execution.adapters import TransportAdapter
 from ecatvasp.execution.batch import BatchConcurrencyPolicy
@@ -45,35 +47,29 @@ from ecatvasp.execution.monitoring import (
     cancel_remote_slurm,
     monitor_remote_slurm,
 )
-from ecatvasp.execution.remote import (
-    RemotePotcarLibrary,
-    RemoteStagePackage,
-    stage_remote_runtime,
-)
+from ecatvasp.execution.remote import RemotePotcarLibrary, stage_remote_runtime
 from ecatvasp.execution.retrieval import RemoteRetrievalPackage, retrieve_remote_outputs
-from ecatvasp.execution.slurm import SlurmAdapter, SlurmSubmissionPackage, submit_remote_slurm
+from ecatvasp.execution.slurm import (
+    SlurmAdapter,
+    resolve_scheduler_resources,
+    submit_remote_slurm,
+)
 from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
 from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.vasp.analysis_pipeline import prepare_analysis_prerequisite_inputs
-from ecatvasp.vasp.contracts import LatticeAxis, ProjectNumericalLock, VaspSystemContext, VaspSystemKind
-from ecatvasp.vasp.execution_plan import (
-    ExecutionPlan,
-    ExpectedOutput,
-    PotcarResolutionEntry,
-    PotcarResolutionRequest,
-    StagingInput,
-    StagingInputKind,
-    VaspRuntimeCapability,
-    VaspRuntimeConstraints,
-    build_execution_plan,
+from ecatvasp.vasp.contracts import (
+    LatticeAxis,
+    ProjectNumericalLock,
+    VaspSystemContext,
+    VaspSystemKind,
 )
+from ecatvasp.vasp.execution_plan import ExecutionPlan, build_execution_plan
 from ecatvasp.vasp.frequency import FrequencySelection
 from ecatvasp.vasp.frequency_pipeline import prepare_frequency_calculation_inputs
 from ecatvasp.vasp.incar import ECATVASP_DIPOLE_AXIS
-from ecatvasp.vasp.kpoints import KPointValidationEvidence
 from ecatvasp.vasp.materialization import MaterializedInputSet
 from ecatvasp.vasp.pipeline import prepare_core_calculation_inputs
-from ecatvasp.vasp.potcar import EncCutValidationEvidence, LocalPotcarLibrary, ResolvedPotcarSet
+from ecatvasp.vasp.potcar import LocalPotcarLibrary, ResolvedPotcarSet
 from ecatvasp.vasp.recipes import (
     RECIPE_ADSORBATE_RELAX,
     RECIPE_CHARGE_DENSITY_STATIC,
@@ -86,7 +82,10 @@ from ecatvasp.vasp.recipes import (
     RECIPE_SELECTED_ATOM_FREQUENCY,
     RECIPE_SLAB_RELAX,
 )
-from ecatvasp.workflow.orchestration import WorkflowExecutionSource, WorkflowOrchestrationAction
+from ecatvasp.workflow.orchestration import (
+    WorkflowExecutionSource,
+    WorkflowOrchestrationAction,
+)
 
 _CORE_RECIPES = frozenset(
     {
@@ -165,7 +164,7 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
     """Durable application seam for HPC preparation, submission and observation."""
 
     def catalog(self) -> dict[str, object]:
-        """Return task-oriented execution state while preserving lifecycle namespaces."""
+        """Return execution state without collapsing scientific and scheduler status."""
 
         bundle = self.store.open()
         attempts_by_calculation: dict[CalculationId, list[ExecutionAttempt]] = {}
@@ -200,7 +199,9 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
                     "latest_attempt_id": str(latest.id) if latest is not None else None,
                     "attempt_status": latest.status.value if latest is not None else None,
                     "remote_job_id": str(latest_job.id) if latest_job is not None else None,
-                    "scheduler_state": latest_job.state.value if latest_job is not None else None,
+                    "scheduler_state": (
+                        latest_job.state.value if latest_job is not None else None
+                    ),
                     "scheduler_job_id": (
                         latest_job.scheduler_job_id if latest_job is not None else None
                     ),
@@ -221,17 +222,13 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         execution_settings: ExecutionSettings,
         frequency_atom_uids: tuple[str, ...] = (),
     ) -> JobCenterExecutionPreparation:
-        """Materialize verified VASP inputs and build one exact Slurm ExecutionPlan.
-
-        Scheduler resources remain execution-only. The scientific input pipeline is
-        selected solely from the current persisted Calculation recipe.
-        """
+        """Materialize verified VASP inputs and build one exact Slurm ExecutionPlan."""
 
         bundle = self.store.open()
         calculation = _require_calculation(bundle, calculation_id)
         fingerprint = _require_fingerprint(bundle, calculation)
         snapshot = _require_snapshot(bundle, calculation)
-        plan_record, step_key = _require_current_workflow_binding(bundle, calculation)
+        workflow_plan, step_key = _require_current_workflow_binding(bundle, calculation)
         context = _resolve_system_context(snapshot, fingerprint)
         lock = _project_lock(
             bundle=bundle,
@@ -259,9 +256,9 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             candidate=materialized,
         )
 
-        # v0.3 build_execution_plan deliberately rejected scheduler resource
-        # placement. Build its portable scientific handoff first, then add exact
-        # v0.4 execution-only resources as a new immutable plan value.
+        # v0.3 plan construction intentionally rejects scheduler allocation fields.
+        # Build the portable scientific handoff first, then add execution-only
+        # resources as a new immutable plan value for the v0.4 adapters.
         portable_settings = replace(
             execution_settings,
             nodes=None,
@@ -280,14 +277,10 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             execution_settings=portable_settings,
         )
         plan = replace(portable_plan, execution_settings=execution_settings)
-        # Resource resolution is an execution-only validation gate. It performs
-        # no scheduler side effect.
-        from ecatvasp.execution.slurm import resolve_scheduler_resources
-
         resolve_scheduler_resources(plan.execution_settings)
         return JobCenterExecutionPreparation(
             calculation_id=calculation.id,
-            workflow_plan_id=plan_record.id,
+            workflow_plan_id=workflow_plan.id,
             step_key=step_key,
             plan=plan,
             reused_input_artifacts=reused,
@@ -303,8 +296,13 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
     ) -> JobCenterSubmissionReceipt:
         """Persist CREATED before SSH staging, then persist STAGING before sbatch."""
 
-        if target.transport is not TransportKind.SSH or target.scheduler is not SchedulerType.SLURM:
-            raise ApplicationServiceError("Job Center submission requires an SSH+SLURM target")
+        if (
+            target.transport is not TransportKind.SSH
+            or target.scheduler is not SchedulerType.SLURM
+        ):
+            raise ApplicationServiceError(
+                "Job Center submission requires an SSH+SLURM target"
+            )
         bundle = self.store.open()
         calculation = _require_calculation(bundle, preparation.calculation_id)
         workflow_plan, current_binding = _require_current_workflow_binding_by_plan(
@@ -327,7 +325,8 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         handoff = orchestration.step(preparation.step_key)
         if handoff.action is not WorkflowOrchestrationAction.EXECUTION_READY:
             raise ApplicationServiceError(
-                f"current workflow generation is not execution-ready: {handoff.action.value}"
+                "current workflow generation is not execution-ready: "
+                f"{handoff.action.value}"
             )
         dispatch = self.run_workflow(
             workflow_plan_id=workflow_plan.id,
@@ -345,7 +344,9 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             )
         ticket = tickets[0]
         if ticket.plan.plan_hash != preparation.plan.plan_hash:
-            raise ApplicationServiceError("dispatch ticket ExecutionPlan changed before staging")
+            raise ApplicationServiceError(
+                "dispatch ticket ExecutionPlan changed before staging"
+            )
 
         staged = stage_remote_runtime(
             project_root=self.store.root,
@@ -364,7 +365,9 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
 
         persisted_attempt = _require_attempt(self.store.open(), staged.attempt.id)
         if persisted_attempt.status is not ExecutionAttemptStatus.STAGING:
-            raise ApplicationServiceError("staged ExecutionAttempt failed durable verification")
+            raise ApplicationServiceError(
+                "staged ExecutionAttempt failed durable verification"
+            )
         persisted_stage = replace(staged, attempt=persisted_attempt)
         scheduler = SlurmAdapter(transport)
         submitted = submit_remote_slurm(
@@ -382,7 +385,9 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         attempt = _require_attempt(reopened, submitted.attempt.id)
         remote_job = _require_remote_job(reopened, submitted.remote_job.id)
         if attempt.status is not ExecutionAttemptStatus.QUEUED:
-            raise ApplicationServiceError("submitted ExecutionAttempt failed durable verification")
+            raise ApplicationServiceError(
+                "submitted ExecutionAttempt failed durable verification"
+            )
         return JobCenterSubmissionReceipt(
             calculation_id=calculation.id,
             attempt_id=attempt.id,
@@ -455,7 +460,7 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         release_remote_roles: tuple[str, ...] = (),
         discard_remote_roles: tuple[str, ...] = (),
     ) -> JobCenterRetrievalReceipt:
-        """Retrieve exact expected outputs using the durable attempt ExecutionPlan artifact."""
+        """Retrieve exact outputs using the durable attempt ExecutionPlan artifact."""
 
         bundle = self.store.open()
         remote_job = _require_remote_job(bundle, remote_job_id)
@@ -487,54 +492,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         )
 
 
-def resolve_execution_plan(
-    project_root: Path | str,
-    bundle: ProjectBundle,
-    attempt_id: ExecutionAttemptId,
-) -> ExecutionPlan:
-    """Load and verify the exact managed execution-plan.json for one attempt."""
-
-    attempt = _require_attempt(bundle, attempt_id)
-    matches = tuple(
-        item
-        for item in bundle.artifacts
-        if item.artifact_type is ArtifactType.EXECUTION_PLAN
-        and item.producer == ExecutionAttemptProducerRef(attempt.id)
-        and item.local_path is not None
-        and item.availability in {ArtifactAvailability.LOCAL, ArtifactAvailability.BOTH}
-    )
-    if len(matches) != 1:
-        raise ApplicationServiceError(
-            "ExecutionAttempt requires exactly one durable local ExecutionPlan artifact"
-        )
-    artifact = matches[0]
-    root = Path(project_root).resolve()
-    path = (root / artifact.local_path).resolve()
-    if root not in path.parents or not path.is_file():
-        raise ApplicationServiceError("ExecutionPlan artifact path is missing or escaped project root")
-    body = path.read_bytes()
-    digest = hashlib.sha256(body).hexdigest()
-    if artifact.sha256 != digest:
-        raise ApplicationServiceError("ExecutionPlan artifact SHA-256 drift detected")
-    try:
-        raw = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ApplicationServiceError("ExecutionPlan artifact is not valid UTF-8 JSON") from error
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
-        raise ApplicationServiceError("ExecutionPlan artifact has unsupported schema")
-    plan_raw = raw.get("plan")
-    if not isinstance(plan_raw, dict):
-        raise ApplicationServiceError("ExecutionPlan artifact is missing plan payload")
-    plan = _decode_execution_plan(plan_raw)
-    if raw.get("plan_hash") != plan.plan_hash:
-        raise ApplicationServiceError("ExecutionPlan payload hash does not match artifact envelope")
-    if attempt.execution_plan_hash != plan.plan_hash:
-        raise ApplicationServiceError("ExecutionPlan artifact does not match durable ExecutionAttempt")
-    if attempt.input_manifest_hash != plan.input_manifest_sha256:
-        raise ApplicationServiceError("ExecutionPlan input manifest does not match durable attempt")
-    return plan
-
-
 def _prepare_inputs(
     *,
     project_root: Path,
@@ -561,16 +518,22 @@ def _prepare_inputs(
             kpoint_evidence=evidence.kpoints,
         )
         return result.materialized, result.resolved_potcars
+
     if recipe_id in _FREQUENCY_RECIPES:
-        selection = None
+        selection: FrequencySelection | None = None
         if recipe_id == RECIPE_SELECTED_ATOM_FREQUENCY:
             if not frequency_atom_uids:
                 raise ApplicationServiceError(
-                    "selected-atom frequency execution requires the exact atom UID selection"
+                    "selected-atom frequency execution requires exact atom UID selection"
                 )
-            from ecatvasp.domain import AtomUid
-
-            selection = FrequencySelection(tuple(AtomUid(UUID(value)) for value in frequency_atom_uids))
+            try:
+                selection = FrequencySelection(
+                    tuple(AtomUid(UUID(value)) for value in frequency_atom_uids)
+                )
+            except ValueError as error:
+                raise ApplicationServiceError(
+                    "selected-atom frequency contains an invalid atom UID"
+                ) from error
         elif frequency_atom_uids:
             raise ApplicationServiceError(
                 "full/gas frequency execution must not carry selected atom UIDs"
@@ -588,6 +551,7 @@ def _prepare_inputs(
             selection=selection,
         )
         return result.materialized, result.resolved_potcars
+
     if recipe_id in _ANALYSIS_RECIPES:
         if frequency_atom_uids:
             raise ApplicationServiceError(
@@ -605,6 +569,7 @@ def _prepare_inputs(
             kpoint_evidence=evidence.kpoints,
         )
         return result.materialized, result.resolved_potcars
+
     raise ApplicationServiceError(f"recipe is not supported by Job Center: {recipe_id}")
 
 
@@ -616,13 +581,24 @@ def _project_lock(
     evidence: WizardNumericalEvidence,
 ) -> ProjectNumericalLock:
     if evidence.encut.core_method_hash != fingerprint.core_method_hash:
-        raise ApplicationServiceError("ENCUT evidence does not match current MethodFingerprint")
+        raise ApplicationServiceError(
+            "ENCUT evidence does not match current MethodFingerprint"
+        )
     if evidence.encut.selected_encut_ev != fingerprint.protocol.encut_ev:
-        raise ApplicationServiceError("ENCUT evidence does not match fingerprinted ENCUT")
+        raise ApplicationServiceError(
+            "ENCUT evidence does not match fingerprinted ENCUT"
+        )
     if context.kind is not VaspSystemKind.MOLECULE_0D and evidence.kpoints is None:
-        raise ApplicationServiceError("solid execution requires validated k-point evidence")
-    if evidence.kpoints is not None and evidence.kpoints.core_method_hash != fingerprint.core_method_hash:
-        raise ApplicationServiceError("k-point evidence does not match current MethodFingerprint")
+        raise ApplicationServiceError(
+            "solid execution requires validated k-point evidence"
+        )
+    if (
+        evidence.kpoints is not None
+        and evidence.kpoints.core_method_hash != fingerprint.core_method_hash
+    ):
+        raise ApplicationServiceError(
+            "k-point evidence does not match current MethodFingerprint"
+        )
     return ProjectNumericalLock(
         project_id=bundle.project.id,
         system_kind=context.kind,
@@ -649,11 +625,16 @@ def _resolve_system_context(
     )
     if axes:
         if len(axes) != 1 or not isinstance(axes[0], str):
-            raise ApplicationServiceError("Protocol contains invalid slab vacuum-axis identity")
-        return VaspSystemContext(
-            VaspSystemKind.SLAB_2D,
-            vacuum_axis=LatticeAxis(axes[0]),
-        )
+            raise ApplicationServiceError(
+                "Protocol contains invalid slab vacuum-axis identity"
+            )
+        try:
+            axis = LatticeAxis(axes[0])
+        except ValueError as error:
+            raise ApplicationServiceError(
+                "Protocol contains an unsupported slab vacuum axis"
+            ) from error
+        return VaspSystemContext(VaspSystemKind.SLAB_2D, vacuum_axis=axis)
     if snapshot.periodic == (True, True, True):
         return VaspSystemContext(VaspSystemKind.PERIODIC_3D)
     raise ApplicationServiceError(
@@ -669,13 +650,11 @@ def _persist_or_reuse_input_materialization(
     bundle = store.open()
     candidate_paths = tuple(item.local_path for item in candidate.artifacts)
     if any(path is None for path in candidate_paths):
-        raise ApplicationServiceError("materialized VASP input artifact is missing local_path")
+        raise ApplicationServiceError(
+            "materialized VASP input artifact is missing local_path"
+        )
     wanted = set(candidate_paths)
-    existing = tuple(
-        item
-        for item in bundle.artifacts
-        if item.local_path in wanted
-    )
+    existing = tuple(item for item in bundle.artifacts if item.local_path in wanted)
     if existing:
         if len(existing) != len(candidate.artifacts):
             raise ApplicationServiceError(
@@ -693,7 +672,7 @@ def _persist_or_reuse_input_materialization(
                 or persisted.producer != fresh.producer
             ):
                 raise ApplicationServiceError(
-                    "persisted VASP input artifacts drift from regenerated scientific inputs"
+                    "persisted VASP input artifacts drift from regenerated inputs"
                 )
             ordered.append(persisted)
         return (
@@ -708,26 +687,36 @@ def _persist_or_reuse_input_materialization(
             True,
         )
 
-    known_ids = {item.id for item in bundle.entities}
+    known_ids = {getattr(item, "id", None) for item in bundle.entities()}
     new_entities = (
         *candidate.artifacts,
         *candidate.provenance_records,
         *candidate.dependency_records,
     )
     if any(getattr(item, "id", None) in known_ids for item in new_entities):
-        raise ApplicationServiceError("new VASP input provenance unexpectedly reuses an entity id")
+        raise ApplicationServiceError(
+            "new VASP input provenance unexpectedly reuses an entity id"
+        )
     store.save(
         replace(
             bundle,
             artifacts=(*bundle.artifacts, *candidate.artifacts),
-            provenance_records=(*bundle.provenance_records, *candidate.provenance_records),
-            dependency_records=(*bundle.dependency_records, *candidate.dependency_records),
+            provenance_records=(
+                *bundle.provenance_records,
+                *candidate.provenance_records,
+            ),
+            dependency_records=(
+                *bundle.dependency_records,
+                *candidate.dependency_records,
+            ),
         )
     )
     reopened = store.open()
     persisted_ids = {item.id for item in reopened.artifacts}
     if any(item.id not in persisted_ids for item in candidate.artifacts):
-        raise ApplicationServiceError("VASP input artifacts failed post-save verification")
+        raise ApplicationServiceError(
+            "VASP input artifacts failed post-save verification"
+        )
     return candidate, False
 
 
@@ -740,16 +729,25 @@ def _persist_execution_phase(
 ) -> None:
     bundle = store.open()
     current = _require_attempt(bundle, attempt.id)
-    attempts = tuple(attempt if item.id == attempt.id else item for item in bundle.execution_attempts)
     if current.calculation_id != attempt.calculation_id:
-        raise ApplicationServiceError("ExecutionAttempt changed Calculation during execution phase")
+        raise ApplicationServiceError(
+            "ExecutionAttempt changed Calculation during execution phase"
+        )
+    attempts = tuple(
+        attempt if item.id == attempt.id else item
+        for item in bundle.execution_attempts
+    )
     known_artifact_ids = {item.id for item in bundle.artifacts}
-    append_artifacts = tuple(item for item in artifacts if item.id not in known_artifact_ids)
+    append_artifacts = tuple(
+        item for item in artifacts if item.id not in known_artifact_ids
+    )
     remote_jobs = bundle.remote_jobs
     if remote_job is not None:
         matches = tuple(item for item in remote_jobs if item.id == remote_job.id)
         if matches and matches != (remote_job,):
-            raise ApplicationServiceError("RemoteJob id collision during execution persistence")
+            raise ApplicationServiceError(
+                "RemoteJob id collision during execution persistence"
+            )
         if not matches:
             remote_jobs = (*remote_jobs, remote_job)
     store.save(
@@ -762,17 +760,30 @@ def _persist_execution_phase(
     )
     reopened = store.open()
     if _require_attempt(reopened, attempt.id) != attempt:
-        raise ApplicationServiceError("ExecutionAttempt failed post-save verification")
+        raise ApplicationServiceError(
+            "ExecutionAttempt failed post-save verification"
+        )
     for artifact in artifacts:
         persisted = tuple(item for item in reopened.artifacts if item.id == artifact.id)
         if persisted != (artifact,):
-            raise ApplicationServiceError("execution Artifact failed post-save verification")
-    if remote_job is not None and _require_remote_job(reopened, remote_job.id) != remote_job:
+            raise ApplicationServiceError(
+                "execution Artifact failed post-save verification"
+            )
+    if (
+        remote_job is not None
+        and _require_remote_job(reopened, remote_job.id) != remote_job
+    ):
         raise ApplicationServiceError("RemoteJob failed post-save verification")
 
 
-def _persist_monitoring_phase(*, store: ProjectStore, package: SlurmMonitoringPackage) -> None:
+def _persist_monitoring_phase(
+    *,
+    store: ProjectStore,
+    package: SlurmMonitoringPackage,
+) -> None:
     bundle = store.open()
+    _require_attempt(bundle, package.attempt.id)
+    _require_remote_job(bundle, package.remote_job.id)
     attempts = tuple(
         package.attempt if item.id == package.attempt.id else item
         for item in bundle.execution_attempts
@@ -793,13 +804,22 @@ def _persist_monitoring_phase(*, store: ProjectStore, package: SlurmMonitoringPa
     )
     reopened = store.open()
     if _require_attempt(reopened, package.attempt.id) != package.attempt:
-        raise ApplicationServiceError("monitored ExecutionAttempt failed post-save verification")
+        raise ApplicationServiceError(
+            "monitored ExecutionAttempt failed post-save verification"
+        )
     if _require_remote_job(reopened, package.remote_job.id) != package.remote_job:
-        raise ApplicationServiceError("monitored RemoteJob failed post-save verification")
+        raise ApplicationServiceError(
+            "monitored RemoteJob failed post-save verification"
+        )
 
 
-def _persist_retrieval_phase(*, store: ProjectStore, package: RemoteRetrievalPackage) -> None:
+def _persist_retrieval_phase(
+    *,
+    store: ProjectStore,
+    package: RemoteRetrievalPackage,
+) -> None:
     bundle = store.open()
+    _require_attempt(bundle, package.attempt.id)
     attempts = tuple(
         package.attempt if item.id == package.attempt.id else item
         for item in bundle.execution_attempts
@@ -816,7 +836,9 @@ def _persist_retrieval_phase(*, store: ProjectStore, package: RemoteRetrievalPac
     )
     reopened = store.open()
     if _require_attempt(reopened, package.attempt.id) != package.attempt:
-        raise ApplicationServiceError("retrieval ExecutionAttempt failed post-save verification")
+        raise ApplicationServiceError(
+            "retrieval ExecutionAttempt failed post-save verification"
+        )
 
 
 def _require_attempt_target(
@@ -837,20 +859,30 @@ def _require_attempt_target(
             "ExecutionAttempt requires exactly one remote-stage manifest before remote control"
         )
     artifact = manifests[0]
-    path = (Path(project_root).resolve() / artifact.local_path).resolve()
     root = Path(project_root).resolve()
+    assert artifact.local_path is not None
+    path = (root / artifact.local_path).resolve()
     if root not in path.parents or not path.is_file():
-        raise ApplicationServiceError("remote-stage manifest is missing or escaped project root")
+        raise ApplicationServiceError(
+            "remote-stage manifest is missing or escaped project root"
+        )
     body = path.read_bytes()
     if artifact.sha256 != hashlib.sha256(body).hexdigest():
         raise ApplicationServiceError("remote-stage manifest SHA-256 drift detected")
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ApplicationServiceError("remote-stage manifest is invalid JSON") from error
+        raise ApplicationServiceError(
+            "remote-stage manifest is invalid JSON"
+        ) from error
     environment = payload.get("environment") if isinstance(payload, dict) else None
-    if not isinstance(environment, dict) or environment.get("target_hash") != target.target_hash:
-        raise ApplicationServiceError("current execution target does not match staged target identity")
+    if (
+        not isinstance(environment, dict)
+        or environment.get("target_hash") != target.target_hash
+    ):
+        raise ApplicationServiceError(
+            "current execution target does not match staged target identity"
+        )
 
 
 def _observation_receipt(
@@ -868,59 +900,80 @@ def _observation_receipt(
     )
 
 
-def _require_calculation(bundle: ProjectBundle, calculation_id: CalculationId) -> Calculation:
+def _require_calculation(
+    bundle: ProjectBundle,
+    calculation_id: CalculationId,
+) -> Calculation:
     matches = tuple(item for item in bundle.calculations if item.id == calculation_id)
     if len(matches) != 1:
-        raise ApplicationServiceError("Calculation is absent or duplicated in current ProjectStore")
+        raise ApplicationServiceError(
+            "Calculation is absent or duplicated in current ProjectStore"
+        )
     return matches[0]
 
 
-def _require_fingerprint(bundle: ProjectBundle, calculation: Calculation) -> MethodFingerprint:
+def _require_fingerprint(
+    bundle: ProjectBundle,
+    calculation: Calculation,
+) -> MethodFingerprint:
     matches = tuple(
-        item for item in bundle.method_fingerprints if item.id == calculation.method_fingerprint_id
+        item
+        for item in bundle.method_fingerprints
+        if item.id == calculation.method_fingerprint_id
     )
     if len(matches) != 1:
-        raise ApplicationServiceError("Calculation MethodFingerprint is absent or duplicated")
+        raise ApplicationServiceError(
+            "Calculation MethodFingerprint is absent or duplicated"
+        )
     return matches[0]
 
 
-def _require_snapshot(bundle: ProjectBundle, calculation: Calculation) -> StructureSnapshot:
+def _require_snapshot(
+    bundle: ProjectBundle,
+    calculation: Calculation,
+) -> StructureSnapshot:
     matches = tuple(
         item
         for item in bundle.structure_snapshots
         if item.id == calculation.input_structure_snapshot_id
     )
     if len(matches) != 1:
-        raise ApplicationServiceError("Calculation input StructureSnapshot is absent or duplicated")
+        raise ApplicationServiceError(
+            "Calculation input StructureSnapshot is absent or duplicated"
+        )
     return matches[0]
 
 
 def _require_current_workflow_binding(
     bundle: ProjectBundle,
     calculation: Calculation,
-) -> tuple[object, str]:
+) -> tuple[ScientificWorkflowPlan, str]:
     bindings = tuple(
-        item for item in bundle.workflow_step_bindings if item.calculation_id == calculation.id
+        item
+        for item in bundle.workflow_step_bindings
+        if item.calculation_id == calculation.id
     )
     if len(bindings) != 1:
-        raise ApplicationServiceError("Job Center Calculation requires exactly one workflow binding")
+        raise ApplicationServiceError(
+            "Job Center Calculation requires exactly one workflow binding"
+        )
     binding = bindings[0]
-    plan = next(
-        (item for item in bundle.workflow_plans if item.id == binding.workflow_plan_id),
-        None,
+    plans = tuple(
+        item for item in bundle.workflow_plans if item.id == binding.workflow_plan_id
     )
-    if plan is None:
-        raise ApplicationServiceError("workflow binding references missing plan")
-    current = max(
-        (
-            item
-            for item in bundle.workflow_step_bindings
-            if item.workflow_plan_id == plan.id and item.step_key == binding.step_key
-        ),
-        key=lambda item: item.generation,
+    if len(plans) != 1:
+        raise ApplicationServiceError("workflow binding references absent or duplicated plan")
+    plan = plans[0]
+    same_step = tuple(
+        item
+        for item in bundle.workflow_step_bindings
+        if item.workflow_plan_id == plan.id and item.step_key == binding.step_key
     )
+    current = max(same_step, key=lambda item: item.generation)
     if current.id != binding.id:
-        raise ApplicationServiceError("Job Center refuses a superseded workflow Calculation")
+        raise ApplicationServiceError(
+            "Job Center refuses a superseded workflow Calculation"
+        )
     return plan, binding.step_key
 
 
@@ -929,10 +982,13 @@ def _require_current_workflow_binding_by_plan(
     calculation: Calculation,
     workflow_plan_id: WorkflowPlanId,
     step_key: str,
-):
-    plan = next((item for item in bundle.workflow_plans if item.id == workflow_plan_id), None)
-    if plan is None:
-        raise ApplicationServiceError("workflow plan is absent from current ProjectStore")
+) -> tuple[ScientificWorkflowPlan, WorkflowStepBinding]:
+    plans = tuple(item for item in bundle.workflow_plans if item.id == workflow_plan_id)
+    if len(plans) != 1:
+        raise ApplicationServiceError(
+            "workflow plan is absent or duplicated in current ProjectStore"
+        )
+    plan = plans[0]
     bindings = tuple(
         item
         for item in bundle.workflow_step_bindings
@@ -942,178 +998,30 @@ def _require_current_workflow_binding_by_plan(
         raise ApplicationServiceError("workflow step has no durable binding")
     current = max(bindings, key=lambda item: item.generation)
     if current.calculation_id != calculation.id:
-        raise ApplicationServiceError("requested Calculation is not the current workflow generation")
+        raise ApplicationServiceError(
+            "requested Calculation is not the current workflow generation"
+        )
     return plan, current
 
 
-def _require_attempt(bundle: ProjectBundle, attempt_id: ExecutionAttemptId) -> ExecutionAttempt:
+def _require_attempt(
+    bundle: ProjectBundle,
+    attempt_id: ExecutionAttemptId,
+) -> ExecutionAttempt:
     matches = tuple(item for item in bundle.execution_attempts if item.id == attempt_id)
     if len(matches) != 1:
         raise ApplicationServiceError("ExecutionAttempt is absent or duplicated")
     return matches[0]
 
 
-def _require_remote_job(bundle: ProjectBundle, remote_job_id: RemoteJobId) -> RemoteJob:
+def _require_remote_job(
+    bundle: ProjectBundle,
+    remote_job_id: RemoteJobId,
+) -> RemoteJob:
     matches = tuple(item for item in bundle.remote_jobs if item.id == remote_job_id)
     if len(matches) != 1:
         raise ApplicationServiceError("RemoteJob is absent or duplicated")
     return matches[0]
-
-
-def _decode_execution_plan(raw: dict[str, object]) -> ExecutionPlan:
-    try:
-        context_raw = _mapping(raw, "system_context")
-        vacuum = context_raw.get("vacuum_axis")
-        context = VaspSystemContext(
-            VaspSystemKind(_string(context_raw, "kind")),
-            vacuum_axis=LatticeAxis(vacuum) if isinstance(vacuum, str) else None,
-        )
-        staging = tuple(
-            StagingInput(
-                role=_string(item, "role"),
-                kind=StagingInputKind(_string(item, "kind")),
-                artifact_id=UUID(_string(item, "artifact_id")),
-                artifact_type=ArtifactType(_string(item, "artifact_type")),
-                source_relative_path=_string(item, "source_relative_path"),
-                target_relative_path=_string(item, "target_relative_path"),
-                sha256=_string(item, "sha256"),
-                size_bytes=_integer(item, "size_bytes"),
-            )
-            for item in _mapping_list(raw, "staging_inputs")
-        )
-        potcar_raw = _mapping(raw, "potcar_resolution")
-        potcars = PotcarResolutionRequest(
-            family=_string(potcar_raw, "family"),
-            core_method_hash=_string(potcar_raw, "core_method_hash"),
-            metadata_hash=_string(potcar_raw, "metadata_hash"),
-            entries=tuple(
-                PotcarResolutionEntry(
-                    element=_string(item, "element"),
-                    symbol=_string(item, "symbol"),
-                    sha256=_string(item, "sha256"),
-                )
-                for item in _mapping_list(potcar_raw, "entries")
-            ),
-            target_relative_path=_string(potcar_raw, "target_relative_path"),
-        )
-        outputs = tuple(
-            ExpectedOutput(
-                role=_string(item, "role"),
-                artifact_type=ArtifactType(_string(item, "artifact_type")),
-                relative_path=_string(item, "relative_path"),
-                retrieval_policy=_retrieval_policy(_string(item, "retrieval_policy")),
-                required=_boolean(item, "required"),
-            )
-            for item in _mapping_list(raw, "expected_outputs")
-        )
-        constraints_raw = _mapping(raw, "runtime_constraints")
-        capabilities = constraints_raw.get("required_capabilities")
-        if not isinstance(capabilities, list) or any(not isinstance(item, str) for item in capabilities):
-            raise ValueError("required_capabilities must be a string list")
-        constraints = VaspRuntimeConstraints(
-            required_version=(
-                constraints_raw.get("required_version")
-                if isinstance(constraints_raw.get("required_version"), str)
-                else None
-            ),
-            required_capabilities=tuple(VaspRuntimeCapability(item) for item in capabilities),
-        )
-        settings_raw = _mapping(raw, "execution_settings")
-        extras = settings_raw.get("extra_parameters")
-        if not isinstance(extras, list):
-            raise ValueError("execution extra_parameters must be a list")
-        settings = ExecutionSettings(
-            ncore=_optional_integer(settings_raw, "ncore"),
-            kpar=_optional_integer(settings_raw, "kpar"),
-            nodes=_optional_integer(settings_raw, "nodes"),
-            cores=_optional_integer(settings_raw, "cores"),
-            memory_mb=_optional_integer(settings_raw, "memory_mb"),
-            walltime_seconds=_optional_integer(settings_raw, "walltime_seconds"),
-            partition=_optional_string(settings_raw, "partition"),
-            mpi_ranks=_optional_integer(settings_raw, "mpi_ranks"),
-            omp_threads=_optional_integer(settings_raw, "omp_threads"),
-            executable=_string(settings_raw, "executable"),
-            extra_parameters=tuple(
-                ParameterEntry(_string(item, "name"), item.get("value"))
-                for item in extras
-                if isinstance(item, dict)
-            ),
-        )
-        plan = ExecutionPlan(
-            calculation_id=UUID(_string(raw, "calculation_id")),
-            recipe_id=_string(raw, "recipe_id"),
-            system_context=context,
-            input_manifest_artifact_id=UUID(_string(raw, "input_manifest_artifact_id")),
-            input_manifest_sha256=_string(raw, "input_manifest_sha256"),
-            preparation_hash=_string(raw, "preparation_hash"),
-            staging_inputs=staging,
-            potcar_resolution=potcars,
-            expected_outputs=outputs,
-            runtime_constraints=constraints,
-            execution_settings=settings,
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise ApplicationServiceError("ExecutionPlan artifact payload is invalid") from error
-    return plan
-
-
-def _retrieval_policy(value: str):
-    from ecatvasp.domain import RetrievalPolicy
-
-    return RetrievalPolicy(value)
-
-
-def _mapping(raw: dict[str, object], key: str) -> dict[str, object]:
-    value = raw.get(key)
-    if not isinstance(value, dict):
-        raise ValueError(f"{key} must be an object")
-    return value
-
-
-def _mapping_list(raw: dict[str, object], key: str) -> tuple[dict[str, object], ...]:
-    value = raw.get(key)
-    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
-        raise ValueError(f"{key} must be a list of objects")
-    return tuple(value)  # type: ignore[arg-type]
-
-
-def _string(raw: dict[str, object], key: str) -> str:
-    value = raw.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{key} must be a non-empty string")
-    return value
-
-
-def _optional_string(raw: dict[str, object], key: str) -> str | None:
-    value = raw.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{key} must be null or a non-empty string")
-    return value
-
-
-def _integer(raw: dict[str, object], key: str) -> int:
-    value = raw.get(key)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{key} must be an integer")
-    return value
-
-
-def _optional_integer(raw: dict[str, object], key: str) -> int | None:
-    value = raw.get(key)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{key} must be null or an integer")
-    return value
-
-
-def _boolean(raw: dict[str, object], key: str) -> bool:
-    value = raw.get(key)
-    if not isinstance(value, bool):
-        raise ValueError(f"{key} must be a boolean")
-    return value
 
 
 __all__ = [
@@ -1122,5 +1030,4 @@ __all__ = [
     "JobCenterRetrievalReceipt",
     "JobCenterSubmissionReceipt",
     "ProjectJobCenterApplicationService",
-    "resolve_execution_plan",
 ]
