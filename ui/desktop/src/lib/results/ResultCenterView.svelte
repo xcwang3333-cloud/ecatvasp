@@ -6,11 +6,14 @@
     ResultCalculationRow,
     ResultCatalogPayload,
   } from "./contracts";
+  import { LatestProjectRequestGuard } from "./latestProjectRequest";
 
   export let client: ResultCenterClient;
   export let projectRoot: string;
   export let disabled = false;
   export let onMutation: () => Promise<void>;
+
+  const catalogRequestGuard = new LatestProjectRequestGuard();
 
   let catalog: ResultCatalogPayload | null = null;
   let loadedProjectRoot = "";
@@ -21,7 +24,7 @@
   let lastPromotion: PromoteResultPayload | null = null;
 
   $: calculations = catalog?.calculations ?? [];
-  $: if (projectRoot.trim() && projectRoot !== loadedProjectRoot) {
+  $: if (projectRoot !== loadedProjectRoot) {
     loadedProjectRoot = projectRoot;
     catalog = null;
     busyCalculationId = "";
@@ -29,7 +32,7 @@
     message = "";
     lastAnalysis = null;
     lastPromotion = null;
-    void loadCatalog(projectRoot);
+    if (projectRoot.trim()) void loadCatalog(projectRoot);
   }
 
   function describeError(value: unknown, fallback: string): string {
@@ -45,13 +48,14 @@
   }
 
   async function loadCatalog(root: string = projectRoot): Promise<void> {
+    const token = catalogRequestGuard.begin(root);
     error = "";
     try {
       const next = await client.catalog(root);
-      if (root !== projectRoot) return;
+      if (!catalogRequestGuard.isCurrent(token, projectRoot)) return;
       catalog = next;
     } catch (value: unknown) {
-      if (root !== projectRoot) return;
+      if (!catalogRequestGuard.isCurrent(token, projectRoot)) return;
       error = describeError(value, "Result Center could not be loaded");
     }
   }
