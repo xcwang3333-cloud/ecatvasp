@@ -121,13 +121,13 @@ def test_prepare_persists_plan_and_fingerprints_but_never_fabricates_lock_eviden
     assert len(reopened.method_fingerprints) == len(receipt.steps)
     assert reopened.calculations == ()
     assert reopened.workflow_step_bindings == ()
-    root_step = receipt.steps[0]
-    assert root_step.step_key == "relax"
+    root_step = next(item for item in receipt.steps if item.step_key == "relax")
     assert root_step.blocker_codes == ("validated_numerical_evidence_required",)
     assert all(item.method_fingerprint_id is not None for item in receipt.steps)
     assert all(
         item.blocker_codes == ("accepted_structure_required",)
-        for item in receipt.steps[1:]
+        for item in receipt.steps
+        if item.step_key != "relax"
     )
 
     replay = service.prepare(
@@ -192,7 +192,7 @@ def test_root_step_materializes_only_with_matching_real_numerical_evidence(tmp_p
         protocol_settings=protocol,
         recipe_settings=WizardRecipeSettings(lobster_nbands=96),
     )
-    relax = prepared.steps[0]
+    relax = next(item for item in prepared.steps if item.step_key == "relax")
     assert relax.method_fingerprint_id is not None
     fingerprint_id = UUID(relax.method_fingerprint_id)
     bundle = store.open()
@@ -263,7 +263,8 @@ def test_materialization_rejects_missing_solid_kpoint_evidence(tmp_path: Path) -
         protocol_settings=protocol,
         recipe_settings=WizardRecipeSettings(lobster_nbands=96),
     )
-    fingerprint_id = UUID(prepared.steps[0].method_fingerprint_id or "")
+    relax = next(item for item in prepared.steps if item.step_key == "relax")
+    fingerprint_id = UUID(relax.method_fingerprint_id or "")
     fingerprint = next(
         item for item in store.open().method_fingerprints if item.id == fingerprint_id
     )
