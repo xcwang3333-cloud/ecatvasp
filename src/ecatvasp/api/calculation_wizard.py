@@ -35,8 +35,11 @@ from ecatvasp.domain import (
     WorkflowRecipeIdentity,
 )
 from ecatvasp.provenance import scientific_hash
-from ecatvasp.storage import ProjectBundle, ProjectStore
-from ecatvasp.vasp.analysis_prerequisites import dos_recipe_parameters, lobster_recipe_parameters
+from ecatvasp.storage import ProjectBundle
+from ecatvasp.vasp.analysis_prerequisites import (
+    dos_recipe_parameters,
+    lobster_recipe_parameters,
+)
 from ecatvasp.vasp.contracts import (
     ECATVASP_ECAT_STANDARD,
     LatticeAxis,
@@ -74,13 +77,17 @@ from ecatvasp.workflow import (
     WORKFLOW_RECIPE_ADSORBATE_SCIENTIFIC_PREPARATION,
     WORKFLOW_RECIPE_GAS_REFERENCE_PREPARATION,
     WORKFLOW_RECIPE_SLAB_SCIENTIFIC_PREPARATION,
+    WorkflowRecipeSpec,
     evaluate_workflow_freshness,
     evaluate_workflow_recovery_policy,
     evaluate_workflow_scientific_gates,
-    get_workflow_recipe_spec,
+    list_workflow_recipe_specs,
     reconcile_workflow_orchestration,
 )
-from ecatvasp.workflow.orchestration import WorkflowOrchestrationAction, WorkflowOrchestrationEvaluation
+from ecatvasp.workflow.orchestration import (
+    WorkflowOrchestrationAction,
+    WorkflowOrchestrationEvaluation,
+)
 
 
 class CalculationWizardTask(StrEnum):
@@ -142,7 +149,11 @@ class WizardProtocolSettings:
 
     @property
     def kpoints(self) -> KPointPolicy:
-        return KPointPolicy(kind=self.kpoint_kind, mesh=self.kpoint_mesh, value=self.kpoint_value)
+        return KPointPolicy(
+            kind=self.kpoint_kind,
+            mesh=self.kpoint_mesh,
+            value=self.kpoint_value,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,9 +234,11 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
                 label = snapshot.label or "Adsorbate conformer"
             elif snapshot.periodic == (False, False, False):
                 task = CalculationWizardTask.GAS_REFERENCE
+                assert variant is not None
                 label = snapshot.label or variant.name
             else:
                 task = CalculationWizardTask.SLAB
+                assert variant is not None
                 label = snapshot.label or variant.name
             roots.append(
                 {
@@ -255,10 +268,11 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
             "tasks": [
                 {
                     "task": task.value,
-                    "workflow_recipe_id": recipe_id,
-                    "workflow_recipe_version": get_workflow_recipe_spec(recipe_id).version,
+                    "workflow_recipe_id": spec.recipe_id,
+                    "workflow_recipe_version": spec.version,
                 }
-                for task, recipe_id in _TASK_WORKFLOW_RECIPES.items()
+                for task in CalculationWizardTask
+                for spec in (_workflow_spec(task),)
             ],
             "scientific_profile": {
                 "standard_name": ECATVASP_ECAT_STANDARD,
@@ -277,10 +291,13 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
         root_structure_snapshot_id: StructureSnapshotId,
         method_settings: WizardMethodSettings,
         protocol_settings: WizardProtocolSettings,
-        recipe_settings: WizardRecipeSettings = WizardRecipeSettings(),
+        recipe_settings: WizardRecipeSettings | None = None,
     ) -> CalculationWizardPreparationResult:
         """Persist/reuse workflow intent and exact per-step MethodFingerprints."""
 
+        resolved_recipe_settings = (
+            WizardRecipeSettings() if recipe_settings is None else recipe_settings
+        )
         bundle = self.store.open()
         snapshot = _require_selectable_root(bundle, root_structure_snapshot_id)
         _validate_task_root(bundle, task, snapshot)
@@ -295,8 +312,7 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
         if potcar_spec.species_order != prepare_poscar(snapshot).species_order:
             raise ApplicationServiceError("POTCAR species order does not match selected structure")
 
-        workflow_id = _TASK_WORKFLOW_RECIPES[task]
-        workflow_spec = get_workflow_recipe_spec(workflow_id)
+        workflow_spec = _workflow_spec(task)
         planned = self.prepare_workflow(
             workflow_recipe=WorkflowRecipeIdentity(
                 recipe_id=workflow_spec.recipe_id,
@@ -320,7 +336,7 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
                     )
                 recipe, digests = _step_recipe_identity(
                     step.recipe_id,
-                    recipe_settings=recipe_settings,
+                    recipe_settings=resolved_recipe_settings,
                     snapshot=snapshot,
                 )
                 protocol = _step_protocol(
@@ -362,7 +378,10 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
             append = tuple(item for item in new_fingerprints if item.instance_hash not in hashes)
             if append:
                 self.store.save(
-                    replace(current, method_fingerprints=(*current.method_fingerprints, *append))
+                    replace(
+                        current,
+                        method_fingerprints=(*current.method_fingerprints, *append),
+                    )
                 )
 
         reopened = self.store.open()
@@ -376,7 +395,9 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
             blockers = list(summary.blocker_codes)
             if not materialized and not blockers:
                 incoming = tuple(
-                    edge for edge in plan.edges if edge.downstream_step_key == summary.step_key
+                    edge
+                    for edge in plan.edges
+                    if edge.downstream_step_key == summary.step_key
                 )
                 blockers.append(
                     "accepted_structure_required"
@@ -458,7 +479,11 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
             kpoints=fingerprint.protocol.kpoints,
             kpoints_validation_hash=kpoint_evidence.analysis_hash if kpoint_evidence else None,
         )
-        validate_project_lock_encut(lock=lock, spec=potcar_spec, evidence=numerical_evidence.encut)
+        validate_project_lock_encut(
+            lock=lock,
+            spec=potcar_spec,
+            evidence=numerical_evidence.encut,
+        )
         validate_project_lock_kpoints(
             lock=lock,
             prepared=prepared_kpoints,
@@ -472,7 +497,11 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
         )
         if existing:
             current = max(existing, key=lambda item: item.generation)
-            calculation = next(item for item in bundle.calculations if item.id == current.calculation_id)
+            calculation = next(
+                item
+                for item in bundle.calculations
+                if item.id == current.calculation_id
+            )
             if calculation.method_fingerprint_id != fingerprint.id:
                 raise ApplicationServiceError(
                     "current workflow generation uses a different MethodFingerprint"
@@ -510,8 +539,18 @@ class ProjectCalculationWizardApplicationService(ProjectApplicationService):
         )
 
 
+def _workflow_spec(task: CalculationWizardTask) -> WorkflowRecipeSpec:
+    recipe_id = _TASK_WORKFLOW_RECIPES[task]
+    for spec in list_workflow_recipe_specs():
+        if spec.recipe_id == recipe_id:
+            return spec
+    raise ApplicationServiceError(f"canonical workflow recipe is unavailable: {recipe_id}")
+
+
 def _resolve_method(
-    *, snapshot: StructureSnapshot, settings: WizardMethodSettings
+    *,
+    snapshot: StructureSnapshot,
+    settings: WizardMethodSettings,
 ) -> tuple[MethodDefinition, PotcarSpec]:
     elements = tuple(sorted({site.element for site in snapshot.sites}))
     selected = {item.element: item.symbol for item in settings.potcar_symbols}
@@ -524,9 +563,15 @@ def _resolve_method(
         symbol = selected[element]
         path = settings.potcar_root / symbol / "POTCAR"
         if not path.is_file():
-            raise ApplicationServiceError(f"licensed POTCAR is missing for {element}/{symbol}")
+            raise ApplicationServiceError(
+                f"licensed POTCAR is missing for {element}/{symbol}"
+            )
         identities.append(
-            PotcarIdentity(element=element, symbol=symbol, sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+            PotcarIdentity(
+                element=element,
+                symbol=symbol,
+                sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
         )
     method = MethodDefinition(
         xc_functional=settings.xc_functional,
@@ -537,7 +582,8 @@ def _resolve_method(
         dispersion_model=settings.dispersion_model,
     )
     resolved = LocalPotcarLibrary(
-        family=settings.potcar_family, root=settings.potcar_root
+        family=settings.potcar_family,
+        root=settings.potcar_root,
     ).resolve(prepared_poscar=prepare_poscar(snapshot), method=method)
     return method, resolved.spec
 
@@ -551,9 +597,14 @@ def _step_recipe_identity(
     spec = get_vasp_recipe_spec(recipe_id)
     parameters: tuple[ParameterEntry, ...] = ()
     digests: tuple[ScientificInputDigest, ...] = ()
-    if recipe_id in {RECIPE_SELECTED_ATOM_FREQUENCY, RECIPE_FULL_FREQUENCY, RECIPE_GAS_FREQUENCY}:
+    if recipe_id in {
+        RECIPE_SELECTED_ATOM_FREQUENCY,
+        RECIPE_FULL_FREQUENCY,
+        RECIPE_GAS_FREQUENCY,
+    }:
         parameters = frequency_recipe_parameters(
-            potim_angstrom=recipe_settings.frequency_potim_angstrom, nfree=2
+            potim_angstrom=recipe_settings.frequency_potim_angstrom,
+            nfree=2,
         )
         if recipe_id == RECIPE_SELECTED_ATOM_FREQUENCY:
             if not recipe_settings.frequency_atom_uids:
@@ -561,12 +612,17 @@ def _step_recipe_identity(
                     "selected-atom frequency requires explicit atom selection"
                 )
             available = {str(site.atom_uid) for site in snapshot.sites}
-            if any(value not in available for value in recipe_settings.frequency_atom_uids):
+            if any(
+                value not in available for value in recipe_settings.frequency_atom_uids
+            ):
                 raise ApplicationServiceError(
                     "frequency atom selection contains an atom absent from selected structure"
                 )
             selection = FrequencySelection(
-                tuple(AtomUid(UUID(value)) for value in recipe_settings.frequency_atom_uids)
+                tuple(
+                    AtomUid(UUID(value))
+                    for value in recipe_settings.frequency_atom_uids
+                )
             )
             digests = (selection.input_digest,)
     elif recipe_id == RECIPE_DOS_PREREQUISITE:
@@ -577,7 +633,11 @@ def _step_recipe_identity(
         if recipe_settings.lobster_nbands is None:
             raise ApplicationServiceError("LOBSTER prerequisite requires explicit NBANDS")
         parameters = lobster_recipe_parameters(nbands=recipe_settings.lobster_nbands)
-    return RecipeIdentity(spec.recipe_id, version=spec.version, parameters=parameters), digests
+    return RecipeIdentity(
+        spec.recipe_id,
+        version=spec.version,
+        parameters=parameters,
+    ), digests
 
 
 def _step_protocol(
@@ -589,7 +649,8 @@ def _step_protocol(
 ) -> ProtocolDefinition:
     vacuum_axis = (
         settings.vacuum_axis.value
-        if task is not CalculationWizardTask.GAS_REFERENCE and settings.vacuum_axis is not None
+        if task is not CalculationWizardTask.GAS_REFERENCE
+        and settings.vacuum_axis is not None
         else None
     )
     extras = (
@@ -597,7 +658,11 @@ def _step_protocol(
         ParameterEntry(ECATVASP_KPOINT_CENTERING, centering.value),
     )
     ediff = settings.ediff_ev
-    if recipe_id in {RECIPE_SELECTED_ATOM_FREQUENCY, RECIPE_FULL_FREQUENCY, RECIPE_GAS_FREQUENCY}:
+    if recipe_id in {
+        RECIPE_SELECTED_ATOM_FREQUENCY,
+        RECIPE_FULL_FREQUENCY,
+        RECIPE_GAS_FREQUENCY,
+    }:
         ediff = min(ediff, 1e-8)
     return ProtocolDefinition(
         encut_ev=settings.encut_ev,
@@ -612,16 +677,26 @@ def _step_protocol(
     )
 
 
-def _system_context(task: CalculationWizardTask, settings: WizardProtocolSettings) -> VaspSystemContext:
+def _system_context(
+    task: CalculationWizardTask,
+    settings: WizardProtocolSettings,
+) -> VaspSystemContext:
     if task is CalculationWizardTask.GAS_REFERENCE:
         return VaspSystemContext(VaspSystemKind.MOLECULE_0D)
     if settings.vacuum_axis is None:
-        raise ApplicationServiceError("slab/adsorbate calculations require explicit vacuum axis")
-    return VaspSystemContext(VaspSystemKind.SLAB_2D, vacuum_axis=settings.vacuum_axis)
+        raise ApplicationServiceError(
+            "slab/adsorbate calculations require explicit vacuum axis"
+        )
+    return VaspSystemContext(
+        VaspSystemKind.SLAB_2D,
+        vacuum_axis=settings.vacuum_axis,
+    )
 
 
 def _validate_task_root(
-    bundle: ProjectBundle, task: CalculationWizardTask, snapshot: StructureSnapshot
+    bundle: ProjectBundle,
+    task: CalculationWizardTask,
+    snapshot: StructureSnapshot,
 ) -> None:
     conformers = {item.structure_snapshot_id for item in bundle.state_conformers}
     if task is CalculationWizardTask.ADSORBATE:
@@ -636,32 +711,46 @@ def _validate_task_root(
         )
     molecule = snapshot.periodic == (False, False, False)
     if task is CalculationWizardTask.GAS_REFERENCE and not molecule:
-        raise ApplicationServiceError("gas-reference workflow requires non-periodic structure")
+        raise ApplicationServiceError(
+            "gas-reference workflow requires non-periodic structure"
+        )
     if task is CalculationWizardTask.SLAB and molecule:
         raise ApplicationServiceError("slab workflow requires periodic structure")
 
 
 def _require_selectable_root(
-    bundle: ProjectBundle, snapshot_id: StructureSnapshotId
+    bundle: ProjectBundle,
+    snapshot_id: StructureSnapshotId,
 ) -> StructureSnapshot:
     snapshot = _require_snapshot(bundle, snapshot_id)
-    if any(item.structure_snapshot_id == snapshot_id for item in bundle.state_conformers):
+    if any(
+        item.structure_snapshot_id == snapshot_id for item in bundle.state_conformers
+    ):
         return snapshot
-    if any(item.current_structure_snapshot_id == snapshot_id for item in bundle.structure_variants):
+    if any(
+        item.current_structure_snapshot_id == snapshot_id
+        for item in bundle.structure_variants
+    ):
         return snapshot
     raise ApplicationServiceError(
         "selected root is not a current model snapshot or persisted conformer"
     )
 
 
-def _require_snapshot(bundle: ProjectBundle, snapshot_id: StructureSnapshotId) -> StructureSnapshot:
+def _require_snapshot(
+    bundle: ProjectBundle,
+    snapshot_id: StructureSnapshotId,
+) -> StructureSnapshot:
     for item in bundle.structure_snapshots:
         if item.id == snapshot_id:
             return item
     raise ApplicationServiceError("StructureSnapshot is absent from current ProjectStore")
 
 
-def _require_plan(bundle: ProjectBundle, plan_id: WorkflowPlanId) -> ScientificWorkflowPlan:
+def _require_plan(
+    bundle: ProjectBundle,
+    plan_id: WorkflowPlanId,
+) -> ScientificWorkflowPlan:
     for item in bundle.workflow_plans:
         if item.id == plan_id:
             return item
@@ -669,7 +758,8 @@ def _require_plan(bundle: ProjectBundle, plan_id: WorkflowPlanId) -> ScientificW
 
 
 def _require_fingerprint(
-    bundle: ProjectBundle, fingerprint_id: MethodFingerprintId
+    bundle: ProjectBundle,
+    fingerprint_id: MethodFingerprintId,
 ) -> MethodFingerprint:
     for item in bundle.method_fingerprints:
         if item.id == fingerprint_id:
@@ -691,7 +781,8 @@ def _fingerprint_centering(fingerprint: MethodFingerprint) -> KPointCentering:
 
 
 def _orchestration(
-    bundle: ProjectBundle, plan: ScientificWorkflowPlan
+    bundle: ProjectBundle,
+    plan: ScientificWorkflowPlan,
 ) -> WorkflowOrchestrationEvaluation:
     hashes = {
         entity.id: scientific_hash(entity)
@@ -712,10 +803,17 @@ def _orchestration(
         freshness=freshness,
     )
     recovery = evaluate_workflow_recovery_policy(plan=plan, gates=gates)
-    return reconcile_workflow_orchestration(plan=plan, gates=gates, recovery=recovery)
+    return reconcile_workflow_orchestration(
+        plan=plan,
+        gates=gates,
+        recovery=recovery,
+    )
 
 
-def _verify_fingerprints(bundle: ProjectBundle, summaries: list[WizardStepSummary]) -> None:
+def _verify_fingerprints(
+    bundle: ProjectBundle,
+    summaries: list[WizardStepSummary],
+) -> None:
     ids = {str(item.id) for item in bundle.method_fingerprints}
     if any(
         item.method_fingerprint_id is not None and item.method_fingerprint_id not in ids
