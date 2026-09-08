@@ -7,10 +7,12 @@ import pytest
 from ecatvasp.desktop import (
     DESKTOP_IPC_V2_CONTRACT_VERSION,
     DesktopIPCError,
+    decode_desktop_v2_request,
+)
+from ecatvasp.desktop.protocol_v2_job_center import (
     DesktopV2JobCatalogRequest,
     DesktopV2PrepareExecutionRequest,
     DesktopV2SubmitSlurmJobRequest,
-    decode_desktop_v2_request,
 )
 
 _PROJECT_ROOT = "/project"
