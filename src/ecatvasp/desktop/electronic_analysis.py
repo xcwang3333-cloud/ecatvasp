@@ -17,8 +17,9 @@ from ecatvasp.storage import ProjectStore
 
 
 def electronic_analysis_catalog_action(project_root: Path | str) -> dict[str, object]:
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(project_root))
-    return service.catalog()
+    root = Path(project_root)
+    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    return {"project_root": str(root), **service.catalog()}
 
 
 def materialize_dos_analysis_action(
@@ -26,10 +27,14 @@ def materialize_dos_analysis_action(
     project_root: Path | str,
     calculation_id: str,
 ) -> dict[str, object]:
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(project_root))
-    return service.materialize_dos(
-        calculation_id=CalculationId(UUID(calculation_id)),
-    )
+    root = Path(project_root)
+    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    return {
+        "project_root": str(root),
+        **service.materialize_dos(
+            calculation_id=CalculationId(UUID(calculation_id)),
+        ),
+    }
 
 
 def electronic_analysis_view_action(
@@ -37,8 +42,12 @@ def electronic_analysis_view_action(
     project_root: Path | str,
     analysis_id: str,
 ) -> dict[str, object]:
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(project_root))
-    return service.analysis_view(analysis_id=AnalysisId(UUID(analysis_id)))
+    root = Path(project_root)
+    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    return {
+        "project_root": str(root),
+        **service.analysis_view(analysis_id=AnalysisId(UUID(analysis_id))),
+    }
 
 
 def materialize_band_center_action(
@@ -54,18 +63,22 @@ def materialize_band_center_action(
     window_lower_ev: float,
     window_upper_ev: float,
 ) -> dict[str, object]:
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(project_root))
-    return service.materialize_band_center(
-        source_analysis_id=AnalysisId(UUID(source_analysis_id)),
-        kind=BandCenterKind(kind),
-        scope=ProjectionScope(scope),
-        spin=BandCenterSpinMode(spin),
-        atom_uid=AtomUid(UUID(atom_uid)) if atom_uid is not None else None,
-        element=element,
-        energy_reference=BandCenterEnergyReference(energy_reference),
-        window_lower_ev=window_lower_ev,
-        window_upper_ev=window_upper_ev,
-    )
+    root = Path(project_root)
+    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    return {
+        "project_root": str(root),
+        **service.materialize_band_center(
+            source_analysis_id=AnalysisId(UUID(source_analysis_id)),
+            kind=BandCenterKind(kind),
+            scope=ProjectionScope(scope),
+            spin=BandCenterSpinMode(spin),
+            atom_uid=AtomUid(UUID(atom_uid)) if atom_uid is not None else None,
+            element=element,
+            energy_reference=BandCenterEnergyReference(energy_reference),
+            window_lower_ev=window_lower_ev,
+            window_upper_ev=window_upper_ev,
+        ),
+    }
 
 
 __all__ = [
