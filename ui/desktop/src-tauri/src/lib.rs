@@ -27,7 +27,7 @@ const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 
-const V2_FRONTEND_OPERATIONS: [&str; 29] = [
+const V2_FRONTEND_OPERATIONS: [&str; 33] = [
     "open_project",
     "status",
     "frontend_handoff",
@@ -57,8 +57,12 @@ const V2_FRONTEND_OPERATIONS: [&str; 29] = [
     "result_catalog",
     "analyze_result",
     "promote_result_structure",
+    "electronic_analysis_catalog",
+    "materialize_dos_analysis",
+    "electronic_analysis_view",
+    "materialize_band_center",
 ];
-const V2_HEALTH_OPERATIONS: [&str; 30] = [
+const V2_HEALTH_OPERATIONS: [&str; 34] = [
     "health",
     "open_project",
     "status",
@@ -89,6 +93,10 @@ const V2_HEALTH_OPERATIONS: [&str; 30] = [
     "result_catalog",
     "analyze_result",
     "promote_result_structure",
+    "electronic_analysis_catalog",
+    "materialize_dos_analysis",
+    "electronic_analysis_view",
+    "materialize_band_center",
 ];
 const V2_REQUEST_FIELDS: [&str; 40] = [
     "protocol_version",
@@ -168,6 +176,18 @@ const V2_JOB_FIELDS: [&str; 10] = [
     "requested_roles",
     "release_remote_roles",
     "discard_remote_roles",
+];
+const V2_ELECTRONIC_ANALYSIS_FIELDS: [&str; 10] = [
+    "analysis_id",
+    "source_analysis_id",
+    "kind",
+    "scope",
+    "spin",
+    "atom_uid",
+    "element",
+    "energy_reference",
+    "window_lower_ev",
+    "window_upper_ev",
 ];
 const CALCULATION_METHOD_FIELDS: [&str; 7] = [
     "xc_functional",
@@ -549,6 +569,7 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
             || V2_ADSORBATE_FIELDS.contains(&key)
             || V2_CALCULATION_FIELDS.contains(&key)
             || V2_JOB_FIELDS.contains(&key)
+            || V2_ELECTRONIC_ANALYSIS_FIELDS.contains(&key)
     };
     if object.keys().any(|key| !allowed(key.as_str())) {
         return Err("desktop frontend request contains an unknown field".to_string());
@@ -600,8 +621,65 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
             require_nonblank_string(object, "structure_snapshot_id")?;
         }
         "calculation_catalog" | "job_catalog" | "result_catalog" => {}
+        "electronic_analysis_catalog" => {
+            reject_unknown_nested(
+                object,
+                &["protocol_version", "request_id", "operation", "project_root"],
+                "electronic analysis catalog request",
+            )?;
+        }
         "analyze_result" | "promote_result_structure" => {
             require_nonblank_string(object, "calculation_id")?;
+        }
+        "materialize_dos_analysis" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "calculation_id",
+                ],
+                "DOS materialization request",
+            )?;
+            require_nonblank_string(object, "calculation_id")?;
+        }
+        "electronic_analysis_view" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "analysis_id",
+                ],
+                "electronic analysis view request",
+            )?;
+            require_nonblank_string(object, "analysis_id")?;
+        }
+        "materialize_band_center" => {
+            reject_unknown_nested(
+                object,
+                &[
+                    "protocol_version",
+                    "request_id",
+                    "operation",
+                    "project_root",
+                    "source_analysis_id",
+                    "kind",
+                    "scope",
+                    "spin",
+                    "atom_uid",
+                    "element",
+                    "energy_reference",
+                    "window_lower_ev",
+                    "window_upper_ev",
+                ],
+                "band-center materialization request",
+            )?;
+            validate_band_center_request(object)?;
         }
         "prepare_calculation_workflow" => validate_prepare_calculation_request(object)?,
         "materialize_calculation_step" => validate_materialize_calculation_request(object)?,
@@ -610,6 +688,49 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         "refresh_slurm_job" | "cancel_slurm_job" => validate_remote_job_request(object)?,
         "retrieve_job_outputs" => validate_retrieve_job_request(object)?,
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_band_center_request(object: &Map<String, Value>) -> Result<(), String> {
+    require_nonblank_string(object, "source_analysis_id")?;
+    let kind = require_nonblank_string(object, "kind")?;
+    if !matches!(kind, "band" | "p_band" | "d_band") {
+        return Err("desktop band-center kind is unsupported".to_string());
+    }
+    let scope = require_nonblank_string(object, "scope")?;
+    if !matches!(scope, "system" | "atom" | "element") {
+        return Err("desktop band-center scope is unsupported".to_string());
+    }
+    let spin = require_nonblank_string(object, "spin")?;
+    if !matches!(spin, "total" | "up" | "down" | "sum") {
+        return Err("desktop band-center spin mode is unsupported".to_string());
+    }
+    let reference = require_nonblank_string(object, "energy_reference")?;
+    if !matches!(reference, "vasp_native" | "fermi_relative") {
+        return Err("desktop band-center energy reference is unsupported".to_string());
+    }
+    let lower = require_number(object, "window_lower_ev")?;
+    let upper = require_number(object, "window_upper_ev")?;
+    if !lower.is_finite() || !upper.is_finite() || upper <= lower {
+        return Err("desktop band-center integration window is invalid".to_string());
+    }
+    let atom_uid = optional_nonblank_string(object, "atom_uid")?;
+    let element = optional_nonblank_string(object, "element")?;
+    match scope {
+        "system" if atom_uid.is_some() || element.is_some() => {
+            return Err("desktop system band-center selector forbids atom and element".to_string())
+        }
+        "atom" if atom_uid.is_none() || element.is_none() => {
+            return Err("desktop atom band-center selector requires atom and element".to_string())
+        }
+        "element" if atom_uid.is_some() || element.is_none() => {
+            return Err("desktop element band-center selector requires element only".to_string())
+        }
+        _ => {}
+    }
+    if kind != "band" && scope == "system" {
+        return Err("desktop p/d-band center requires projected DOS scope".to_string());
     }
     Ok(())
 }
@@ -866,6 +987,25 @@ fn require_number(object: &Map<String, Value>, field_name: &str) -> Result<f64, 
         .ok_or_else(|| format!("desktop frontend {field_name} must be numeric"))
 }
 
+fn optional_nonblank_string<'a>(
+    object: &'a Map<String, Value>,
+    field_name: &str,
+) -> Result<Option<&'a str>, String> {
+    let Some(value) = object.get(field_name) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let text = value
+        .as_str()
+        .ok_or_else(|| format!("desktop frontend {field_name} must be null or a string"))?;
+    if text.trim().is_empty() {
+        return Err(format!("desktop frontend {field_name} must not be blank"));
+    }
+    Ok(Some(text))
+}
+
 fn require_sha256(object: &Map<String, Value>, field_name: &str) -> Result<(), String> {
     let value = require_nonblank_string(object, field_name)?;
     if !is_sha256(value) {
@@ -1087,6 +1227,12 @@ mod tests {
             "operation": "result_catalog",
             "project_root": "/project"
         });
+        let electronic_catalog = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "request-analysis",
+            "operation": "electronic_analysis_catalog",
+            "project_root": "/project"
+        });
         let analyze = json!({
             "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
             "request_id": "request-analyze",
@@ -1108,9 +1254,47 @@ mod tests {
         });
         assert!(validate_frontend_request(&catalog).is_ok());
         assert!(validate_frontend_request(&result_catalog).is_ok());
+        assert!(validate_frontend_request(&electronic_catalog).is_ok());
         assert!(validate_frontend_request(&analyze).is_ok());
         assert!(validate_frontend_request(&legacy).is_err());
         assert!(validate_frontend_request(&future).is_err());
+    }
+
+    #[test]
+    fn electronic_analysis_request_enforces_typed_descriptor_fields() {
+        let descriptor = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "descriptor-1",
+            "operation": "materialize_band_center",
+            "project_root": "/project",
+            "source_analysis_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "kind": "d_band",
+            "scope": "element",
+            "spin": "sum",
+            "atom_uid": null,
+            "element": "Fe",
+            "energy_reference": "fermi_relative",
+            "window_lower_ev": -8.0,
+            "window_upper_ev": 3.0
+        });
+        let escape_hatch = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "descriptor-escape",
+            "operation": "materialize_band_center",
+            "project_root": "/project",
+            "source_analysis_id": "018f0e9e-7c3f-7a11-8b22-123456789abc",
+            "kind": "d_band",
+            "scope": "element",
+            "spin": "sum",
+            "atom_uid": null,
+            "element": "Fe",
+            "energy_reference": "fermi_relative",
+            "window_lower_ev": -8.0,
+            "window_upper_ev": 3.0,
+            "parameters_hash": "a".repeat(64)
+        });
+        assert!(validate_frontend_request(&descriptor).is_ok());
+        assert!(validate_frontend_request(&escape_hatch).is_err());
     }
 
     #[test]
@@ -1276,7 +1460,7 @@ mod tests {
             "payload": {
                 "backend_version": "1.1.0.dev0",
                 "frontend_handoff_contract_version": FRONTEND_HANDOFF_CONTRACT_VERSION,
-                "operations": V2_HEALTH_OPERATIONS,
+                "operations": V2_HEALTH_OPERATIONS.to_vec(),
                 "stateless_project_requests": true,
                 "supported_protocol_versions": [
                     DESKTOP_IPC_V1_CONTRACT_VERSION,

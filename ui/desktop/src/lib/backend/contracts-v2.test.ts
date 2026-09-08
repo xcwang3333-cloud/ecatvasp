@@ -38,6 +38,17 @@ describe("desktop IPC v2 contracts", () => {
     expect(() => assertDesktopV2HealthCompatibility(response)).not.toThrow();
   });
 
+  it("includes the complete Block 6 electronic-analysis operation catalog", () => {
+    expect(DESKTOP_V2_OPERATIONS).toEqual(
+      expect.arrayContaining([
+        "electronic_analysis_catalog",
+        "materialize_dos_analysis",
+        "electronic_analysis_view",
+        "materialize_band_center",
+      ]),
+    );
+  });
+
   it("rejects v1 responses when parsing the v2 contract", () => {
     const raw = JSON.stringify({
       protocol_version: DESKTOP_IPC_V1_CONTRACT_VERSION,

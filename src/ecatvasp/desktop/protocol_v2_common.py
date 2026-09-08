@@ -40,3 +40,7 @@ class DesktopV2Operation(StrEnum):
     RESULT_CATALOG = "result_catalog"
     ANALYZE_RESULT = "analyze_result"
     PROMOTE_RESULT_STRUCTURE = "promote_result_structure"
+    ELECTRONIC_ANALYSIS_CATALOG = "electronic_analysis_catalog"
+    MATERIALIZE_DOS_ANALYSIS = "materialize_dos_analysis"
+    ELECTRONIC_ANALYSIS_VIEW = "electronic_analysis_view"
+    MATERIALIZE_BAND_CENTER = "materialize_band_center"

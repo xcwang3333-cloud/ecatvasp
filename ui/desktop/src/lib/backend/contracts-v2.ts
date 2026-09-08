@@ -47,6 +47,10 @@ export const DESKTOP_V2_OPERATIONS = [
   "result_catalog",
   "analyze_result",
   "promote_result_structure",
+  "electronic_analysis_catalog",
+  "materialize_dos_analysis",
+  "electronic_analysis_view",
+  "materialize_band_center",
 ] as const;
 
 export type DesktopV2Operation = (typeof DESKTOP_V2_OPERATIONS)[number];
