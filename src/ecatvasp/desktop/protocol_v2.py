@@ -15,6 +15,11 @@ from ecatvasp.desktop.actions import (
     prepare_workflow_action,
     report_action,
 )
+from ecatvasp.desktop.calculation_wizard import (
+    calculation_catalog_action,
+    materialize_calculation_step_action,
+    prepare_calculation_workflow_action,
+)
 from ecatvasp.desktop.model_studio import (
     build_adsorbate_conformer_action,
     build_graphene_action,
@@ -32,6 +37,14 @@ from ecatvasp.desktop.protocol import (
     DESKTOP_IPC_CONTRACT_VERSION,
     DesktopError,
     DesktopIPCError,
+)
+from ecatvasp.desktop.protocol_v2_calculation import (
+    DesktopV2CalculationCatalogRequest,
+    DesktopV2CalculationRequest,
+    DesktopV2MaterializeCalculationStepRequest,
+    DesktopV2PrepareCalculationWorkflowRequest,
+    decode_desktop_v2_calculation_request,
+    is_desktop_v2_calculation_request,
 )
 from ecatvasp.desktop.protocol_v2_common import (
     DESKTOP_IPC_V2_CONTRACT_VERSION,
@@ -83,6 +96,13 @@ _PROJECT_READ_OPERATIONS = frozenset(
         DesktopV2Operation.FRONTEND_HANDOFF,
         DesktopV2Operation.PROJECT_DASHBOARD,
         DesktopV2Operation.MODEL_CATALOG,
+    }
+)
+_CALCULATION_OPERATIONS = frozenset(
+    {
+        DesktopV2Operation.CALCULATION_CATALOG,
+        DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW,
+        DesktopV2Operation.MATERIALIZE_CALCULATION_STEP,
     }
 )
 
@@ -202,21 +222,26 @@ DesktopV2Request: TypeAlias = (
     | DesktopV2ApplicationReportRequest
     | DesktopV2PrepareWorkflowRequest
     | DesktopV2ModelRequest
+    | DesktopV2CalculationRequest
 )
 
 
 def is_desktop_v2_request(value: object) -> TypeGuard[DesktopV2Request]:
     """Return whether one decoded request belongs to the v2 protocol family."""
 
-    return isinstance(
-        value,
-        (
-            DesktopV2HealthRequest,
-            DesktopV2ProjectRequest,
-            DesktopV2ApplicationReportRequest,
-            DesktopV2PrepareWorkflowRequest,
-        ),
-    ) or is_desktop_v2_model_request(value)
+    return (
+        isinstance(
+            value,
+            (
+                DesktopV2HealthRequest,
+                DesktopV2ProjectRequest,
+                DesktopV2ApplicationReportRequest,
+                DesktopV2PrepareWorkflowRequest,
+            ),
+        )
+        or is_desktop_v2_model_request(value)
+        or is_desktop_v2_calculation_request(value)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +289,9 @@ class DesktopBackendV2:
 
         if is_desktop_v2_model_request(request):
             return self._handle_model_request(request)
+
+        if is_desktop_v2_calculation_request(request):
+            return self._handle_calculation_request(request)
 
         if isinstance(request, DesktopV2ApplicationReportRequest):
             root = Path(request.project_root)
@@ -369,6 +397,41 @@ class DesktopBackendV2:
             return self._project_failure(request.request_id, request.operation, error)
 
         raise DesktopIPCError(f"unsupported desktop v2 operation: {request.operation.value}")
+
+    def _handle_calculation_request(
+        self,
+        request: DesktopV2CalculationRequest,
+    ) -> DesktopV2Response:
+        try:
+            if isinstance(request, DesktopV2CalculationCatalogRequest):
+                payload = calculation_catalog_action(request.project_root)
+            elif isinstance(request, DesktopV2PrepareCalculationWorkflowRequest):
+                payload = prepare_calculation_workflow_action(
+                    project_root=request.project_root,
+                    task=request.task,
+                    root_structure_snapshot_id=request.root_structure_snapshot_id,
+                    method=request.method,
+                    protocol=request.protocol,
+                    recipe=request.recipe,
+                )
+            elif isinstance(request, DesktopV2MaterializeCalculationStepRequest):
+                payload = materialize_calculation_step_action(
+                    project_root=request.project_root,
+                    workflow_plan_id=request.workflow_plan_id,
+                    step_key=request.step_key,
+                    method_fingerprint_id=request.method_fingerprint_id,
+                    task=request.task,
+                    method=request.method,
+                    protocol=request.protocol,
+                    numerical_evidence=request.numerical_evidence,
+                )
+            else:  # pragma: no cover - protected by the closed request union
+                raise DesktopIPCError("unsupported calculation-wizard request")
+        except _PROJECT_READ_ERRORS as error:
+            return self._project_failure(request.request_id, request.operation, error)
+        except (OSError, ValueError) as error:
+            return self._application_failure(request, error)
+        return self._success(request.request_id, request.operation, payload)
 
     def _handle_model_request(self, request: DesktopV2ModelRequest) -> DesktopV2Response:
         try:
@@ -595,6 +658,13 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
             workflow_recipe_version=_required_string(raw, "workflow_recipe_version"),
             root_structure_snapshot_id=_required_string(raw, "root_structure_snapshot_id"),
             parameters_hash=parameters_hash,
+        )
+
+    if operation in _CALCULATION_OPERATIONS:
+        return decode_desktop_v2_calculation_request(
+            raw,
+            operation=operation,
+            request_id=request_id,
         )
 
     return decode_desktop_v2_model_request(
