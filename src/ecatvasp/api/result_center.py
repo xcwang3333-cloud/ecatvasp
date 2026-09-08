@@ -1,15 +1,14 @@
 """Task-oriented VASP Result Center application service for v1.1 Block 5.
 
 This module composes the existing v0.5 result-intake, parser, convergence, result
-materialization, and CONTCAR-promotion authorities.  It does not infer scientific
+materialization, and CONTCAR-promotion authorities. It does not infer scientific
 success from scheduler state and never accepts user-supplied hashes, result paths,
 or convergence verdicts.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable
+from dataclasses import dataclass, replace
 
 from ecatvasp.api.application import (
     ApplicationServiceError,
@@ -18,7 +17,6 @@ from ecatvasp.api.application import (
 )
 from ecatvasp.api.execution_plan_resolver import resolve_execution_plan
 from ecatvasp.domain import (
-    Analysis,
     AnalysisType,
     Artifact,
     Calculation,
@@ -62,13 +60,6 @@ _FREQUENCY_TYPES = frozenset(
     {CalculationType.FREQUENCY, CalculationType.GAS_FREQUENCY}
 )
 _PROMOTABLE_TYPES = frozenset({CalculationType.RELAX})
-_ANALYZED_STATUSES = frozenset(
-    {
-        CalculationScientificStatus.CONVERGED,
-        CalculationScientificStatus.COMPLETED_UNCONVERGED,
-        CalculationScientificStatus.BLOCKED,
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,15 +116,26 @@ class ProjectResultCenterApplicationService(ProjectApplicationService):
                         analyzed = _has_exact_result_analysis(bundle, intake)
                         analysis_ready = not analyzed
                         readiness_reason = (
-                            "already analyzed" if analyzed else "exact managed outputs are parse-ready"
+                            "already analyzed"
+                            if analyzed
+                            else "exact managed outputs are parse-ready"
                         )
-                        if analyzed and calculation.status is CalculationScientificStatus.CONVERGED:
+                        if (
+                            analyzed
+                            and calculation.status is CalculationScientificStatus.CONVERGED
+                        ):
                             variant = _promotion_variant(bundle, calculation)
                             if variant is not None:
-                                promotion_ready = calculation.calculation_type in _PROMOTABLE_TYPES
-                                promotion_variant_id = str(variant.id) if promotion_ready else None
+                                promotion_ready = (
+                                    calculation.calculation_type in _PROMOTABLE_TYPES
+                                )
+                                promotion_variant_id = (
+                                    str(variant.id) if promotion_ready else None
+                                )
                 else:
-                    readiness_reason = f"attempt status {latest.status.value} is not parse-ready"
+                    readiness_reason = (
+                        f"attempt status {latest.status.value} is not parse-ready"
+                    )
             rows.append(
                 {
                     "calculation_id": str(calculation.id),
@@ -156,7 +158,11 @@ class ProjectResultCenterApplicationService(ProjectApplicationService):
             "calculations": rows,
         }
 
-    def analyze_result(self, *, calculation_id: CalculationId) -> ResultCenterAnalysisReceipt:
+    def analyze_result(
+        self,
+        *,
+        calculation_id: CalculationId,
+    ) -> ResultCenterAnalysisReceipt:
         resolved = self._resolve_parseable_result(calculation_id)
         if _has_exact_result_analysis(resolved.bundle, resolved.intake):
             raise ApplicationServiceError("exact latest VASP result is already analyzed")
@@ -201,6 +207,7 @@ class ProjectResultCenterApplicationService(ProjectApplicationService):
             assessment=assessment,
             execution_plan=resolved.plan,
         )
+        _mark_attempt_parsed(self.store, resolved.attempt.id)
         return ResultCenterAnalysisReceipt(
             calculation_id=resolved.calculation.id,
             attempt_id=resolved.attempt.id,
@@ -303,9 +310,55 @@ class ProjectResultCenterApplicationService(ProjectApplicationService):
         )
 
 
-def _latest_attempt(bundle: ProjectBundle, calculation_id: CalculationId) -> ExecutionAttempt | None:
+def _mark_attempt_parsed(
+    store: ProjectStore,
+    attempt_id: ExecutionAttemptId,
+) -> ExecutionAttempt:
+    """Persist parse completion without erasing failed/cancelled execution truth."""
+
+    bundle = store.open()
+    attempt = _require_attempt(bundle, attempt_id)
+    if attempt.status in {
+        ExecutionAttemptStatus.PARSED,
+        ExecutionAttemptStatus.FAILED,
+        ExecutionAttemptStatus.CANCELLED,
+    }:
+        return attempt
+    if attempt.status not in {
+        ExecutionAttemptStatus.EXITED,
+        ExecutionAttemptStatus.RETRIEVING,
+    }:
+        raise ApplicationServiceError(
+            "scientific parsing completed from an unexpected ExecutionAttempt state"
+        )
+    updated = replace(attempt, status=ExecutionAttemptStatus.PARSED)
+    store.save(
+        replace(
+            bundle,
+            execution_attempts=tuple(
+                updated if item.id == attempt_id else item
+                for item in bundle.execution_attempts
+            ),
+        )
+    )
+    persisted = _require_attempt(store.open(), attempt_id)
+    if persisted != updated:
+        raise ApplicationServiceError(
+            "parsed ExecutionAttempt failed post-save verification"
+        )
+    return persisted
+
+
+def _latest_attempt(
+    bundle: ProjectBundle,
+    calculation_id: CalculationId,
+) -> ExecutionAttempt | None:
     attempts = sorted(
-        (item for item in bundle.execution_attempts if item.calculation_id == calculation_id),
+        (
+            item
+            for item in bundle.execution_attempts
+            if item.calculation_id == calculation_id
+        ),
         key=lambda item: item.attempt_number,
     )
     return attempts[-1] if attempts else None
@@ -331,7 +384,9 @@ def _has_exact_result_analysis(
         and set(item.input_artifact_ids) == expected
     )
     if len(matches) > 1:
-        raise ApplicationServiceError("exact VASP result has duplicate RESULT_PARSE analyses")
+        raise ApplicationServiceError(
+            "exact VASP result has duplicate RESULT_PARSE analyses"
+        )
     return len(matches) == 1
 
 
@@ -342,7 +397,8 @@ def _promotion_variant(
     matches = tuple(
         item
         for item in bundle.structure_variants
-        if item.current_structure_snapshot_id == calculation.input_structure_snapshot_id
+        if item.current_structure_snapshot_id
+        == calculation.input_structure_snapshot_id
     )
     if len(matches) > 1:
         raise ApplicationServiceError(
@@ -351,30 +407,55 @@ def _promotion_variant(
     return matches[0] if matches else None
 
 
-def _require_calculation(bundle: ProjectBundle, calculation_id: CalculationId) -> Calculation:
+def _require_calculation(
+    bundle: ProjectBundle,
+    calculation_id: CalculationId,
+) -> Calculation:
     matches = tuple(item for item in bundle.calculations if item.id == calculation_id)
     if len(matches) != 1:
         raise ApplicationServiceError("Calculation is absent or duplicated")
     return matches[0]
 
 
-def _require_fingerprint(bundle: ProjectBundle, calculation: Calculation) -> MethodFingerprint:
-    matches = tuple(
-        item for item in bundle.method_fingerprints if item.id == calculation.method_fingerprint_id
-    )
+def _require_attempt(
+    bundle: ProjectBundle,
+    attempt_id: ExecutionAttemptId,
+) -> ExecutionAttempt:
+    matches = tuple(item for item in bundle.execution_attempts if item.id == attempt_id)
     if len(matches) != 1:
-        raise ApplicationServiceError("Calculation MethodFingerprint is absent or duplicated")
+        raise ApplicationServiceError("ExecutionAttempt is absent or duplicated")
     return matches[0]
 
 
-def _require_snapshot(bundle: ProjectBundle, calculation: Calculation) -> StructureSnapshot:
+def _require_fingerprint(
+    bundle: ProjectBundle,
+    calculation: Calculation,
+) -> MethodFingerprint:
+    matches = tuple(
+        item
+        for item in bundle.method_fingerprints
+        if item.id == calculation.method_fingerprint_id
+    )
+    if len(matches) != 1:
+        raise ApplicationServiceError(
+            "Calculation MethodFingerprint is absent or duplicated"
+        )
+    return matches[0]
+
+
+def _require_snapshot(
+    bundle: ProjectBundle,
+    calculation: Calculation,
+) -> StructureSnapshot:
     matches = tuple(
         item
         for item in bundle.structure_snapshots
         if item.id == calculation.input_structure_snapshot_id
     )
     if len(matches) != 1:
-        raise ApplicationServiceError("Calculation input StructureSnapshot is absent or duplicated")
+        raise ApplicationServiceError(
+            "Calculation input StructureSnapshot is absent or duplicated"
+        )
     return matches[0]
 
 
