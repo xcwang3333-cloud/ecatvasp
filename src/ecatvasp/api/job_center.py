@@ -256,9 +256,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             candidate=materialized,
         )
 
-        # v0.3 plan construction intentionally rejects scheduler allocation fields.
-        # Build the portable scientific handoff first, then add execution-only
-        # resources as a new immutable plan value for the v0.4 adapters.
         portable_settings = replace(
             execution_settings,
             nodes=None,
@@ -362,7 +359,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             attempt=staged.attempt,
             artifacts=staged.artifacts,
         )
-
         persisted_attempt = _require_attempt(self.store.open(), staged.attempt.id)
         if persisted_attempt.status is not ExecutionAttemptStatus.STAGING:
             raise ApplicationServiceError(
@@ -405,21 +401,18 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         target: ExecutionTargetProfile,
         transport: TransportAdapter,
     ) -> JobCenterObservationReceipt:
-        """Observe Slurm once and persist execution/scheduler truth separately."""
-
         bundle = self.store.open()
         remote_job = _require_remote_job(bundle, remote_job_id)
         attempt = _require_attempt(bundle, remote_job.execution_attempt_id)
         calculation = _require_calculation(bundle, attempt.calculation_id)
         _require_attempt_target(self.store.root, bundle, attempt.id, target)
-        scheduler = SlurmAdapter(transport)
         package = monitor_remote_slurm(
             project_root=self.store.root,
             attempt=attempt,
             remote_job=remote_job,
             target=target,
             transport=transport,
-            scheduler=scheduler,
+            scheduler=SlurmAdapter(transport),
         )
         _persist_monitoring_phase(store=self.store, package=package)
         return _observation_receipt(calculation, package)
@@ -431,21 +424,18 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         target: ExecutionTargetProfile,
         transport: TransportAdapter,
     ) -> JobCenterObservationReceipt:
-        """Request cancellation and persist only the scheduler state actually observed."""
-
         bundle = self.store.open()
         remote_job = _require_remote_job(bundle, remote_job_id)
         attempt = _require_attempt(bundle, remote_job.execution_attempt_id)
         calculation = _require_calculation(bundle, attempt.calculation_id)
         _require_attempt_target(self.store.root, bundle, attempt.id, target)
-        scheduler = SlurmAdapter(transport)
         package = cancel_remote_slurm(
             project_root=self.store.root,
             attempt=attempt,
             remote_job=remote_job,
             target=target,
             transport=transport,
-            scheduler=scheduler,
+            scheduler=SlurmAdapter(transport),
         )
         _persist_monitoring_phase(store=self.store, package=package)
         return _observation_receipt(calculation, package)
@@ -460,8 +450,6 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
         release_remote_roles: tuple[str, ...] = (),
         discard_remote_roles: tuple[str, ...] = (),
     ) -> JobCenterRetrievalReceipt:
-        """Retrieve exact outputs using the durable attempt ExecutionPlan artifact."""
-
         bundle = self.store.open()
         remote_job = _require_remote_job(bundle, remote_job_id)
         attempt = _require_attempt(bundle, remote_job.execution_attempt_id)
@@ -480,8 +468,7 @@ class ProjectJobCenterApplicationService(ProjectApplicationService):
             discard_remote_roles=discard_remote_roles,
         )
         _persist_retrieval_phase(store=self.store, package=package)
-        reopened = self.store.open()
-        persisted_attempt = _require_attempt(reopened, attempt.id)
+        persisted_attempt = _require_attempt(self.store.open(), attempt.id)
         return JobCenterRetrievalReceipt(
             calculation_id=calculation.id,
             attempt_id=persisted_attempt.id,
@@ -506,7 +493,7 @@ def _prepare_inputs(
 ) -> tuple[MaterializedInputSet, ResolvedPotcarSet]:
     recipe_id = calculation.recipe_id
     if recipe_id in _CORE_RECIPES:
-        result = prepare_core_calculation_inputs(
+        core_result = prepare_core_calculation_inputs(
             project_root=project_root,
             calculation=calculation,
             snapshot=snapshot,
@@ -517,7 +504,7 @@ def _prepare_inputs(
             encut_evidence=evidence.encut,
             kpoint_evidence=evidence.kpoints,
         )
-        return result.materialized, result.resolved_potcars
+        return core_result.materialized, core_result.resolved_potcars
 
     if recipe_id in _FREQUENCY_RECIPES:
         selection: FrequencySelection | None = None
@@ -538,7 +525,7 @@ def _prepare_inputs(
             raise ApplicationServiceError(
                 "full/gas frequency execution must not carry selected atom UIDs"
             )
-        result = prepare_frequency_calculation_inputs(
+        frequency_result = prepare_frequency_calculation_inputs(
             project_root=project_root,
             calculation=calculation,
             snapshot=snapshot,
@@ -550,14 +537,14 @@ def _prepare_inputs(
             kpoint_evidence=evidence.kpoints,
             selection=selection,
         )
-        return result.materialized, result.resolved_potcars
+        return frequency_result.materialized, frequency_result.resolved_potcars
 
     if recipe_id in _ANALYSIS_RECIPES:
         if frequency_atom_uids:
             raise ApplicationServiceError(
                 "analysis prerequisite execution must not carry frequency atom UIDs"
             )
-        result = prepare_analysis_prerequisite_inputs(
+        analysis_result = prepare_analysis_prerequisite_inputs(
             project_root=project_root,
             calculation=calculation,
             snapshot=snapshot,
@@ -568,7 +555,7 @@ def _prepare_inputs(
             encut_evidence=evidence.encut,
             kpoint_evidence=evidence.kpoints,
         )
-        return result.materialized, result.resolved_potcars
+        return analysis_result.materialized, analysis_result.resolved_potcars
 
     raise ApplicationServiceError(f"recipe is not supported by Job Center: {recipe_id}")
 
