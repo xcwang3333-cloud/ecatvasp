@@ -83,6 +83,19 @@ from ecatvasp.desktop.protocol_v2_model import (
     decode_desktop_v2_model_request,
     is_desktop_v2_model_request,
 )
+from ecatvasp.desktop.protocol_v2_result_center import (
+    DesktopV2AnalyzeResultRequest,
+    DesktopV2PromoteResultStructureRequest,
+    DesktopV2ResultCatalogRequest,
+    DesktopV2ResultCenterRequest,
+    decode_desktop_v2_result_center_request,
+    is_desktop_v2_result_center_request,
+)
+from ecatvasp.desktop.result_center import (
+    analyze_result_action,
+    promote_result_structure_action,
+    result_catalog_action,
+)
 from ecatvasp.desktop.workspace import (
     build_desktop_frontend_handoff,
     build_desktop_project_dashboard,
@@ -133,12 +146,17 @@ _JOB_CENTER_OPERATIONS = frozenset(
         DesktopV2Operation.RETRIEVE_JOB_OUTPUTS,
     }
 )
+_RESULT_CENTER_OPERATIONS = frozenset(
+    {
+        DesktopV2Operation.RESULT_CATALOG,
+        DesktopV2Operation.ANALYZE_RESULT,
+        DesktopV2Operation.PROMOTE_RESULT_STRUCTURE,
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class DesktopV2HealthRequest:
-    """Versioned v2 health request with no project/session authority."""
-
     request_id: str
     protocol_version: str = DESKTOP_IPC_V2_CONTRACT_VERSION
     operation: DesktopV2Operation = DesktopV2Operation.HEALTH
@@ -154,8 +172,6 @@ class DesktopV2HealthRequest:
 
 @dataclass(frozen=True, slots=True)
 class DesktopV2ProjectRequest:
-    """One project-scoped v2 read request with no operation-specific payload."""
-
     request_id: str
     operation: DesktopV2Operation
     project_root: str
@@ -176,8 +192,6 @@ class DesktopV2ProjectRequest:
 
 @dataclass(frozen=True, slots=True)
 class DesktopV2ApplicationReportRequest:
-    """Typed deterministic report request."""
-
     request_id: str
     project_root: str
     report_format: str
@@ -202,8 +216,6 @@ class DesktopV2ApplicationReportRequest:
 
 @dataclass(frozen=True, slots=True)
 class DesktopV2PrepareWorkflowRequest:
-    """Typed workflow-intent request preserving the existing application authority."""
-
     request_id: str
     project_root: str
     workflow_recipe_id: str
@@ -252,12 +264,11 @@ DesktopV2Request: TypeAlias = (
     | DesktopV2ModelRequest
     | DesktopV2CalculationRequest
     | DesktopV2JobCenterRequest
+    | DesktopV2ResultCenterRequest
 )
 
 
 def is_desktop_v2_request(value: object) -> TypeGuard[DesktopV2Request]:
-    """Return whether one decoded request belongs to the v2 protocol family."""
-
     return (
         isinstance(
             value,
@@ -271,13 +282,12 @@ def is_desktop_v2_request(value: object) -> TypeGuard[DesktopV2Request]:
         or is_desktop_v2_model_request(value)
         or is_desktop_v2_calculation_request(value)
         or is_desktop_v2_job_center_request(value)
+        or is_desktop_v2_result_center_request(value)
     )
 
 
 @dataclass(frozen=True, slots=True)
 class DesktopV2Response:
-    """Strict v2 response envelope correlated to one typed request."""
-
     request_id: str
     operation: DesktopV2Operation
     ok: bool
@@ -312,19 +322,16 @@ class DesktopBackendV2:
     """Stateless task-oriented adapter over existing Python authorities."""
 
     def handle(self, request: DesktopV2Request) -> DesktopV2Response:
-        """Handle one v2 request without retaining project/session authority."""
-
         if isinstance(request, DesktopV2HealthRequest):
             return self._success(request.request_id, request.operation, _health_payload())
-
         if is_desktop_v2_model_request(request):
             return self._handle_model_request(request)
-
         if is_desktop_v2_calculation_request(request):
             return self._handle_calculation_request(request)
-
         if is_desktop_v2_job_center_request(request):
             return self._handle_job_center_request(request)
+        if is_desktop_v2_result_center_request(request):
+            return self._handle_result_center_request(request)
 
         if isinstance(request, DesktopV2ApplicationReportRequest):
             root = Path(request.project_root)
@@ -428,8 +435,33 @@ class DesktopBackendV2:
                 )
         except _PROJECT_READ_ERRORS as error:
             return self._project_failure(request.request_id, request.operation, error)
-
         raise DesktopIPCError(f"unsupported desktop v2 operation: {request.operation.value}")
+
+    def _handle_result_center_request(
+        self,
+        request: DesktopV2ResultCenterRequest,
+    ) -> DesktopV2Response:
+        try:
+            if isinstance(request, DesktopV2ResultCatalogRequest):
+                payload = result_catalog_action(request.project_root)
+            elif isinstance(request, DesktopV2AnalyzeResultRequest):
+                payload = analyze_result_action(
+                    project_root=request.project_root,
+                    calculation_id=request.calculation_id,
+                )
+            elif isinstance(request, DesktopV2PromoteResultStructureRequest):
+                payload = promote_result_structure_action(
+                    project_root=request.project_root,
+                    calculation_id=request.calculation_id,
+                    label=request.label,
+                )
+            else:  # pragma: no cover
+                raise DesktopIPCError("unsupported Result Center request")
+        except _PROJECT_READ_ERRORS as error:
+            return self._project_failure(request.request_id, request.operation, error)
+        except (OSError, ValueError) as error:
+            return self._application_failure(request, error)
+        return self._success(request.request_id, request.operation, payload)
 
     def _handle_job_center_request(
         self,
@@ -469,7 +501,7 @@ class DesktopBackendV2:
                         remote_job_id=request.remote_job_id,
                         target=request.target,
                     )
-                else:  # pragma: no cover - request class validates this invariant
+                else:  # pragma: no cover
                     raise DesktopIPCError("unsupported remote Job Center request")
             elif isinstance(request, DesktopV2RetrieveJobOutputsRequest):
                 payload = retrieve_job_outputs_action(
@@ -480,7 +512,7 @@ class DesktopBackendV2:
                     release_remote_roles=request.release_remote_roles,
                     discard_remote_roles=request.discard_remote_roles,
                 )
-            else:  # pragma: no cover - protected by the closed request union
+            else:  # pragma: no cover
                 raise DesktopIPCError("unsupported Job Center request")
         except _PROJECT_READ_ERRORS as error:
             return self._project_failure(request.request_id, request.operation, error)
@@ -515,7 +547,7 @@ class DesktopBackendV2:
                     protocol=request.protocol,
                     numerical_evidence=request.numerical_evidence,
                 )
-            else:  # pragma: no cover - protected by the closed request union
+            else:  # pragma: no cover
                 raise DesktopIPCError("unsupported calculation-wizard request")
         except _PROJECT_READ_ERRORS as error:
             return self._project_failure(request.request_id, request.operation, error)
@@ -627,7 +659,7 @@ class DesktopBackendV2:
                     orientation=request.orientation,
                     rank=request.rank,
                 )
-            else:  # pragma: no cover - protected by the closed request union
+            else:  # pragma: no cover
                 raise DesktopIPCError("unsupported Model Studio request")
         except _PROJECT_READ_ERRORS as error:
             return self._project_failure(request.request_id, request.operation, error)
@@ -692,8 +724,6 @@ class DesktopBackendV2:
 
 
 def decode_desktop_v2_request(line: str) -> DesktopV2Request:
-    """Decode one strict v2 JSON request into an operation-specific request type."""
-
     try:
         raw: Any = json.loads(line)
     except json.JSONDecodeError as error:
@@ -714,7 +744,6 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
     if operation is DesktopV2Operation.HEALTH:
         _reject_unknown(raw, _BASE_FIELDS, operation)
         return DesktopV2HealthRequest(request_id=request_id)
-
     if operation in _PROJECT_READ_OPERATIONS:
         _reject_unknown(raw, _PROJECT_FIELDS, operation)
         return DesktopV2ProjectRequest(
@@ -722,48 +751,51 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
             operation=operation,
             project_root=_required_string(raw, "project_root"),
         )
-
     if operation is DesktopV2Operation.APPLICATION_REPORT:
-        allowed = _PROJECT_FIELDS | {"report_format"}
-        _reject_unknown(raw, allowed, operation)
+        _reject_unknown(raw, _PROJECT_FIELDS | {"report_format"}, operation)
         return DesktopV2ApplicationReportRequest(
             request_id=request_id,
             project_root=_required_string(raw, "project_root"),
             report_format=_required_string(raw, "report_format"),
         )
-
     if operation is DesktopV2Operation.PREPARE_WORKFLOW:
-        allowed = _PROJECT_FIELDS | {
-            "workflow_recipe_id",
-            "workflow_recipe_version",
-            "root_structure_snapshot_id",
-            "parameters_hash",
-        }
-        _reject_unknown(raw, allowed, operation)
-        parameters_hash = _optional_string(raw, "parameters_hash")
+        _reject_unknown(
+            raw,
+            _PROJECT_FIELDS
+            | {
+                "workflow_recipe_id",
+                "workflow_recipe_version",
+                "root_structure_snapshot_id",
+                "parameters_hash",
+            },
+            operation,
+        )
         return DesktopV2PrepareWorkflowRequest(
             request_id=request_id,
             project_root=_required_string(raw, "project_root"),
             workflow_recipe_id=_required_string(raw, "workflow_recipe_id"),
             workflow_recipe_version=_required_string(raw, "workflow_recipe_version"),
             root_structure_snapshot_id=_required_string(raw, "root_structure_snapshot_id"),
-            parameters_hash=parameters_hash,
+            parameters_hash=_optional_string(raw, "parameters_hash"),
         )
-
+    if operation in _RESULT_CENTER_OPERATIONS:
+        return decode_desktop_v2_result_center_request(
+            raw,
+            operation=operation,
+            request_id=request_id,
+        )
     if operation in _JOB_CENTER_OPERATIONS:
         return decode_desktop_v2_job_center_request(
             raw,
             operation=operation,
             request_id=request_id,
         )
-
     if operation in _CALCULATION_OPERATIONS:
         return decode_desktop_v2_calculation_request(
             raw,
             operation=operation,
             request_id=request_id,
         )
-
     return decode_desktop_v2_model_request(
         raw,
         operation=operation,
@@ -772,8 +804,6 @@ def decode_desktop_v2_request(line: str) -> DesktopV2Request:
 
 
 def encode_desktop_v2_response(response: DesktopV2Response) -> str:
-    """Render one deterministic NDJSON v2 response."""
-
     return (
         json.dumps(
             response.to_dict(),
