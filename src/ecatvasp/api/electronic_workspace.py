@@ -14,6 +14,7 @@ from ecatvasp.analysis import (
     BandCenterParameters,
     BandCenterSelector,
     BandCenterSpinMode,
+    CanonicalDosIntake,
     DurableBandCenter,
     DurableDosMaterialization,
     ProjectionScope,
@@ -338,7 +339,7 @@ class ProjectElectronicAnalysisApplicationService(ProjectApplicationService):
         )
 
     @staticmethod
-    def _parse_dos_source(source: DosSource):
+    def _parse_dos_source(source: DosSource) -> CanonicalDosIntake:
         return parse_vasp_doscar(
             doscar_bytes=source.doscar_bytes,
             atom_index_map_bytes=source.atom_map_bytes,
