@@ -16,4 +16,17 @@ describe("Electronic Analysis load guard", () => {
     guard.invalidate();
     expect(guard.isCurrent(secondA, "A")).toBe(false);
   });
+
+  it("keeps a mutation lifecycle independent from nested read generations", () => {
+    const reads = new LatestElectronicAnalysisLoad();
+    const mutations = new LatestElectronicAnalysisLoad();
+    const mutation = mutations.begin("A");
+
+    reads.begin("A");
+    reads.begin("A");
+    expect(mutations.isCurrent(mutation, "A")).toBe(true);
+
+    mutations.invalidate();
+    expect(mutations.isCurrent(mutation, "A")).toBe(false);
+  });
 });
