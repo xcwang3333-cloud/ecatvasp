@@ -41,7 +41,12 @@ _PROTOCOL_FIELDS = frozenset(
     }
 )
 _RECIPE_FIELDS = frozenset(
-    {"frequency_potim_angstrom", "frequency_atom_uids", "dos_nedos", "lobster_nbands"}
+    {
+        "frequency_potim_angstrom",
+        "frequency_atom_uids",
+        "dos_nedos",
+        "lobster_nbands",
+    }
 )
 _ENCUT_FIELDS = frozenset(
     {
@@ -106,7 +111,9 @@ DesktopV2CalculationRequest: TypeAlias = (
 )
 
 
-def is_desktop_v2_calculation_request(value: object) -> TypeGuard[DesktopV2CalculationRequest]:
+def is_desktop_v2_calculation_request(
+    value: object,
+) -> TypeGuard[DesktopV2CalculationRequest]:
     return isinstance(
         value,
         (
@@ -126,10 +133,19 @@ def decode_desktop_v2_calculation_request(
     project_root = _required_string(raw, "project_root")
     if operation is DesktopV2Operation.CALCULATION_CATALOG:
         _reject_unknown(raw, _BASE, operation)
-        return DesktopV2CalculationCatalogRequest(request_id=request_id, project_root=project_root)
+        return DesktopV2CalculationCatalogRequest(
+            request_id=request_id,
+            project_root=project_root,
+        )
 
     if operation is DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW:
-        allowed = _BASE | {"task", "root_structure_snapshot_id", "method", "protocol", "recipe"}
+        allowed = _BASE | {
+            "task",
+            "root_structure_snapshot_id",
+            "method",
+            "protocol",
+            "recipe",
+        }
         _reject_unknown(raw, allowed, operation)
         snapshot_id = _required_uuid(raw, "root_structure_snapshot_id")
         method = _method_object(raw)
@@ -160,23 +176,59 @@ def decode_desktop_v2_calculation_request(
         method = _method_object(raw)
         protocol = _protocol_object(raw)
         evidence = _object(raw, "numerical_evidence")
-        _reject_unknown(evidence, {"encut", "kpoints"}, operation, prefix="numerical_evidence")
+        _reject_unknown(
+            evidence,
+            {"encut", "kpoints"},
+            operation,
+            prefix="numerical_evidence",
+        )
         encut = _object(evidence, "encut")
-        _reject_unknown(encut, _ENCUT_FIELDS, operation, prefix="numerical_evidence.encut")
-        _validate_sha_fields(encut, ("core_method_hash", "potcar_spec_hash", "analysis_hash"))
+        _reject_unknown(
+            encut,
+            _ENCUT_FIELDS,
+            operation,
+            prefix="numerical_evidence.encut",
+        )
+        _validate_sha_fields(
+            encut,
+            ("core_method_hash", "potcar_spec_hash", "analysis_hash"),
+        )
         tested_encuts = encut.get("tested_encuts_ev")
         if not isinstance(tested_encuts, list) or not tested_encuts:
-            raise DesktopIPCError("numerical_evidence.encut.tested_encuts_ev must be a non-empty list")
+            raise DesktopIPCError(
+                "numerical_evidence.encut.tested_encuts_ev must be a non-empty list"
+            )
+        if any(
+            isinstance(item, bool) or not isinstance(item, (int, float))
+            for item in tested_encuts
+        ):
+            raise DesktopIPCError(
+                "numerical_evidence.encut.tested_encuts_ev must contain numbers"
+            )
         _number(encut, "selected_encut_ev")
         kpoints = evidence.get("kpoints")
         if kpoints is not None:
             if not isinstance(kpoints, dict):
                 raise DesktopIPCError("numerical_evidence.kpoints must be an object")
-            _reject_unknown(kpoints, _KPOINT_FIELDS, operation, prefix="numerical_evidence.kpoints")
-            _validate_sha_fields(kpoints, ("core_method_hash", "selected_plan_hash", "analysis_hash"))
+            _reject_unknown(
+                kpoints,
+                _KPOINT_FIELDS,
+                operation,
+                prefix="numerical_evidence.kpoints",
+            )
+            _validate_sha_fields(
+                kpoints,
+                ("core_method_hash", "selected_plan_hash", "analysis_hash"),
+            )
             hashes = kpoints.get("tested_plan_hashes")
-            if not isinstance(hashes, list) or not hashes or any(not _is_sha256(item) for item in hashes):
-                raise DesktopIPCError("numerical_evidence.kpoints.tested_plan_hashes are invalid")
+            if (
+                not isinstance(hashes, list)
+                or not hashes
+                or any(not _is_sha256(item) for item in hashes)
+            ):
+                raise DesktopIPCError(
+                    "numerical_evidence.kpoints.tested_plan_hashes are invalid"
+                )
             _required_string(kpoints, "system_kind")
         return DesktopV2MaterializeCalculationStepRequest(
             request_id=request_id,
@@ -195,7 +247,12 @@ def decode_desktop_v2_calculation_request(
 
 def _method_object(raw: dict[str, Any]) -> dict[str, Any]:
     value = _object(raw, "method")
-    _reject_unknown(value, _METHOD_FIELDS, DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW, prefix="method")
+    _reject_unknown(
+        value,
+        _METHOD_FIELDS,
+        DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW,
+        prefix="method",
+    )
     for field in ("xc_functional", "potcar_family", "potcar_root"):
         _required_string(value, field)
     symbols = value.get("potcar_symbols")
@@ -205,7 +262,9 @@ def _method_object(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(item, dict):
             raise DesktopIPCError("method.potcar_symbols entries must be objects")
         if set(item) != {"element", "symbol"}:
-            raise DesktopIPCError(f"method.potcar_symbols[{index}] fields are invalid")
+            raise DesktopIPCError(
+                f"method.potcar_symbols[{index}] fields are invalid"
+            )
         _required_string(item, "element")
         _required_string(item, "symbol")
     return value
@@ -213,7 +272,12 @@ def _method_object(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _protocol_object(raw: dict[str, Any]) -> dict[str, Any]:
     value = _object(raw, "protocol")
-    _reject_unknown(value, _PROTOCOL_FIELDS, DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW, prefix="protocol")
+    _reject_unknown(
+        value,
+        _PROTOCOL_FIELDS,
+        DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW,
+        prefix="protocol",
+    )
     _number(value, "encut_ev")
     _required_string(value, "kpoint_kind")
     mesh = value.get("kpoint_mesh")
@@ -230,16 +294,27 @@ def _protocol_object(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _recipe_object(raw: dict[str, Any]) -> dict[str, Any]:
     value = _object(raw, "recipe")
-    _reject_unknown(value, _RECIPE_FIELDS, DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW, prefix="recipe")
+    _reject_unknown(
+        value,
+        _RECIPE_FIELDS,
+        DesktopV2Operation.PREPARE_CALCULATION_WORKFLOW,
+        prefix="recipe",
+    )
     uids = value.get("frequency_atom_uids")
     if uids is not None:
-        if not isinstance(uids, list) or any(not isinstance(item, str) for item in uids):
-            raise DesktopIPCError("recipe.frequency_atom_uids must be a string list")
+        if not isinstance(uids, list) or any(
+            not isinstance(item, str) for item in uids
+        ):
+            raise DesktopIPCError(
+                "recipe.frequency_atom_uids must be a string list"
+            )
         for item in uids:
             try:
                 UUID(item)
             except ValueError as error:
-                raise DesktopIPCError("recipe.frequency_atom_uids must contain UUIDs") from error
+                raise DesktopIPCError(
+                    "recipe.frequency_atom_uids must contain UUIDs"
+                ) from error
     return value
 
 
