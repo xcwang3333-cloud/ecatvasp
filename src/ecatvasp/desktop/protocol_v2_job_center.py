@@ -39,24 +39,6 @@ _TARGET_FIELDS = frozenset(
     }
 )
 _REMOTE_POTCAR_FIELDS = frozenset({"resolver_id", "family", "root"})
-_ENCUT_FIELDS = frozenset(
-    {
-        "core_method_hash",
-        "potcar_spec_hash",
-        "tested_encuts_ev",
-        "selected_encut_ev",
-        "analysis_hash",
-    }
-)
-_KPOINT_FIELDS = frozenset(
-    {
-        "core_method_hash",
-        "system_kind",
-        "tested_plan_hashes",
-        "selected_plan_hash",
-        "analysis_hash",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +55,6 @@ class DesktopV2PrepareExecutionRequest:
     project_root: str
     calculation_id: str
     potcar_root: str
-    numerical_evidence: dict[str, Any]
     execution_settings: dict[str, Any]
     frequency_atom_uids: tuple[str, ...]
     protocol_version: str = DESKTOP_IPC_V2_CONTRACT_VERSION
@@ -86,7 +67,6 @@ class DesktopV2SubmitSlurmJobRequest:
     project_root: str
     calculation_id: str
     potcar_root: str
-    numerical_evidence: dict[str, Any]
     execution_settings: dict[str, Any]
     target: dict[str, Any]
     remote_potcar: dict[str, Any]
@@ -169,7 +149,6 @@ def decode_desktop_v2_job_center_request(
         allowed = _BASE | {
             "calculation_id",
             "potcar_root",
-            "numerical_evidence",
             "execution_settings",
             "frequency_atom_uids",
         }
@@ -178,7 +157,6 @@ def decode_desktop_v2_job_center_request(
         _reject_unknown(raw, allowed, operation)
         calculation_id = _required_uuid(raw, "calculation_id")
         potcar_root = _required_string(raw, "potcar_root")
-        numerical_evidence = _numerical_evidence_object(raw, operation)
         execution_settings = _execution_object(raw, operation)
         frequency_atom_uids = _uuid_list(raw, "frequency_atom_uids", required=False)
         if operation is DesktopV2Operation.PREPARE_EXECUTION:
@@ -187,7 +165,6 @@ def decode_desktop_v2_job_center_request(
                 project_root=project_root,
                 calculation_id=calculation_id,
                 potcar_root=potcar_root,
-                numerical_evidence=numerical_evidence,
                 execution_settings=execution_settings,
                 frequency_atom_uids=frequency_atom_uids,
             )
@@ -196,7 +173,6 @@ def decode_desktop_v2_job_center_request(
             project_root=project_root,
             calculation_id=calculation_id,
             potcar_root=potcar_root,
-            numerical_evidence=numerical_evidence,
             execution_settings=execution_settings,
             target=_target_object(raw, operation),
             remote_potcar=_remote_potcar_object(raw, operation),
@@ -305,60 +281,6 @@ def _remote_potcar_object(
     return value
 
 
-def _numerical_evidence_object(
-    raw: dict[str, Any],
-    operation: DesktopV2Operation,
-) -> dict[str, Any]:
-    evidence = _object(raw, "numerical_evidence")
-    _reject_unknown(
-        evidence,
-        {"encut", "kpoints"},
-        operation,
-        prefix="numerical_evidence",
-    )
-    encut = _object(evidence, "encut")
-    _reject_unknown(
-        encut,
-        _ENCUT_FIELDS,
-        operation,
-        prefix="numerical_evidence.encut",
-    )
-    for field in ("core_method_hash", "potcar_spec_hash", "analysis_hash"):
-        _sha256(encut, field)
-    tested = encut.get("tested_encuts_ev")
-    if not isinstance(tested, list) or not tested or any(
-        isinstance(item, bool) or not isinstance(item, (int, float)) for item in tested
-    ):
-        raise DesktopIPCError(
-            "numerical_evidence.encut.tested_encuts_ev must be a non-empty number list"
-        )
-    _number(encut, "selected_encut_ev")
-
-    kpoints = evidence.get("kpoints")
-    if kpoints is not None:
-        if not isinstance(kpoints, dict):
-            raise DesktopIPCError("numerical_evidence.kpoints must be an object")
-        _reject_unknown(
-            kpoints,
-            _KPOINT_FIELDS,
-            operation,
-            prefix="numerical_evidence.kpoints",
-        )
-        for field in ("core_method_hash", "selected_plan_hash", "analysis_hash"):
-            _sha256(kpoints, field)
-        tested_hashes = kpoints.get("tested_plan_hashes")
-        if (
-            not isinstance(tested_hashes, list)
-            or not tested_hashes
-            or any(not _is_sha256(item) for item in tested_hashes)
-        ):
-            raise DesktopIPCError(
-                "numerical_evidence.kpoints.tested_plan_hashes are invalid"
-            )
-        _required_string(kpoints, "system_kind")
-    return evidence
-
-
 def _object(raw: dict[str, Any], field: str) -> dict[str, Any]:
     value = raw.get(field)
     if not isinstance(value, dict):
@@ -388,21 +310,6 @@ def _positive_int(raw: dict[str, Any], field: str, *, required: bool) -> int | N
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise DesktopIPCError(f"{field} must be a positive integer")
-    return value
-
-
-def _number(raw: dict[str, Any], field: str) -> float:
-    value = raw.get(field)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise DesktopIPCError(f"{field} must be numeric")
-    return float(value)
-
-
-def _sha256(raw: dict[str, Any], field: str) -> str:
-    value = raw.get(field)
-    if not _is_sha256(value):
-        raise DesktopIPCError(f"{field} must be a SHA-256 digest")
-    assert isinstance(value, str)
     return value
 
 
@@ -439,14 +346,6 @@ def _string_list(
     return tuple(value)
 
 
-def _is_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(character in "0123456789abcdefABCDEF" for character in value)
-    )
-
-
 def _reject_unknown(
     raw: dict[str, Any],
     allowed: set[str] | frozenset[str],
@@ -462,8 +361,8 @@ def _reject_unknown(
 
 
 __all__ = [
-    "DesktopV2JobCenterRequest",
     "DesktopV2JobCatalogRequest",
+    "DesktopV2JobCenterRequest",
     "DesktopV2PrepareExecutionRequest",
     "DesktopV2RemoteJobRequest",
     "DesktopV2RetrieveJobOutputsRequest",
