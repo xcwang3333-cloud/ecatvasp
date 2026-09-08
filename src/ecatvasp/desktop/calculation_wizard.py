@@ -212,12 +212,16 @@ def _optional_text(value: object) -> str | None:
 
 
 def _optional_float(value: object) -> float | None:
-    return None if value is None else float(value)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("floating-point value must be numeric")
+    return float(value)
 
 
 def _optional_int(value: object) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool):
-        raise ValueError("integer value must not be boolean")
-    return int(value)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("integer value must be an integer and not boolean")
+    return value
