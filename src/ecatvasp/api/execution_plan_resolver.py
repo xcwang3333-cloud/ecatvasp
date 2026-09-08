@@ -14,6 +14,7 @@ from ecatvasp.domain import (
     ArtifactId,
     ArtifactType,
     CalculationId,
+    ExecutionAttempt,
     ExecutionAttemptId,
     ExecutionAttemptProducerRef,
     ExecutionSettings,
@@ -197,7 +198,10 @@ def _decode_execution_plan(raw: dict[str, object]) -> ExecutionPlan:
         ) from error
 
 
-def _require_attempt(bundle: ProjectBundle, attempt_id: ExecutionAttemptId):
+def _require_attempt(
+    bundle: ProjectBundle,
+    attempt_id: ExecutionAttemptId,
+) -> ExecutionAttempt:
     matches = tuple(item for item in bundle.execution_attempts if item.id == attempt_id)
     if len(matches) != 1:
         raise ApplicationServiceError("ExecutionAttempt is absent or duplicated")
