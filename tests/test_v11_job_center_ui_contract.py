@@ -27,4 +27,5 @@ def test_job_center_normal_ui_does_not_collect_credentials_or_scientific_hashes(
     assert "core_method_hash" not in source
     assert "potcar_spec_hash" not in source
     assert "analysis_hash" not in source
-    assert "calculation_id" not in source.split("Advanced execution identity")[0]
+    assert "Calculation ID" not in source
+    assert "calculationIdInput" not in source
