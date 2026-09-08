@@ -165,8 +165,15 @@ def resolve_frequency_source(
         raise ApplicationServiceError(
             "converged frequency Calculation has no exact persisted RESULT_PARSE generation"
         )
-    candidates.sort(key=lambda item: item[0].attempt_number)
-    attempt, source_analysis, source_artifact = candidates[-1]
+    latest_attempt_number = max(item[0].attempt_number for item in candidates)
+    latest_candidates = tuple(
+        item for item in candidates if item[0].attempt_number == latest_attempt_number
+    )
+    if len(latest_candidates) != 1:
+        raise ApplicationServiceError(
+            "latest persisted RESULT_PARSE generation is absent or duplicated"
+        )
+    attempt, source_analysis, source_artifact = latest_candidates[0]
 
     plan = resolve_execution_plan(store.root, bundle, attempt.id)
     input_artifacts = tuple(
@@ -428,7 +435,9 @@ def canonical_analysis_payload(
         ),
     }
     try:
-        filename, expected_format, expected_version = variants[(analysis.tool, analysis.tool_version)]
+        filename, expected_format, expected_version = variants[
+            (analysis.tool, analysis.tool_version)
+        ]
     except KeyError as error:
         raise ApplicationServiceError(
             "THERMOCHEMISTRY Analysis uses an unsupported canonical tool/version"
