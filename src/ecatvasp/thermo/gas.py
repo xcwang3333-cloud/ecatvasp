@@ -514,9 +514,7 @@ def _electronic_energy(
     try:
         value = values[kind]
     except KeyError as error:
-        raise GasThermochemistryError(
-            "unsupported electronic-energy semantic"
-        ) from error
+        raise GasThermochemistryError("unsupported electronic-energy semantic") from error
     if value is None:
         raise GasThermochemistryError(
             f"selected VASP electronic-energy semantic is missing: {kind.value}"
@@ -543,10 +541,7 @@ def _select_gas_modes(
         raise GasThermochemistryError(
             f"gas mode exclusions reference absent raw VASP modes: {missing}"
         )
-    if any(
-        item.reason is ModeExclusionReason.CONSTRAINED
-        for item in policy.exclusions
-    ):
+    if any(item.reason is ModeExclusionReason.CONSTRAINED for item in policy.exclusions):
         raise GasThermochemistryError(
             "gas-reference thermochemistry requires an unconstrained frequency set"
         )
@@ -560,9 +555,7 @@ def _select_gas_modes(
         for item in policy.exclusions
         if item.reason is ModeExclusionReason.ROTATIONAL
     }
-    expected_rotations = (
-        2 if gas_model.geometry_kind is GasGeometryKind.LINEAR else 3
-    )
+    expected_rotations = 2 if gas_model.geometry_kind is GasGeometryKind.LINEAR else 3
     if len(translation_indices) != 3:
         raise GasThermochemistryError(
             "molecular gas requires exactly three explicit translational exclusions"
@@ -591,9 +584,7 @@ def _select_gas_modes(
                 "LOW_FREQUENCY exclusion must reference a real mode below cutoff"
             )
 
-    imaginary = tuple(
-        mode for mode in modes if mode.kind is VaspFrequencyModeKind.IMAGINARY
-    )
+    imaginary = tuple(mode for mode in modes if mode.kind is VaspFrequencyModeKind.IMAGINARY)
     if policy.imaginary_mode_policy is ImaginaryModePolicy.REJECT_ANY:
         if imaginary:
             raise GasThermochemistryError(
@@ -601,9 +592,7 @@ def _select_gas_modes(
             )
     else:
         unexcluded = tuple(
-            mode.mode_index
-            for mode in imaginary
-            if mode.mode_index not in exclusions
+            mode.mode_index for mode in imaginary if mode.mode_index not in exclusions
         )
         if unexcluded:
             raise GasThermochemistryError(
@@ -624,9 +613,7 @@ def _select_gas_modes(
             )
     else:
         unexcluded_low = tuple(
-            mode.mode_index
-            for mode in candidate_low_real
-            if mode.mode_index not in exclusions
+            mode.mode_index for mode in candidate_low_real if mode.mode_index not in exclusions
         )
         if unexcluded_low:
             raise GasThermochemistryError(
@@ -641,9 +628,7 @@ def _select_gas_modes(
         and mode.wavenumber_cm_inverse >= policy.frequency_cutoff_cm_inverse
     )
     if not accepted:
-        raise GasThermochemistryError(
-            "no accepted molecular vibrational modes remain"
-        )
+        raise GasThermochemistryError("no accepted molecular vibrational modes remain")
     maximum_vibrations = 3 * atom_count - 3 - expected_rotations
     if len(accepted) > maximum_vibrations:
         raise GasThermochemistryError(
@@ -679,9 +664,7 @@ def _harmonic_mode_terms(
         return zpe, 0.0, 0.0
     denominator = expm1(x)
     thermal = energy_ev / denominator
-    entropy = BOLTZMANN_EV_PER_K * (
-        x / denominator - log1p(-exp(-x))
-    )
+    entropy = BOLTZMANN_EV_PER_K * (x / denominator - log1p(-exp(-x)))
     values = (zpe, thermal, entropy)
     if not all(isfinite(value) and value >= 0.0 for value in values):
         raise GasThermochemistryError(
@@ -703,14 +686,10 @@ def _translation_terms(
     log_q = 1.5 * log(
         2.0 * pi * mass_kg * thermal_j / (PLANCK_J_S**2)
     ) + log(thermal_j / pressure_pa)
-    entropy_ev_per_k = (
-        BOLTZMANN_J_PER_K / JOULE_PER_EV
-    ) * (log_q + 2.5)
+    entropy_ev_per_k = (BOLTZMANN_J_PER_K / JOULE_PER_EV) * (log_q + 2.5)
     energy_ev = 1.5 * BOLTZMANN_EV_PER_K * temperature_k
     if not isfinite(entropy_ev_per_k) or entropy_ev_per_k < 0.0:
-        raise GasThermochemistryError(
-            "ideal-gas translational entropy is invalid"
-        )
+        raise GasThermochemistryError("ideal-gas translational entropy is invalid")
     return energy_ev, entropy_ev_per_k
 
 
@@ -727,9 +706,7 @@ def _rotation_terms(
     if evidence.geometry_kind is GasGeometryKind.LINEAR:
         rotational_moment = 0.5 * (moments[1] + moments[2])
         if rotational_moment <= 0.0:
-            raise GasThermochemistryError(
-                "linear gas requires positive rotational moment"
-            )
+            raise GasThermochemistryError("linear gas requires positive rotational moment")
         log_q = log(
             8.0
             * pi**2
@@ -737,9 +714,7 @@ def _rotation_terms(
             * thermal_j
             / (symmetry_number * PLANCK_J_S**2)
         )
-        entropy = (
-            BOLTZMANN_J_PER_K / JOULE_PER_EV
-        ) * (log_q + 1.0)
+        entropy = (BOLTZMANN_J_PER_K / JOULE_PER_EV) * (log_q + 1.0)
         energy = BOLTZMANN_EV_PER_K * temperature_k
     elif evidence.geometry_kind is GasGeometryKind.NONLINEAR:
         if any(moment <= 0.0 for moment in moments):
@@ -752,18 +727,14 @@ def _rotation_terms(
             + 1.5 * log(8.0 * pi**2 * thermal_j / (PLANCK_J_S**2))
             + 0.5 * sum(log(moment) for moment in moments)
         )
-        entropy = (
-            BOLTZMANN_J_PER_K / JOULE_PER_EV
-        ) * (log_q + 1.5)
+        entropy = (BOLTZMANN_J_PER_K / JOULE_PER_EV) * (log_q + 1.5)
         energy = 1.5 * BOLTZMANN_EV_PER_K * temperature_k
     else:
         raise GasThermochemistryError(
             "monatomic rotation is outside the Block 3 molecular registry"
         )
     if not isfinite(entropy) or entropy < 0.0:
-        raise GasThermochemistryError(
-            "ideal-gas rotational entropy is invalid"
-        )
+        raise GasThermochemistryError("ideal-gas rotational entropy is invalid")
     return energy, entropy
 
 
@@ -786,9 +757,7 @@ def _rigid_rotor_evidence(
     geometry_kind: GasGeometryKind,
 ) -> GasRigidRotorEvidence:
     if geometry_kind is GasGeometryKind.MONATOMIC:
-        raise GasThermochemistryError(
-            "monatomic gas is outside the initial Block 3 registry"
-        )
+        raise GasThermochemistryError("monatomic gas is outside the initial Block 3 registry")
     positions = _unwrapped_cartesian_positions_m(snapshot)
     masses = tuple(mass_by_uid[site.atom_uid] for site in snapshot.sites)
     total_mass_amu = sum(masses)
@@ -806,24 +775,19 @@ def _rigid_rotor_evidence(
         mass_kg = mass_amu * ATOMIC_MASS_UNIT_KG
         radius_sq = float(np.dot(displacement, displacement))
         inertia += mass_kg * (
-            radius_sq * np.eye(3, dtype=float)
-            - np.outer(displacement, displacement)
+            radius_sq * np.eye(3, dtype=float) - np.outer(displacement, displacement)
         )
     moments_array = np.linalg.eigvalsh(inertia)
     scale = float(max(abs(value) for value in moments_array))
     if scale <= 0.0 or not isfinite(scale):
-        raise GasThermochemistryError(
-            "molecular geometry has no finite rotational inertia"
-        )
+        raise GasThermochemistryError("molecular geometry has no finite rotational inertia")
     raw_moments = tuple(
         0.0 if abs(float(value)) <= scale * 1.0e-12 else float(value)
         for value in moments_array
     )
     moments = cast(tuple[float, float, float], raw_moments)
     if any(value < 0.0 for value in moments):
-        raise GasThermochemistryError(
-            "molecular inertia tensor is not positive semidefinite"
-        )
+        raise GasThermochemistryError("molecular inertia tensor is not positive semidefinite")
     relative_minimum = moments[0] / moments[2]
     if geometry_kind is GasGeometryKind.LINEAR:
         if relative_minimum > _LINEARITY_RELATIVE_TOLERANCE:
@@ -851,10 +815,7 @@ def _unwrapped_cartesian_positions_m(
     vectors = snapshot.lattice.vectors
     positions: dict[AtomUid, tuple[float, float, float]] = {}
     for site in snapshot.sites:
-        delta = [
-            site.fractional_coords[index] - anchor[index]
-            for index in range(3)
-        ]
+        delta = [site.fractional_coords[index] - anchor[index] for index in range(3)]
         for index, periodic in enumerate(snapshot.periodic):
             if periodic:
                 delta[index] -= round(delta[index])
@@ -883,9 +844,7 @@ def _validate_source_contract(
     source_result: VaspResultDocument,
 ) -> None:
     if calculation.calculation_type is not CalculationType.GAS_FREQUENCY:
-        raise GasThermochemistryError(
-            "Block 3 requires a GAS_FREQUENCY Calculation"
-        )
+        raise GasThermochemistryError("Block 3 requires a GAS_FREQUENCY Calculation")
     if calculation.status is not CalculationScientificStatus.CONVERGED:
         raise GasThermochemistryError(
             "gas-frequency Calculation must be scientifically CONVERGED"
@@ -899,13 +858,9 @@ def _validate_source_contract(
             "MethodFingerprint recipe differs from gas Calculation recipe"
         )
     if structure_snapshot.id != calculation.input_structure_snapshot_id:
-        raise GasThermochemistryError(
-            "StructureSnapshot differs from gas Calculation input"
-        )
+        raise GasThermochemistryError("StructureSnapshot differs from gas Calculation input")
     if source_analysis.project_id != calculation.project_id:
-        raise GasThermochemistryError(
-            "parsed gas Analysis belongs to another project"
-        )
+        raise GasThermochemistryError("parsed gas Analysis belongs to another project")
     if source_analysis.analysis_type is not AnalysisType.RESULT_PARSE:
         raise GasThermochemistryError("gas source Analysis must be RESULT_PARSE")
     if source_analysis.status is not AnalysisStatus.COMPLETED:
@@ -916,26 +871,18 @@ def _validate_source_contract(
         not isinstance(source_artifact.producer, AnalysisProducerRef)
         or source_artifact.producer.id != source_analysis.id
     ):
-        raise GasThermochemistryError(
-            "parsed gas Artifact producer differs from Analysis"
-        )
+        raise GasThermochemistryError("parsed gas Artifact producer differs from Analysis")
     if source_artifact.availability not in {
         ArtifactAvailability.LOCAL,
         ArtifactAvailability.BOTH,
     }:
-        raise GasThermochemistryError(
-            "parsed gas Artifact must be locally available"
-        )
+        raise GasThermochemistryError("parsed gas Artifact must be locally available")
     if source_artifact.local_path is None:
         raise GasThermochemistryError("parsed gas Artifact requires local_path")
     if source_artifact.sha256 is None or source_artifact.size_bytes is None:
-        raise GasThermochemistryError(
-            "parsed gas Artifact requires hash and byte size"
-        )
+        raise GasThermochemistryError("parsed gas Artifact requires hash and byte size")
     if source_result.calculation_type is not calculation.calculation_type:
-        raise GasThermochemistryError(
-            "parsed gas VASP result CalculationType differs"
-        )
+        raise GasThermochemistryError("parsed gas VASP result CalculationType differs")
 
 
 def _verify_parsed_result_artifact(
@@ -950,9 +897,7 @@ def _verify_parsed_result_artifact(
         raise GasThermochemistryError("parsed gas Artifact requires local_path")
     relative = PurePosixPath(source_artifact.local_path)
     if relative.is_absolute() or ".." in relative.parts:
-        raise GasThermochemistryError(
-            "parsed gas Artifact path must be project-relative"
-        )
+        raise GasThermochemistryError("parsed gas Artifact path must be project-relative")
     absolute = (root / Path(*relative.parts)).resolve()
     if not absolute.is_relative_to(root) or not absolute.is_file():
         raise GasThermochemistryError("parsed gas Artifact file is unavailable")
@@ -964,22 +909,16 @@ def _verify_parsed_result_artifact(
     try:
         raw_payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise GasThermochemistryError(
-            "parsed gas Artifact is not valid UTF-8 JSON"
-        ) from error
+        raise GasThermochemistryError("parsed gas Artifact is not valid UTF-8 JSON") from error
     payload = _mapping(raw_payload, "parsed gas payload")
     if payload.get("format") != VASP_RESULT_DOCUMENT_FORMAT:
         raise GasThermochemistryError("parsed gas Artifact format is unsupported")
     if payload.get("version") != VASP_RESULT_DOCUMENT_VERSION:
         raise GasThermochemistryError("parsed gas Artifact version is unsupported")
     if payload.get("calculation_id") != str(calculation.id):
-        raise GasThermochemistryError(
-            "parsed gas Artifact belongs to another Calculation"
-        )
+        raise GasThermochemistryError("parsed gas Artifact belongs to another Calculation")
     if payload.get("analysis_id") != str(source_analysis.id):
-        raise GasThermochemistryError(
-            "parsed gas Artifact belongs to another Analysis"
-        )
+        raise GasThermochemistryError("parsed gas Artifact belongs to another Analysis")
     if canonical_sha256(payload.get("result")) != canonical_sha256(source_result):
         raise GasThermochemistryError(
             "in-memory gas VASP result differs from durable parsed-result Artifact"
@@ -999,29 +938,25 @@ def _write_result_artifact(
     )
     absolute = (root / relative).resolve()
     if not absolute.is_relative_to(root):
-        raise GasThermochemistryError(
-            "ideal-gas output path resolves outside project_root"
-        )
+        raise GasThermochemistryError("ideal-gas output path resolves outside project_root")
     text = canonical_json(payload) + "\n"
+    body = text.encode("utf-8")
     absolute.parent.mkdir(parents=True, exist_ok=True)
     if absolute.exists():
         if not absolute.is_file():
-            raise GasThermochemistryError(
-                "ideal-gas output path is not a regular file"
-            )
-        if absolute.read_text(encoding="utf-8") != text:
+            raise GasThermochemistryError("ideal-gas output path is not a regular file")
+        if absolute.read_bytes() != body:
             raise GasThermochemistryError(
                 "ideal-gas output already exists with different content"
             )
     else:
         temporary = absolute.with_name(f".{absolute.name}.tmp")
         try:
-            temporary.write_text(text, encoding="utf-8")
+            temporary.write_bytes(body)
             os.replace(temporary, absolute)
         finally:
             if temporary.exists():
                 temporary.unlink()
-    body = text.encode("utf-8")
     return Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
         producer=AnalysisProducerRef(analysis.id),
@@ -1034,8 +969,6 @@ def _write_result_artifact(
 
 
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(
-        not isinstance(key, str) for key in value
-    ):
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise GasThermochemistryError(f"{field_name} must be a JSON object")
     return value
