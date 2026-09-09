@@ -13,6 +13,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from installed_acceptance_fixture import (
+    InstalledAcceptanceFixture,
+    build_installed_acceptance_fixture,
+)
+
 from ecatvasp import __version__
 from ecatvasp.desktop import (
     DESKTOP_IPC_CONTRACT_VERSION,
@@ -23,10 +28,6 @@ from ecatvasp.desktop import (
 from ecatvasp.domain import Project
 from ecatvasp.schema.version import SCHEMA_VERSION
 from ecatvasp.storage import ProjectBundle, ProjectStore
-from installed_acceptance_fixture import (
-    InstalledAcceptanceFixture,
-    build_installed_acceptance_fixture,
-)
 
 _DESKTOP_EXE = "ecatvasp-desktop.exe"
 _SIDECAR_EXE = "ecatvasp-desktop-backend.exe"
@@ -129,7 +130,9 @@ def main() -> int:
                 suffix="restart",
             )
             if reused != ids:
-                raise RuntimeError("installed sidecar restart changed durable scientific identities")
+                raise RuntimeError(
+                    "installed sidecar restart changed durable scientific identities"
+                )
             _assert_current_catalogs(restarted, fixture, ids, suffix="restart")
 
             _drift_scientific_sources(fixture)
@@ -443,7 +446,12 @@ def _materialize_scientific_chain(
     )
     if preview.get("preset_kind") != "her_volmer_heyrovsky":
         raise RuntimeError("installed HER preview returned the wrong preset")
-    for field in ("preset_hash", "pathway_definition", "baseline_result", "potential_view"):
+    for field in (
+        "preset_hash",
+        "pathway_definition",
+        "baseline_result",
+        "potential_view",
+    ):
         if preview.get(field) is None:
             raise RuntimeError(f"installed HER preview is missing {field}")
 
@@ -553,8 +561,9 @@ def _materialize(
 ) -> dict[str, Any]:
     payload = _payload(_exchange(process, request))
     if payload.get("reused") is not expect_reused:
+        operation = request["operation"]
         raise RuntimeError(
-            f"installed materialization reuse contract drifted: {request['operation']!r} {payload!r}"
+            f"installed materialization reuse contract drifted: {operation!r} {payload!r}"
         )
     analysis_id = _required_text(payload, "analysis_id")
     if expected_analysis_id is not None and analysis_id != expected_analysis_id:
@@ -814,7 +823,8 @@ def _wait_for_bundled_backend(
             path = record.get("ExecutablePath")
             if not isinstance(path, str):
                 continue
-            if _same_windows_path(Path(path), sidecar) and record.get("ParentProcessId") == parent_pid:
+            is_child = record.get("ParentProcessId") == parent_pid
+            if _same_windows_path(Path(path), sidecar) and is_child:
                 return record
         time.sleep(0.25)
     raise RuntimeError("installed Tauri desktop did not spawn its bundled sibling backend")
@@ -838,7 +848,9 @@ def _wait_for_backend_exit(
         if not matching:
             return
         time.sleep(0.25)
-    raise RuntimeError("installed Tauri desktop left its bundled backend running after window close")
+    raise RuntimeError(
+        "installed Tauri desktop left its bundled backend running after window close"
+    )
 
 
 def _close_main_window(process: subprocess.Popen[str]) -> None:
