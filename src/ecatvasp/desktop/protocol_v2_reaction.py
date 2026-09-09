@@ -14,9 +14,10 @@ from ecatvasp.desktop.protocol_v2_common import (
 )
 
 _BASE = frozenset({"protocol_version", "request_id", "operation", "project_root"})
-_REACTION_FIELDS = frozenset(
+_PREVIEW_FIELDS = frozenset(
     {"preset_kind", "bindings", "baseline_conditions", "requested_conditions"}
 )
+_VIEW_FIELDS = frozenset({"analysis_id"})
 _PRESETS = frozenset(
     {
         "her_volmer_heyrovsky",
@@ -87,7 +88,7 @@ DesktopV2ReactionAnalysisBindings: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True)
-class DesktopV2ReactionPresetPreviewRequest:
+class DesktopV2ReactionPreviewRequest:
     request_id: str
     project_root: str
     preset_kind: str
@@ -95,7 +96,7 @@ class DesktopV2ReactionPresetPreviewRequest:
     baseline_conditions: DesktopV2ReactionConditions
     requested_conditions: DesktopV2ReactionConditions
     protocol_version: str = DESKTOP_IPC_V2_CONTRACT_VERSION
-    operation: DesktopV2Operation = DesktopV2Operation.REACTION_PRESET_PREVIEW
+    operation: DesktopV2Operation = DesktopV2Operation.REACTION_PREVIEW
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,15 +111,30 @@ class DesktopV2MaterializeReactionDiagramRequest:
     operation: DesktopV2Operation = DesktopV2Operation.MATERIALIZE_REACTION_DIAGRAM
 
 
+@dataclass(frozen=True, slots=True)
+class DesktopV2ReactionDiagramViewRequest:
+    request_id: str
+    project_root: str
+    analysis_id: str
+    protocol_version: str = DESKTOP_IPC_V2_CONTRACT_VERSION
+    operation: DesktopV2Operation = DesktopV2Operation.REACTION_DIAGRAM_VIEW
+
+
 DesktopV2ReactionRequest: TypeAlias = (
-    DesktopV2ReactionPresetPreviewRequest | DesktopV2MaterializeReactionDiagramRequest
+    DesktopV2ReactionPreviewRequest
+    | DesktopV2MaterializeReactionDiagramRequest
+    | DesktopV2ReactionDiagramViewRequest
 )
 
 
 def is_desktop_v2_reaction_request(value: object) -> TypeGuard[DesktopV2ReactionRequest]:
     return isinstance(
         value,
-        (DesktopV2ReactionPresetPreviewRequest, DesktopV2MaterializeReactionDiagramRequest),
+        (
+            DesktopV2ReactionPreviewRequest,
+            DesktopV2MaterializeReactionDiagramRequest,
+            DesktopV2ReactionDiagramViewRequest,
+        ),
     )
 
 
@@ -128,12 +144,19 @@ def decode_desktop_v2_reaction_request(
     operation: DesktopV2Operation,
     request_id: str,
 ) -> DesktopV2ReactionRequest:
+    if operation is DesktopV2Operation.REACTION_DIAGRAM_VIEW:
+        _reject_unknown(raw, _BASE | _VIEW_FIELDS, operation.value)
+        return DesktopV2ReactionDiagramViewRequest(
+            request_id=request_id,
+            project_root=_required_string(raw, "project_root"),
+            analysis_id=_required_uuid(raw, "analysis_id"),
+        )
     if operation not in {
-        DesktopV2Operation.REACTION_PRESET_PREVIEW,
+        DesktopV2Operation.REACTION_PREVIEW,
         DesktopV2Operation.MATERIALIZE_REACTION_DIAGRAM,
     }:
         raise DesktopIPCError("operation is not a reaction workspace request")
-    _reject_unknown(raw, _BASE | _REACTION_FIELDS, operation.value)
+    _reject_unknown(raw, _BASE | _PREVIEW_FIELDS, operation.value)
     project_root = _required_string(raw, "project_root")
     preset_kind = _choice(raw, "preset_kind", _PRESETS)
     bindings = _reaction_bindings(raw.get("bindings"), preset_kind)
@@ -146,8 +169,8 @@ def decode_desktop_v2_reaction_request(
         raise DesktopIPCError(
             "baseline_conditions and requested_conditions must use the same temperature_k"
         )
-    if operation is DesktopV2Operation.REACTION_PRESET_PREVIEW:
-        return DesktopV2ReactionPresetPreviewRequest(
+    if operation is DesktopV2Operation.REACTION_PREVIEW:
+        return DesktopV2ReactionPreviewRequest(
             request_id=request_id,
             project_root=project_root,
             preset_kind=preset_kind,
@@ -312,7 +335,8 @@ __all__ = [
     "DesktopV2ORRAnalysisBindings",
     "DesktopV2ReactionAnalysisBindings",
     "DesktopV2ReactionConditions",
-    "DesktopV2ReactionPresetPreviewRequest",
+    "DesktopV2ReactionDiagramViewRequest",
+    "DesktopV2ReactionPreviewRequest",
     "DesktopV2ReactionRequest",
     "decode_desktop_v2_reaction_request",
     "is_desktop_v2_reaction_request",
