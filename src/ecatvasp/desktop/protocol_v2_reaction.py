@@ -221,7 +221,7 @@ def _reaction_bindings(
         raise DesktopIPCError("bindings must be an object")
     raw = cast(dict[str, Any], value)
     if preset_kind == "her_volmer_heyrovsky":
-        fields = (
+        fields: tuple[str, ...] = (
             "clean_surface_analysis_id",
             "h_adsorbed_analysis_id",
             "h2_reference_analysis_id",
