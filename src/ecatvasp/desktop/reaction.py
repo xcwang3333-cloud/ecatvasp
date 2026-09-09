@@ -6,7 +6,6 @@ from pathlib import Path
 from uuid import UUID
 
 from ecatvasp.api.application import ApplicationServiceError
-from ecatvasp.api.read_request_store import RequestScopedVerifiedReadStore
 from ecatvasp.api.reaction_workspace import (
     CO2RRToCOPresetAnalysisBindings,
     HERPresetAnalysisBindings,
@@ -15,6 +14,7 @@ from ecatvasp.api.reaction_workspace import (
     ProjectReactionWorkspaceApplicationService,
     ReactionPresetAnalysisBindings,
 )
+from ecatvasp.api.read_request_store import RequestScopedVerifiedReadStore
 from ecatvasp.api.thermochemistry_workspace import (
     ProjectThermochemistryApplicationService,
 )
