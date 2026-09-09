@@ -79,7 +79,7 @@ def _build_fixture(root: Path) -> _InstalledFixture:
     spec.loader.exec_module(module)
     builder = cast(
         Callable[[Path], _InstalledFixture],
-        getattr(module, "build_installed_acceptance_fixture"),
+        module.__dict__["build_installed_acceptance_fixture"],
     )
     return builder(root)
 
@@ -168,6 +168,11 @@ def test_reaction_diagram_reuses_exact_identity_across_process_restart(
     first = _materialize_reaction(tmp_path, clean_id, ads_id, h2_id)
     assert first["reused"] is False
 
+    same_process = _materialize_reaction(tmp_path, clean_id, ads_id, h2_id)
+    assert same_process["reused"] is True
+    assert same_process["analysis_id"] == first["analysis_id"]
+    assert same_process["artifact_id"] == first["artifact_id"]
+
     script = r'''
 import json
 import sys
@@ -224,10 +229,6 @@ print(json.dumps(receipt, sort_keys=True))
     )
     restarted = json.loads(completed.stdout.strip().splitlines()[-1])
 
-    assert restarted["reused"] is True, {
-        "first": first,
-        "restarted": restarted,
-        "stderr": completed.stderr,
-    }
+    assert restarted["reused"] is True
     assert restarted["analysis_id"] == first["analysis_id"]
     assert restarted["artifact_id"] == first["artifact_id"]
