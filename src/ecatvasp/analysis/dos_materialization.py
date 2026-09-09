@@ -371,6 +371,7 @@ def _write_canonical_artifact(
 ) -> Artifact:
     relative_path = Path("analyses") / str(analysis.id) / "canonical-dos.json"
     text = canonical_json(payload) + "\n"
+    body = text.encode("utf-8")
     absolute_path = (root / relative_path).resolve()
     if not absolute_path.is_relative_to(root):
         raise DosMaterializationError("canonical DOS path resolves outside project_root")
@@ -378,19 +379,18 @@ def _write_canonical_artifact(
     if absolute_path.exists():
         if not absolute_path.is_file():
             raise DosMaterializationError("canonical DOS path is not a regular file")
-        if absolute_path.read_text(encoding="utf-8") != text:
+        if absolute_path.read_bytes() != body:
             raise DosMaterializationError(
                 "canonical DOS dataset already exists with different content"
             )
     else:
         temporary = absolute_path.with_name(f".{absolute_path.name}.tmp")
         try:
-            temporary.write_text(text, encoding="utf-8")
+            temporary.write_bytes(body)
             os.replace(temporary, absolute_path)
         finally:
             if temporary.exists():
                 temporary.unlink()
-    body = text.encode("utf-8")
     return Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
         producer=AnalysisProducerRef(analysis.id),
