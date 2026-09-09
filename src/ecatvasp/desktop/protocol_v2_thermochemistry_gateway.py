@@ -24,7 +24,8 @@ from ecatvasp.desktop.protocol_v2_electronic_gateway import (
 )
 from ecatvasp.desktop.protocol_v2_reaction import (
     DesktopV2MaterializeReactionDiagramRequest,
-    DesktopV2ReactionPresetPreviewRequest,
+    DesktopV2ReactionDiagramViewRequest,
+    DesktopV2ReactionPreviewRequest,
     DesktopV2ReactionRequest,
     decode_desktop_v2_reaction_request,
     is_desktop_v2_reaction_request,
@@ -40,7 +41,8 @@ from ecatvasp.desktop.protocol_v2_thermochemistry import (
 )
 from ecatvasp.desktop.reaction import (
     materialize_reaction_diagram_action,
-    reaction_preset_preview_action,
+    reaction_diagram_view_action,
+    reaction_preview_action,
 )
 from ecatvasp.desktop.thermochemistry import (
     materialize_gas_reference_action,
@@ -66,8 +68,9 @@ _THERMOCHEMISTRY_OPERATIONS = frozenset(
 )
 _REACTION_OPERATIONS = frozenset(
     {
-        DesktopV2Operation.REACTION_PRESET_PREVIEW,
+        DesktopV2Operation.REACTION_PREVIEW,
         DesktopV2Operation.MATERIALIZE_REACTION_DIAGRAM,
+        DesktopV2Operation.REACTION_DIAGRAM_VIEW,
     }
 )
 _PROJECT_READ_ERRORS = (
@@ -190,8 +193,8 @@ class DesktopBackendV2Block7:
 
     def _handle_reaction(self, request: DesktopV2ReactionRequest) -> DesktopV2Response:
         try:
-            if isinstance(request, DesktopV2ReactionPresetPreviewRequest):
-                payload = reaction_preset_preview_action(
+            if isinstance(request, DesktopV2ReactionPreviewRequest):
+                payload = reaction_preview_action(
                     project_root=request.project_root,
                     preset_kind=request.preset_kind,
                     bindings=request.bindings,
@@ -205,6 +208,11 @@ class DesktopBackendV2Block7:
                     bindings=request.bindings,
                     baseline_conditions=request.baseline_conditions,
                     requested_conditions=request.requested_conditions,
+                )
+            elif isinstance(request, DesktopV2ReactionDiagramViewRequest):
+                payload = reaction_diagram_view_action(
+                    project_root=request.project_root,
+                    analysis_id=request.analysis_id,
                 )
             else:  # pragma: no cover - guarded by request TypeGuard
                 raise DesktopIPCError("unsupported Reaction Workspace request")
