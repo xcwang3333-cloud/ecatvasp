@@ -577,7 +577,10 @@ def _clip_window(
         )
     interior = tuple(value for value in energies if lower < value < upper)
     points = (lower, *interior, upper)
-    densities = tuple(_linear_value(energies, values, point) for point in points)
+    densities = tuple(
+        _linear_value(energies, values, point)
+        for point in points
+    )
     return points, densities
 
 
@@ -691,7 +694,9 @@ def _validate_output_artifact(
         ArtifactAvailability.LOCAL,
         ArtifactAvailability.BOTH,
     }:
-        raise BandCenterError("canonical band-center Artifact must be locally available")
+        raise BandCenterError(
+            "canonical band-center Artifact must be locally available"
+        )
     if (
         artifact.local_path is None
         or PurePosixPath(artifact.local_path).name != "canonical-band-center.json"
@@ -727,7 +732,9 @@ def _read_output_payload(
     try:
         body = path.read_bytes()
     except OSError as error:
-        raise BandCenterError("canonical band-center Artifact cannot be read") from error
+        raise BandCenterError(
+            "canonical band-center Artifact cannot be read"
+        ) from error
     if len(body) != artifact.size_bytes:
         raise BandCenterError("canonical band-center Artifact byte size changed")
     if hashlib.sha256(body).hexdigest() != artifact.sha256:
@@ -745,7 +752,12 @@ def _decode_result(raw: object) -> BandCenterResult:
     mapping = _mapping(raw, "band-center result")
     try:
         snapshot_id = StructureSnapshotId(
-            UUID(_string(mapping.get("structure_snapshot_id"), "structure_snapshot_id"))
+            UUID(
+                _string(
+                    mapping.get("structure_snapshot_id"),
+                    "structure_snapshot_id",
+                )
+            )
         )
         return BandCenterResult(
             structure_snapshot_id=snapshot_id,
@@ -783,7 +795,9 @@ def _decode_result(raw: object) -> BandCenterResult:
     except ValueError as error:
         if isinstance(error, BandCenterError):
             raise
-        raise BandCenterError("canonical band-center result contains invalid fields") from error
+        raise BandCenterError(
+            "canonical band-center result contains invalid fields"
+        ) from error
 
 
 def _decode_parameters(raw: object) -> BandCenterParameters:
@@ -834,7 +848,9 @@ def _decode_parameters(raw: object) -> BandCenterParameters:
 
 
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) for key in value
+    ):
         raise BandCenterError(f"{field_name} must be an object")
     return cast(dict[str, object], value)
 
@@ -869,7 +885,10 @@ def _uuid(value: object, field_name: str) -> UUID:
 
 def _normalized_sha256(value: str, field_name: str) -> str:
     normalized = value.lower()
-    invalid_hex = any(character not in "0123456789abcdef" for character in normalized)
+    invalid_hex = any(
+        character not in "0123456789abcdef"
+        for character in normalized
+    )
     if len(normalized) != 64 or invalid_hex:
         raise BandCenterError(
             f"{field_name} must be a 64-character hexadecimal SHA-256 digest"
