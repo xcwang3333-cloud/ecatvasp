@@ -158,7 +158,8 @@ def _assert_store_schema(store: ProjectStore) -> None:
         connection.close()
     if row != (str(SCHEMA_VERSION),):
         raise RuntimeError(
-            f"installed acceptance ProjectStore schema drifted: expected {SCHEMA_VERSION}, got {row!r}"
+            "installed acceptance ProjectStore schema drifted: "
+            f"expected {SCHEMA_VERSION}, got {row!r}"
         )
 
 
