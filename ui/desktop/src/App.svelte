@@ -26,6 +26,8 @@
   } from "./lib/workspace/contracts";
   import { LatestWorkspaceLoad } from "./lib/workspace/load_guard";
 
+  type PrimaryTaskSurface = "model" | "calculation" | "jobs" | "scientific";
+
   const client = new DesktopBackendClientV2();
   const calculationClient = new CalculationWizardClient();
   const jobCenterClient = new JobCenterClient();
@@ -39,6 +41,7 @@
   let project: OpenProjectPayload | null = null;
   let preferences: DesktopPreferences = defaultDesktopPreferences();
   let workspace: ScientificWorkspace | null = null;
+  let activeTaskSurface: PrimaryTaskSurface = "model";
   let projectRootInput = "";
   let projectBusy = false;
   let workspaceBusy = false;
@@ -63,6 +66,21 @@
     if (snapshot.project !== null) projectRootInput = snapshot.project.project_root;
     if (snapshot.restore_error !== null) {
       projectError = `Saved project could not be reopened: ${snapshot.restore_error}`;
+    }
+  }
+
+  function resetProjectViews(): void {
+    workspaceLoads.invalidate();
+    workspace = null;
+    workspaceError = "";
+    workspaceBusy = false;
+    activeTaskSurface = "model";
+  }
+
+  function selectTaskSurface(surface: PrimaryTaskSurface): void {
+    activeTaskSurface = surface;
+    if (surface === "scientific" && project !== null && workspace === null && !workspaceBusy) {
+      void loadWorkspace(project);
     }
   }
 
@@ -116,7 +134,7 @@
     try {
       const snapshot = await lifecycle.open(root);
       applySnapshot(snapshot);
-      await loadWorkspace(snapshot.project);
+      resetProjectViews();
     } catch (error: unknown) {
       projectError = describeError(error, "Project could not be opened");
       await refreshDiagnostics();
@@ -138,7 +156,7 @@
       });
       const snapshot = await lifecycle.open(newProjectRoot);
       applySnapshot(snapshot);
-      await loadWorkspace(snapshot.project);
+      resetProjectViews();
       createProjectOpen = false;
       newProjectRoot = "";
       newProjectName = "";
@@ -158,7 +176,7 @@
     try {
       const snapshot = await lifecycle.close();
       applySnapshot(snapshot);
-      await loadWorkspace(null);
+      resetProjectViews();
       projectRootInput = "";
     } catch (error: unknown) {
       projectError = describeError(error, "Project could not be closed");
@@ -174,7 +192,7 @@
     try {
       const snapshot = await lifecycle.forget(root);
       applySnapshot(snapshot);
-      if (wasCurrent) await loadWorkspace(snapshot.project);
+      if (wasCurrent) resetProjectViews();
     } catch (error: unknown) {
       projectError = describeError(error, "Recent project could not be removed");
     } finally {
@@ -184,12 +202,14 @@
 
   function refreshWorkspace(): void {
     if (project === null || workspaceBusy) return;
-    void loadWorkspace(project);
+    void loadWorkspace(project, workspace !== null);
   }
 
   async function refreshCurrentProjectAfterAction(): Promise<void> {
     if (project === null) return;
-    await loadWorkspace(project, true);
+    if (workspace !== null || activeTaskSurface === "scientific") {
+      await loadWorkspace(project, workspace !== null);
+    }
     await refreshDiagnostics();
   }
 
@@ -203,7 +223,7 @@
         ? await projectLifecycle.restore()
         : await projectLifecycle.open(project.project_root);
       applySnapshot(restored);
-      await loadWorkspace(restored.project);
+      resetProjectViews();
     } catch (error: unknown) {
       projectError = `Project could not be reloaded after backend recovery: ${describeError(
         error,
@@ -249,7 +269,7 @@
           const restored = await projectLifecycle.restore();
           if (!disposed) {
             applySnapshot(restored);
-            await loadWorkspace(restored.project);
+            resetProjectViews();
           }
         } finally {
           if (!disposed) projectBusy = false;
@@ -346,47 +366,58 @@
     </section>
 
     {#if project !== null}
-      <section class="workspace-frame">
-        {#key project.project_id}
-          <ModelStudioView client={client} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
-        {/key}
+      <section class="workspace-frame task-navigation" aria-labelledby="task-navigation-heading">
+        <div class="section-heading">
+          <div><h2 id="task-navigation-heading">Research task</h2><p>Only the selected task surface is loaded for the current project.</p></div>
+          <div class="task-buttons" role="group" aria-label="Research task surface">
+            <button type="button" aria-pressed={activeTaskSurface === "model"} disabled={projectBusy} onclick={() => selectTaskSurface("model")}>Model Studio</button>
+            <button type="button" aria-pressed={activeTaskSurface === "calculation"} disabled={projectBusy} onclick={() => selectTaskSurface("calculation")}>Calculations</button>
+            <button type="button" aria-pressed={activeTaskSurface === "jobs"} disabled={projectBusy} onclick={() => selectTaskSurface("jobs")}>Jobs</button>
+            <button type="button" aria-pressed={activeTaskSurface === "scientific"} disabled={projectBusy} onclick={() => selectTaskSurface("scientific")}>Results & analysis</button>
+          </div>
+        </div>
       </section>
-      <section class="workspace-frame">
-        {#key project.project_id}
-          <CalculationWorkflowWizardView client={calculationClient} projectRoot={project.project_root} disabled={projectBusy || workspaceBusy} onMutation={refreshCurrentProjectAfterAction} />
-        {/key}
-      </section>
-      <section class="workspace-frame">
-        {#key project.project_id}
-          <JobCenterView client={jobCenterClient} projectRoot={project.project_root} disabled={projectBusy || workspaceBusy} onMutation={refreshCurrentProjectAfterAction} />
-        {/key}
-      </section>
-    {/if}
 
-    {#if project !== null}
-      <section class="workspace-frame" aria-live="polite">
-        {#if workspaceBusy && workspace === null}
-          <div class="runtime-state"><strong>Reading project state</strong></div>
-        {:else if workspaceError}
-          <div class="runtime-state runtime-error"><strong>Scientific workspace unavailable</strong><p>{workspaceError}</p><button class="primary-button" onclick={refreshWorkspace}>Retry</button></div>
-        {:else if workspace !== null}
-          <details class="advanced-workspace"><summary>Advanced scientific inventory & provenance</summary><WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} /></details>
-        {/if}
-      </section>
-    {/if}
-
-    {#if project !== null && workspace !== null && health !== null}
-      <section class="workspace-frame">
-        <ApplicationActionsView
-          client={client}
-          projectRoot={project.project_root}
-          projectId={project.project_id}
-          workflowRecipes={health.workflow_recipes}
-          {workspace}
-          disabled={projectBusy || workspaceBusy}
-          onMutation={refreshCurrentProjectAfterAction}
-        />
-      </section>
+      {#if activeTaskSurface === "model"}
+        <section class="workspace-frame">
+          {#key project.project_id}
+            <ModelStudioView client={client} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
+          {/key}
+        </section>
+      {:else if activeTaskSurface === "calculation"}
+        <section class="workspace-frame">
+          {#key project.project_id}
+            <CalculationWorkflowWizardView client={calculationClient} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
+          {/key}
+        </section>
+      {:else if activeTaskSurface === "jobs"}
+        <section class="workspace-frame">
+          {#key project.project_id}
+            <JobCenterView client={jobCenterClient} projectRoot={project.project_root} disabled={projectBusy} onMutation={refreshCurrentProjectAfterAction} />
+          {/key}
+        </section>
+      {:else}
+        <section class="workspace-frame" aria-live="polite">
+          {#if workspaceBusy && workspace === null}
+            <div class="runtime-state"><strong>Reading scientific workspace</strong><p>ProjectStore-backed inventory is loaded only for this task surface.</p></div>
+          {:else if workspaceError}
+            <div class="runtime-state runtime-error"><strong>Scientific workspace unavailable</strong><p>{workspaceError}</p><button class="primary-button" onclick={refreshWorkspace}>Retry</button></div>
+          {:else if workspace !== null && health !== null}
+            <ApplicationActionsView
+              client={client}
+              projectRoot={project.project_root}
+              projectId={project.project_id}
+              workflowRecipes={health.workflow_recipes}
+              {workspace}
+              disabled={projectBusy || workspaceBusy}
+              onMutation={refreshCurrentProjectAfterAction}
+            />
+            <details class="advanced-workspace"><summary>Advanced scientific inventory & provenance</summary><WorkspaceView {workspace} refreshing={workspaceBusy} onRefresh={refreshWorkspace} /></details>
+          {:else}
+            <div class="runtime-state"><strong>Scientific workspace not loaded</strong><button class="primary-button" onclick={refreshWorkspace}>Load workspace</button></div>
+          {/if}
+        </section>
+      {/if}
     {/if}
 
     {#if health !== null}
