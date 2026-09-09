@@ -17,8 +17,10 @@ from ecatvasp.api._reaction_workspace_core import (
     OERPresetAnalysisBindings,
     ORRPresetAnalysisBindings,
     PreparedReactionWorkspace,
-    ProjectReactionWorkspaceApplicationService as _CoreReactionWorkspaceApplicationService,
     ReactionPresetAnalysisBindings,
+)
+from ecatvasp.api._reaction_workspace_core import (
+    ProjectReactionWorkspaceApplicationService as _CoreReactionWorkspaceApplicationService,
 )
 from ecatvasp.api.application import ApplicationServiceError
 from ecatvasp.api.thermochemistry_workspace_support import (
