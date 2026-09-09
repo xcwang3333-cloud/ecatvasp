@@ -11,7 +11,7 @@ from ecatvasp.api.reaction_workspace import (
     ProjectReactionWorkspaceApplicationService,
 )
 from ecatvasp.api.thermochemistry_workspace import ProjectThermochemistryApplicationService
-from ecatvasp.domain import AnalysisId, AtomUid
+from ecatvasp.domain import AnalysisId, AtomUid, CalculationId
 from ecatvasp.storage import ProjectStore
 from ecatvasp.thermo import (
     CHEConditions,
@@ -39,6 +39,10 @@ def _analysis_id(value: str) -> AnalysisId:
     return AnalysisId(UUID(value))
 
 
+def _calculation_id(value: str) -> CalculationId:
+    return CalculationId(UUID(value))
+
+
 def _conditions(*, potential_v: float, ph: float) -> CHEConditions:
     return CHEConditions(
         temperature_k=298.15,
@@ -52,32 +56,36 @@ def _conditions(*, potential_v: float, ph: float) -> CHEConditions:
 def _materialize_sources(root: Path) -> tuple[str, str, str]:
     fixture = build_installed_acceptance_fixture(root)
     service = ProjectThermochemistryApplicationService(ProjectStore(root))
-    common = {
-        "temperature_k": 298.15,
-        "electronic_energy_kind": ElectronicEnergyKind.SIGMA_ZERO,
-        "electronic_entropy_policy": ElectronicEntropyPolicy.NEGLECTED,
-        "frequency_cutoff_cm_inverse": 50.0,
-        "imaginary_mode_policy": ImaginaryModePolicy.REJECT_ANY,
-    }
     clean = service.materialize_harmonic(
-        calculation_id=UUID(fixture.clean_frequency_calculation_id),
+        calculation_id=_calculation_id(fixture.clean_frequency_calculation_id),
         subject_kind=ThermochemistrySubjectKind.SURFACE,
+        temperature_k=298.15,
+        electronic_energy_kind=ElectronicEnergyKind.SIGMA_ZERO,
+        electronic_entropy_policy=ElectronicEntropyPolicy.NEGLECTED,
+        frequency_cutoff_cm_inverse=50.0,
+        imaginary_mode_policy=ImaginaryModePolicy.REJECT_ANY,
         low_frequency_policy=LowFrequencyPolicy.REJECT_BELOW_CUTOFF,
         exclusions=(),
-        **common,
     )
     ads = service.materialize_harmonic(
-        calculation_id=UUID(fixture.ads_frequency_calculation_id),
+        calculation_id=_calculation_id(fixture.ads_frequency_calculation_id),
         subject_kind=ThermochemistrySubjectKind.ADSORBATE,
+        temperature_k=298.15,
+        electronic_energy_kind=ElectronicEnergyKind.SIGMA_ZERO,
+        electronic_entropy_policy=ElectronicEntropyPolicy.NEGLECTED,
+        frequency_cutoff_cm_inverse=50.0,
+        imaginary_mode_policy=ImaginaryModePolicy.REJECT_ANY,
         low_frequency_policy=LowFrequencyPolicy.REJECT_BELOW_CUTOFF,
         exclusions=(),
-        **common,
     )
     h2 = service.materialize_gas_reference(
-        calculation_id=UUID(fixture.h2_frequency_calculation_id),
+        calculation_id=_calculation_id(fixture.h2_frequency_calculation_id),
         species=GasReferenceSpecies.H2,
+        temperature_k=298.15,
         pressure_pa=100000.0,
         standard_state=ThermochemicalStandardState.IDEAL_GAS_1_BAR,
+        electronic_energy_kind=ElectronicEnergyKind.SIGMA_ZERO,
+        electronic_entropy_policy=ElectronicEntropyPolicy.NEGLECTED,
         geometry_kind=GasGeometryKind.LINEAR,
         symmetry_number=2,
         spin_multiplicity=1,
@@ -85,6 +93,8 @@ def _materialize_sources(root: Path) -> tuple[str, str, str]:
             GasAtomicMass(atom_uid=AtomUid(UUID(atom_uid)), mass_amu=1.00784)
             for atom_uid in fixture.h2_atom_uids
         ),
+        frequency_cutoff_cm_inverse=50.0,
+        imaginary_mode_policy=ImaginaryModePolicy.REJECT_ANY,
         low_frequency_policy=LowFrequencyPolicy.EXCLUDE_EXPLICIT,
         exclusions=(
             ModeExclusion(mode_index=1, reason=ModeExclusionReason.TRANSLATIONAL),
@@ -93,7 +103,6 @@ def _materialize_sources(root: Path) -> tuple[str, str, str]:
             ModeExclusion(mode_index=4, reason=ModeExclusionReason.ROTATIONAL),
             ModeExclusion(mode_index=5, reason=ModeExclusionReason.ROTATIONAL),
         ),
-        **common,
     )
     return (
         str(clean["analysis_id"]),
