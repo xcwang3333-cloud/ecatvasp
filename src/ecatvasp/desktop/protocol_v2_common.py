@@ -48,5 +48,6 @@ class DesktopV2Operation(StrEnum):
     MATERIALIZE_HARMONIC_THERMOCHEMISTRY = "materialize_harmonic_thermochemistry"
     MATERIALIZE_GAS_REFERENCE = "materialize_gas_reference"
     THERMOCHEMISTRY_VIEW = "thermochemistry_view"
-    REACTION_PRESET_PREVIEW = "reaction_preset_preview"
+    REACTION_PREVIEW = "reaction_preview"
     MATERIALIZE_REACTION_DIAGRAM = "materialize_reaction_diagram"
+    REACTION_DIAGRAM_VIEW = "reaction_diagram_view"
