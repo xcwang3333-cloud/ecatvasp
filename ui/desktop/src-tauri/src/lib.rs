@@ -91,7 +91,8 @@ fn validate_block7_frontend_request(request: &Value) -> Result<(), String> {
                 ],
                 "thermochemistry view request",
             )?;
-            require_uuid_string(object, "analysis_id")
+            require_uuid_string(object, "analysis_id")?;
+            Ok(())
         }
         "materialize_harmonic_thermochemistry" => validate_block7_harmonic(object),
         "materialize_gas_reference" => validate_block7_gas_reference(object),
