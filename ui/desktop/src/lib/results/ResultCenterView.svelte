@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { DEFAULT_VISIBLE_ROWS, hiddenRowCount, nextVisibleLimit, visibleRows } from "../ui/visible_rows";
   import type { ResultCenterClient } from "./client";
   import type {
     AnalyzeResultPayload,
@@ -22,8 +23,11 @@
   let message = "";
   let lastAnalysis: AnalyzeResultPayload | null = null;
   let lastPromotion: PromoteResultPayload | null = null;
+  let visibleCalculationLimit = DEFAULT_VISIBLE_ROWS;
 
   $: calculations = catalog?.calculations ?? [];
+  $: displayedCalculations = visibleRows(calculations, visibleCalculationLimit);
+  $: hiddenCalculations = hiddenRowCount(calculations.length, visibleCalculationLimit);
   $: if (projectRoot !== loadedProjectRoot) {
     loadedProjectRoot = projectRoot;
     catalog = null;
@@ -32,6 +36,7 @@
     message = "";
     lastAnalysis = null;
     lastPromotion = null;
+    visibleCalculationLimit = DEFAULT_VISIBLE_ROWS;
     if (projectRoot.trim()) void loadCatalog(projectRoot);
   }
 
@@ -131,6 +136,9 @@
       <p>Prepare and execute a calculation, then retrieve its outputs from Job Center.</p>
     </div>
   {:else}
+    <div class="result-list-context" role="status">
+      Showing {displayedCalculations.length} of {calculations.length} calculations{hiddenCalculations > 0 ? ` · ${hiddenCalculations} not rendered yet` : ""}.
+    </div>
     <div class="result-table-wrap">
       <table>
         <thead>
@@ -144,7 +152,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each calculations as row (row.calculation_id)}
+          {#each displayedCalculations as row (row.calculation_id)}
             <tr>
               <td><strong>{shortRecipe(row.recipe_id)}</strong><small>{row.calculation_type}</small></td>
               <td><span class="state-chip">{row.scientific_status}</span></td>
@@ -175,6 +183,13 @@
         </tbody>
       </table>
     </div>
+    {#if hiddenCalculations > 0}
+      <button
+        class="text-button show-more"
+        type="button"
+        onclick={() => { visibleCalculationLimit = nextVisibleLimit(visibleCalculationLimit, calculations.length); }}
+      >Show more calculations</button>
+    {/if}
   {/if}
 
   {#if lastAnalysis !== null}
@@ -222,11 +237,13 @@
   .result-boundary, .result-alert, .result-empty, .result-summary { border: 1px solid var(--border-color, #d7dce2); border-radius: 0.75rem; padding: 1rem; background: var(--panel-background, #fff); }
   .result-boundary { display: grid; gap: 0.25rem; }
   .result-alert.error { border-color: #c44; }
+  .result-list-context { font-size: .82rem; opacity: .72; }
   .result-table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid var(--border-color, #d7dce2); vertical-align: top; }
   td small { display: block; margin-top: 0.25rem; opacity: 0.7; }
   .result-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .show-more { justify-self: start; }
   .summary-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
   .result-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; margin: 1rem 0; }
   .result-metrics > div { display: grid; gap: 0.2rem; }
