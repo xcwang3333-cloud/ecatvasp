@@ -22,6 +22,13 @@ from ecatvasp.desktop.protocol_v2_electronic_gateway import (
     encode_desktop_v2_response,
     is_desktop_v2_block6_request,
 )
+from ecatvasp.desktop.protocol_v2_reaction import (
+    DesktopV2MaterializeReactionDiagramRequest,
+    DesktopV2ReactionPresetPreviewRequest,
+    DesktopV2ReactionRequest,
+    decode_desktop_v2_reaction_request,
+    is_desktop_v2_reaction_request,
+)
 from ecatvasp.desktop.protocol_v2_thermochemistry import (
     DesktopV2MaterializeGasReferenceRequest,
     DesktopV2MaterializeHarmonicThermochemistryRequest,
@@ -30,6 +37,10 @@ from ecatvasp.desktop.protocol_v2_thermochemistry import (
     DesktopV2ThermochemistryViewRequest,
     decode_desktop_v2_thermochemistry_request,
     is_desktop_v2_thermochemistry_request,
+)
+from ecatvasp.desktop.reaction import (
+    materialize_reaction_diagram_action,
+    reaction_preset_preview_action,
 )
 from ecatvasp.desktop.thermochemistry import (
     materialize_gas_reference_action,
@@ -53,6 +64,12 @@ _THERMOCHEMISTRY_OPERATIONS = frozenset(
         DesktopV2Operation.THERMOCHEMISTRY_VIEW,
     }
 )
+_REACTION_OPERATIONS = frozenset(
+    {
+        DesktopV2Operation.REACTION_PRESET_PREVIEW,
+        DesktopV2Operation.MATERIALIZE_REACTION_DIAGRAM,
+    }
+)
 _PROJECT_READ_ERRORS = (
     MigrationPathError,
     ProjectIntegrityError,
@@ -61,11 +78,17 @@ _PROJECT_READ_ERRORS = (
     UnsupportedSchemaVersionError,
 )
 
-DesktopV2Block7Request: TypeAlias = DesktopV2Block6Request | DesktopV2ThermochemistryRequest
+DesktopV2Block7Request: TypeAlias = (
+    DesktopV2Block6Request | DesktopV2ThermochemistryRequest | DesktopV2ReactionRequest
+)
 
 
 def is_desktop_v2_block7_request(value: object) -> TypeGuard[DesktopV2Block7Request]:
-    return is_desktop_v2_block6_request(value) or is_desktop_v2_thermochemistry_request(value)
+    return (
+        is_desktop_v2_block6_request(value)
+        or is_desktop_v2_thermochemistry_request(value)
+        or is_desktop_v2_reaction_request(value)
+    )
 
 
 def decode_desktop_v2_block7_request(line: str) -> DesktopV2Block7Request:
@@ -84,9 +107,16 @@ def decode_desktop_v2_block7_request(line: str) -> DesktopV2Block7Request:
         operation = DesktopV2Operation(operation_text)
     except ValueError as error:
         raise DesktopIPCError("unsupported desktop operation") from error
+    typed_raw = cast(dict[str, Any], raw)
     if operation in _THERMOCHEMISTRY_OPERATIONS:
         return decode_desktop_v2_thermochemistry_request(
-            cast(dict[str, Any], raw),
+            typed_raw,
+            operation=operation,
+            request_id=request_id,
+        )
+    if operation in _REACTION_OPERATIONS:
+        return decode_desktop_v2_reaction_request(
+            typed_raw,
             operation=operation,
             request_id=request_id,
         )
@@ -100,8 +130,16 @@ class DesktopBackendV2Block7:
         self._base = DesktopBackendV2Block6()
 
     def handle(self, request: DesktopV2Block7Request) -> DesktopV2Response:
-        if not is_desktop_v2_thermochemistry_request(request):
-            return self._base.handle(cast(DesktopV2Block6Request, request))
+        if is_desktop_v2_thermochemistry_request(request):
+            return self._handle_thermochemistry(request)
+        if is_desktop_v2_reaction_request(request):
+            return self._handle_reaction(request)
+        return self._base.handle(cast(DesktopV2Block6Request, request))
+
+    def _handle_thermochemistry(
+        self,
+        request: DesktopV2ThermochemistryRequest,
+    ) -> DesktopV2Response:
         try:
             if isinstance(request, DesktopV2ThermochemistryCatalogRequest):
                 payload = thermochemistry_catalog_action(request.project_root)
@@ -143,21 +181,54 @@ class DesktopBackendV2Block7:
                     analysis_id=request.analysis_id,
                 )
             else:  # pragma: no cover - guarded by request TypeGuard
-                raise DesktopIPCError("unsupported Thermochemistry & Reaction Workspace request")
+                raise DesktopIPCError("unsupported Thermochemistry Workspace request")
         except _PROJECT_READ_ERRORS as error:
             return _failure(request, code="project_unavailable", message=str(error))
         except (OSError, ValueError) as error:
             return _failure(request, code="application_rejected", message=str(error))
-        return DesktopV2Response(
-            request_id=request.request_id,
-            operation=request.operation,
-            ok=True,
-            payload=payload,
-        )
+        return _success(request, payload)
+
+    def _handle_reaction(self, request: DesktopV2ReactionRequest) -> DesktopV2Response:
+        try:
+            if isinstance(request, DesktopV2ReactionPresetPreviewRequest):
+                payload = reaction_preset_preview_action(
+                    project_root=request.project_root,
+                    preset_kind=request.preset_kind,
+                    bindings=request.bindings,
+                    baseline_conditions=request.baseline_conditions,
+                    requested_conditions=request.requested_conditions,
+                )
+            elif isinstance(request, DesktopV2MaterializeReactionDiagramRequest):
+                payload = materialize_reaction_diagram_action(
+                    project_root=request.project_root,
+                    preset_kind=request.preset_kind,
+                    bindings=request.bindings,
+                    baseline_conditions=request.baseline_conditions,
+                    requested_conditions=request.requested_conditions,
+                )
+            else:  # pragma: no cover - guarded by request TypeGuard
+                raise DesktopIPCError("unsupported Reaction Workspace request")
+        except _PROJECT_READ_ERRORS as error:
+            return _failure(request, code="project_unavailable", message=str(error))
+        except (OSError, ValueError) as error:
+            return _failure(request, code="application_rejected", message=str(error))
+        return _success(request, payload)
+
+
+def _success(
+    request: DesktopV2ThermochemistryRequest | DesktopV2ReactionRequest,
+    payload: dict[str, object],
+) -> DesktopV2Response:
+    return DesktopV2Response(
+        request_id=request.request_id,
+        operation=request.operation,
+        ok=True,
+        payload=payload,
+    )
 
 
 def _failure(
-    request: DesktopV2ThermochemistryRequest,
+    request: DesktopV2ThermochemistryRequest | DesktopV2ReactionRequest,
     *,
     code: str,
     message: str,
