@@ -318,8 +318,16 @@ def test_orr_diagram_tracks_durable_h2_reference_used_by_che(tmp_path: Path) -> 
     project = Project(name="Block 7 CHE lineage", slug="block7-che-lineage")
     clean = _thermo(tmp_path, project, _surface_result(ThermochemistrySubjectKind.SURFACE, -10.0))
     ooh = _thermo(tmp_path, project, _surface_result(ThermochemistrySubjectKind.ADSORBATE, -20.0))
-    oxygen = _thermo(tmp_path, project, _surface_result(ThermochemistrySubjectKind.ADSORBATE, -15.0))
-    hydroxyl = _thermo(tmp_path, project, _surface_result(ThermochemistrySubjectKind.ADSORBATE, -12.0))
+    oxygen = _thermo(
+        tmp_path,
+        project,
+        _surface_result(ThermochemistrySubjectKind.ADSORBATE, -15.0),
+    )
+    hydroxyl = _thermo(
+        tmp_path,
+        project,
+        _surface_result(ThermochemistrySubjectKind.ADSORBATE, -12.0),
+    )
     o2 = _thermo(
         tmp_path,
         project,
