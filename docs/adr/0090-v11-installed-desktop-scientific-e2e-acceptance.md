@@ -176,9 +176,25 @@ Completing Block 9 completes the planned v1.1 implementation/acceptance roadmap,
 tag, GitHub Release, or PyPI publication. Release/publication remains a separate explicit decision after the
 post-merge-CI-verified v1.1 baseline is frozen.
 
+### 12. Acceptance-discovered durability defects may be hardened without semantic expansion
+
+Installed acceptance may expose deterministic production defects inside an existing authority even when the
+scientific equations and identity model are already frozen. Correcting such a defect is within Block 9 only
+when the patch preserves the existing domain, provenance, schema, protocol, and scientific semantics.
+
+Canonical durable Artifact identity is defined by the exact bytes persisted to disk. Writers that record
+`size_bytes` and SHA-256 must therefore compute both from the same byte sequence they write, independent of
+platform newline translation. Canonical JSON and other hashed durable records must use byte-exact writes and
+byte-exact existing-file comparisons; text-mode newline conversion must not alter persisted Artifact identity.
+
+This rule applies to the representative installed chain and to equivalent durable writers found by the same
+repository-wide audit. It does not authorize changes to DOS parsing, descriptor definitions, thermochemistry,
+CHE/reaction equations, provenance identity, schema3, IPC contracts, or ProjectStore authority.
+
 ## Implementation sequence
 
-1. Add the installed-artifact acceptance harness and contract tests without changing scientific core code.
+1. Add the installed-artifact acceptance harness and contract tests without changing scientific semantics;
+   acceptance-discovered durability defects may receive the narrowly scoped hardening defined above.
 2. Add deterministic NSIS silent-install and installed-layout verification to Windows CI.
 3. Exercise installed sidecar v1/v2 health, project reopen/restart, fail-closed, and integrity/tamper paths.
 4. Extend installed-path evidence across representative v1.1 task/scientific boundaries using existing
@@ -203,10 +219,12 @@ Block 9 is accepted only when all of the following hold on the exact final PR he
 7. installed desktop lifecycle evidence is recorded without overstating the level of GUI automation;
 8. schema3, IPC v1, package development state, Python scientific authority, and all deferred-physics
    boundaries remain unchanged;
-9. Ruff, strict mypy, pytest on Python 3.11/3.12/3.13, MatterViz, desktop typecheck/tests/build, Tauri
+9. canonical durable Artifact bytes, `size_bytes`, and SHA-256 remain byte-identical and platform-independent
+   across the acceptance-covered persistence chain;
+10. Ruff, strict mypy, pytest on Python 3.11/3.12/3.13, MatterViz, desktop typecheck/tests/build, Tauri
    guards/cargo, Windows frozen-backend smoke, installed-artifact acceptance, NSIS/output verification, and
    installer upload all pass on the exact final head;
-10. anchored self-review, comments/reviews/thread checks, `behind=0`, Ready transition, expected-head squash
+11. anchored self-review, comments/reviews/thread checks, `behind=0`, Ready transition, expected-head squash
     merge, exact-main verification, and exact-main post-merge `push` CI all pass before v1.1 is frozen.
 
 ## Consequences
