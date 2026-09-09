@@ -414,7 +414,11 @@ def test_materialization_binds_evidence_artifact_and_scientific_dag(
     )
     assert durable.artifact.artifact_type is ArtifactType.DERIVED_DATASET
     assert durable.artifact.local_path is not None
-    assert (tmp_path / durable.artifact.local_path).is_file()
+    artifact_body = (tmp_path / durable.artifact.local_path).read_bytes()
+    assert artifact_body.endswith(b"\n")
+    assert b"\r\n" not in artifact_body
+    assert durable.artifact.size_bytes == len(artifact_body)
+    assert durable.artifact.sha256 == hashlib.sha256(artifact_body).hexdigest()
     assert durable.result.corrected_gibbs_free_energy_ev == pytest.approx(
         source_result.gibbs_free_energy_ev + 0.15
     )

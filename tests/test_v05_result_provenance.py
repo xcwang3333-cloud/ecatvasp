@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -216,6 +217,13 @@ def test_result_materialization_builds_durable_analysis_artifact_chain(
     assert materialized.parsed_result_artifact.artifact_type is ArtifactType.PARSED_RESULT
     assert isinstance(materialized.parsed_result_artifact.producer, AnalysisProducerRef)
     assert materialized.parsed_result_artifact.producer.id == materialized.result_parse_analysis.id
+    for artifact in materialized.artifacts:
+        assert artifact.local_path is not None
+        body = (tmp_path / artifact.local_path).read_bytes()
+        assert body.endswith(b"\n")
+        assert b"\r\n" not in body
+        assert artifact.size_bytes == len(body)
+        assert artifact.sha256 == hashlib.sha256(body).hexdigest()
     assert isinstance(materialized.convergence_artifact.producer, AnalysisProducerRef)
     assert materialized.convergence_artifact.producer.id == materialized.convergence_analysis.id
 

@@ -21,6 +21,7 @@ from ecatvasp.domain import (
     ExecutionAttempt,
     ExecutionAttemptProducerRef,
     ExecutionAttemptStatus,
+    ExecutionSettings,
     KPointPolicy,
     KPointPolicyKind,
     Lattice,
@@ -39,6 +40,7 @@ from ecatvasp.domain import (
     StructureSnapshot,
     canonical_json,
     canonical_sha256,
+    new_artifact_id,
     new_atom_uid,
 )
 from ecatvasp.provenance import (
@@ -48,6 +50,24 @@ from ecatvasp.provenance import (
     scientific_hash,
 )
 from ecatvasp.storage import ProjectBundle, ProjectStore
+from ecatvasp.vasp import (
+    RECIPE_FULL_FREQUENCY,
+    RECIPE_GAS_FREQUENCY,
+    ExecutionPlan,
+    ExpectedOutput,
+    LatticeAxis,
+    PotcarResolutionEntry,
+    PotcarResolutionRequest,
+    StagingInput,
+    StagingInputKind,
+    VaspRuntimeConstraints,
+    VaspSystemContext,
+    VaspSystemKind,
+    build_vasp_result_artifact_intake,
+    frequency_recipe_parameters,
+    parse_vasp_energy_metadata,
+    parse_vasp_frequency_results,
+)
 from ecatvasp.vasp.results import (
     VASP_RESULT_DOCUMENT_FORMAT,
     VASP_RESULT_DOCUMENT_VERSION,
@@ -86,6 +106,8 @@ class _ParsedFrequencySource:
     raw_artifact: Artifact
     parse_analysis: Analysis
     parsed_artifact: Artifact
+    artifacts: tuple[Artifact, ...]
+    analyses: tuple[Analysis, ...]
     provenance_records: tuple[ProvenanceRecord, ...]
     dependency_records: tuple[DependencyRecord, ...]
 
@@ -108,10 +130,10 @@ def build_installed_acceptance_fixture(project_root: Path) -> InstalledAcceptanc
     h2_snapshot = _h2_snapshot()
 
     surface_method = _method(
-        recipe_id="WXC.VASP.AdsorbateFrequency",
+        recipe_id=RECIPE_FULL_FREQUENCY,
         elements=("C", "H"),
     )
-    gas_method = _method(recipe_id="WXC.VASP.GasFrequency", elements=("H",))
+    gas_method = _method(recipe_id=RECIPE_GAS_FREQUENCY, elements=("H",))
     dos_method = _method(
         recipe_id="ECatVASP.VASP.DOSPrerequisite",
         elements=("C",),
@@ -197,10 +219,11 @@ def build_installed_acceptance_fixture(project_root: Path) -> InstalledAcceptanc
         artifacts=(
             dos_source.doscar_artifact,
             dos_source.atom_map_artifact,
-            *(item.raw_artifact for item in parsed_sources),
-            *(item.parsed_artifact for item in parsed_sources),
+            *(artifact for item in parsed_sources for artifact in item.artifacts),
         ),
-        analyses=tuple(item.parse_analysis for item in parsed_sources),
+        analyses=tuple(
+            analysis for item in parsed_sources for analysis in item.analyses
+        ),
         provenance_records=tuple(
             record for item in parsed_sources for record in item.provenance_records
         ),
@@ -260,7 +283,14 @@ def _method(
             encut_ev=450.0,
             kpoints=KPointPolicy(KPointPolicyKind.GAMMA_ONLY),
         ),
-        recipe=RecipeIdentity(recipe_id),
+        recipe=RecipeIdentity(
+            recipe_id,
+            parameters=(
+                frequency_recipe_parameters(potim_angstrom=0.015)
+                if recipe_id in {RECIPE_FULL_FREQUENCY, RECIPE_GAS_FREQUENCY}
+                else ()
+            ),
+        ),
     )
 
 
@@ -313,6 +343,43 @@ def _mode(
     )
 
 
+def _frequency_outcar(
+    *,
+    energy_ev: float,
+    wavenumbers: tuple[float, ...],
+    atom_count: int,
+) -> bytes:
+    lines = [
+        "vasp.6.5.1 installed acceptance\n",
+        f" free energy TOTEN = {energy_ev + 0.2:.8f} eV\n",
+        (
+            f" energy without entropy = {energy_ev + 0.1:.8f} "
+            f"energy(sigma->0) = {energy_ev:.8f}\n"
+        ),
+        " aborting loop because EDIFF is reached\n",
+        " General timing and accounting informations for this job:\n",
+        " Eigenvectors and eigenvalues of the dynamical matrix\n",
+        " ----------------------------------------------------\n",
+    ]
+    for mode_index, wavenumber in enumerate(wavenumbers, start=1):
+        frequency_thz = wavenumber / 33.3564095
+        angular_frequency = frequency_thz * 6.283185307179586
+        energy_mev = wavenumber * 0.123984198433
+        lines.append(
+            f" {mode_index:3d} f = {frequency_thz:.9f} THz "
+            f"{angular_frequency:.9f} 2PiTHz "
+            f"{wavenumber:.9f} cm-1 {energy_mev:.9f} meV\n"
+        )
+        lines.append(" X         Y         Z           dx          dy          dz\n")
+        for atom_index in range(atom_count):
+            scale = float((mode_index * 10) + atom_index + 1) / 100.0
+            lines.append(
+                f" 0.000000 0.000000 0.000000 {scale:.6f} "
+                f"{scale + 0.01:.6f} {scale + 0.02:.6f}\n"
+            )
+    return "".join(lines).encode("utf-8")
+
+
 def _parsed_frequency_source(
     *,
     root: Path,
@@ -331,17 +398,169 @@ def _parsed_frequency_source(
         method_fingerprint_id=method.id,
         status=CalculationScientificStatus.CONVERGED,
     )
+
+    input_root = Path("calculations") / str(calculation.id) / "input"
+    poscar_relative = input_root / "POSCAR"
+    poscar_body = (
+        "installed frequency prerequisite\n"
+        "1.0\n"
+        "10.0 0.0 0.0\n"
+        "0.0 10.0 0.0\n"
+        "0.0 0.0 20.0\n"
+        + " ".join(site.element for site in snapshot.sites)
+        + "\n"
+    ).encode("utf-8")
+    poscar_path = root / poscar_relative
+    poscar_path.parent.mkdir(parents=True, exist_ok=True)
+    poscar_path.write_bytes(poscar_body)
+    poscar_artifact = Artifact(
+        artifact_type=ArtifactType.POSCAR,
+        producer=CalculationProducerRef(calculation.id),
+        availability=ArtifactAvailability.LOCAL,
+        retrieval_policy=RetrievalPolicy.ALWAYS,
+        local_path=poscar_relative.as_posix(),
+        size_bytes=len(poscar_body),
+        sha256=hashlib.sha256(poscar_body).hexdigest(),
+    )
+
+    species_order: list[str] = []
+    for site in snapshot.sites:
+        if site.element not in species_order:
+            species_order.append(site.element)
+    species_counts = [
+        sum(site.element == element for site in snapshot.sites)
+        for element in species_order
+    ]
+    atom_map_payload = {
+        "format": "ecatvasp-v03-atom-index-map",
+        "version": 1,
+        "structure_snapshot_id": str(snapshot.id),
+        "structure_sha256": scientific_hash(snapshot),
+        "poscar_sha256": poscar_artifact.sha256,
+        "species_order": species_order,
+        "species_counts": species_counts,
+        "entries": [
+            {
+                "atom_uid": str(site.atom_uid),
+                "element": site.element,
+                "snapshot_index": index,
+                "poscar_index": index,
+                "vasp_ordinal": index + 1,
+                "selective_dynamics": None,
+            }
+            for index, site in enumerate(snapshot.sites)
+        ],
+    }
+    atom_map_body = (canonical_json(atom_map_payload) + "\n").encode("utf-8")
+    atom_map_relative = input_root / "atom-index-map.json"
+    atom_map_path = root / atom_map_relative
+    atom_map_path.write_bytes(atom_map_body)
+    atom_map_artifact = Artifact(
+        artifact_type=ArtifactType.DERIVED_DATASET,
+        producer=CalculationProducerRef(calculation.id),
+        availability=ArtifactAvailability.LOCAL,
+        retrieval_policy=RetrievalPolicy.ALWAYS,
+        local_path=atom_map_relative.as_posix(),
+        size_bytes=len(atom_map_body),
+        sha256=hashlib.sha256(atom_map_body).hexdigest(),
+    )
+
+    plan = ExecutionPlan(
+        calculation_id=calculation.id,
+        recipe_id=calculation.recipe_id,
+        system_context=(
+            VaspSystemContext(VaspSystemKind.MOLECULE_0D)
+            if calculation_type is CalculationType.GAS_FREQUENCY
+            else VaspSystemContext(VaspSystemKind.SLAB_2D, vacuum_axis=LatticeAxis.C)
+        ),
+        input_manifest_artifact_id=new_artifact_id(),
+        input_manifest_sha256=canonical_sha256(
+            {"calculation_id": calculation.id, "fixture": "installed-frequency"}
+        ),
+        preparation_hash=canonical_sha256(
+            {"calculation_id": calculation.id, "preparation": "installed-frequency"}
+        ),
+        staging_inputs=(
+            StagingInput(
+                role="atom_index_map",
+                kind=StagingInputKind.METADATA,
+                artifact_id=atom_map_artifact.id,
+                artifact_type=ArtifactType.DERIVED_DATASET,
+                source_relative_path=atom_map_relative.as_posix(),
+                target_relative_path="atom-index-map.json",
+                sha256=atom_map_artifact.sha256 or "",
+                size_bytes=atom_map_artifact.size_bytes or 0,
+            ),
+            StagingInput(
+                role="poscar",
+                kind=StagingInputKind.VASP_INPUT,
+                artifact_id=poscar_artifact.id,
+                artifact_type=ArtifactType.POSCAR,
+                source_relative_path=poscar_relative.as_posix(),
+                target_relative_path="POSCAR",
+                sha256=poscar_artifact.sha256 or "",
+                size_bytes=poscar_artifact.size_bytes or 0,
+            ),
+        ),
+        potcar_resolution=PotcarResolutionRequest(
+            family=method.method.potcar_family,
+            core_method_hash=method.core_method_hash,
+            metadata_hash=canonical_sha256(method.method.potcars),
+            entries=tuple(
+                PotcarResolutionEntry(item.element, item.symbol, item.sha256)
+                for item in method.method.potcars
+            ),
+        ),
+        expected_outputs=(
+            ExpectedOutput(
+                role="outcar",
+                artifact_type=ArtifactType.OUTCAR,
+                relative_path="OUTCAR",
+                retrieval_policy=RetrievalPolicy.ALWAYS,
+                required=True,
+            ),
+        ),
+        runtime_constraints=VaspRuntimeConstraints(),
+        execution_settings=ExecutionSettings(),
+    )
     attempt = ExecutionAttempt(
         calculation_id=calculation.id,
         attempt_number=1,
         status=ExecutionAttemptStatus.PARSED,
+        input_manifest_hash=plan.input_manifest_sha256,
+        execution_plan_hash=plan.plan_hash,
     )
+
+    plan_relative = (
+        Path("calculations") / str(calculation.id) / "attempt-1" / "execution-plan.json"
+    )
+    plan_body = (
+        canonical_json(
+            {"schema_version": 1, "plan_hash": plan.plan_hash, "plan": plan}
+        )
+        + "\n"
+    ).encode("utf-8")
+    plan_path = root / plan_relative
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.write_bytes(plan_body)
+    plan_artifact = Artifact(
+        artifact_type=ArtifactType.EXECUTION_PLAN,
+        producer=ExecutionAttemptProducerRef(attempt.id),
+        availability=ArtifactAvailability.LOCAL,
+        retrieval_policy=RetrievalPolicy.ALWAYS,
+        local_path=plan_relative.as_posix(),
+        size_bytes=len(plan_body),
+        sha256=hashlib.sha256(plan_body).hexdigest(),
+    )
+
     raw_relative = Path("calculations") / str(calculation.id) / "attempt-1" / "OUTCAR"
-    raw_body = f"synthetic exact OUTCAR for {calculation.id}\n".encode()
+    raw_body = _frequency_outcar(
+        energy_ev=energy_ev,
+        wavenumbers=wavenumbers,
+        atom_count=len(snapshot.sites),
+    )
     raw_path = root / raw_relative
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_bytes(raw_body)
-    raw_hash = hashlib.sha256(raw_body).hexdigest()
     raw_artifact = Artifact(
         artifact_type=ArtifactType.OUTCAR,
         producer=ExecutionAttemptProducerRef(attempt.id),
@@ -349,59 +568,37 @@ def _parsed_frequency_source(
         retrieval_policy=RetrievalPolicy.ALWAYS,
         local_path=raw_relative.as_posix(),
         size_bytes=len(raw_body),
-        sha256=raw_hash,
+        sha256=hashlib.sha256(raw_body).hexdigest(),
     )
 
-    atom_uids = tuple(site.atom_uid for site in snapshot.sites)
-    if len(wavenumbers) != 3 * len(atom_uids):
-        raise RuntimeError("frequency acceptance fixture requires exactly 3N modes")
-    result = VaspResultDocument(
-        calculation_type=calculation_type,
-        sources=(
-            VaspResultSource(
-                role=VaspResultSourceRole.OUTCAR,
-                artifact_id=raw_artifact.id,
-                artifact_type=ArtifactType.OUTCAR,
-                sha256=raw_hash,
-            ),
-        ),
-        energies=VaspEnergySummary(
-            free_energy_toten_ev=energy_ev + 0.2,
-            energy_without_entropy_ev=energy_ev + 0.1,
-            energy_sigma0_ev=energy_ev,
-        ),
-        frequencies=VaspFrequencyDataset(
-            atom_uids=atom_uids,
-            displaced_atom_uids=atom_uids,
-            modes=tuple(
-                _mode(
-                    index,
-                    atom_uids=atom_uids,
-                    wavenumber_cm_inverse=wavenumber,
-                )
-                for index, wavenumber in enumerate(wavenumbers, start=1)
-            ),
-        ),
+    intake = build_vasp_result_artifact_intake(
+        project_root=root,
+        calculation=calculation,
+        plan=plan,
+        attempt=attempt,
+        artifacts=(raw_artifact,),
     )
-    intake_hash = canonical_sha256(
-        {
-            "calculation_id": calculation.id,
-            "raw_artifact_id": raw_artifact.id,
-            "raw_sha256": raw_hash,
-            "result": result,
-        }
+    result = parse_vasp_energy_metadata(project_root=root, intake=intake)
+    result = parse_vasp_frequency_results(
+        project_root=root,
+        calculation=calculation,
+        fingerprint=method,
+        plan=plan,
+        intake=intake,
+        input_snapshot=snapshot,
+        result=result,
     )
     parse_analysis = Analysis(
         project_id=project.id,
         analysis_type=AnalysisType.RESULT_PARSE,
-        input_artifact_ids=(raw_artifact.id,),
+        input_artifact_ids=intake.input_artifact_ids,
         status=AnalysisStatus.COMPLETED,
         tool="ecatvasp.vasp.scientific-result-pipeline",
         tool_version="1",
-        parameters_hash=intake_hash,
+        parameters_hash=intake.intake_hash,
     )
     parsed_relative = (
-        Path("calculations") / str(calculation.id) / "scientific" / "parsed.json"
+        Path("calculations") / str(calculation.id) / "scientific" / "parsed-result.json"
     )
     parsed_body = (
         canonical_json(
@@ -410,12 +607,12 @@ def _parsed_frequency_source(
                 "version": VASP_RESULT_DOCUMENT_VERSION,
                 "calculation_id": calculation.id,
                 "analysis_id": parse_analysis.id,
-                "intake_hash": intake_hash,
+                "intake_hash": intake.intake_hash,
                 "result": result,
             }
         )
         + "\n"
-    ).encode()
+    ).encode("utf-8")
     parsed_path = root / parsed_relative
     parsed_path.parent.mkdir(parents=True, exist_ok=True)
     parsed_path.write_bytes(parsed_body)
@@ -466,10 +663,17 @@ def _parsed_frequency_source(
         raw_artifact=raw_artifact,
         parse_analysis=parse_analysis,
         parsed_artifact=parsed_artifact,
+        artifacts=(
+            poscar_artifact,
+            atom_map_artifact,
+            plan_artifact,
+            raw_artifact,
+            parsed_artifact,
+        ),
+        analyses=(parse_analysis,),
         provenance_records=provenance_records,
         dependency_records=dependency_records,
     )
-
 
 def _dos_source(
     *,
