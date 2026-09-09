@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -42,7 +43,8 @@ def main() -> int:
     with TemporaryDirectory(prefix="ecatvasp-installed-e2e-") as directory:
         project_root = Path(directory) / "schema 3 project with spaces"
         project = Project(name="Installed acceptance", slug="installed-acceptance")
-        ProjectStore(project_root).save(ProjectBundle(project=project))
+        store = ProjectStore(project_root)
+        store.save(ProjectBundle(project=project))
 
         process = _start(sidecar)
         try:
@@ -139,12 +141,25 @@ def main() -> int:
         reopened = ProjectStore(project_root).open()
         if reopened.project.id != project.id:
             raise RuntimeError("installed sidecar changed permanent Project identity")
-        if reopened.schema_version != SCHEMA_VERSION:
-            raise RuntimeError("installed acceptance project schema drifted")
+        _assert_store_schema(store)
 
     print(f"Installed desktop: {desktop}")
     print(f"Installed backend: {sidecar}")
     return 0
+
+
+def _assert_store_schema(store: ProjectStore) -> None:
+    connection = sqlite3.connect(store.database_path)
+    try:
+        row = connection.execute(
+            "SELECT value FROM metadata WHERE key = 'schema_version'"
+        ).fetchone()
+    finally:
+        connection.close()
+    if row != (str(SCHEMA_VERSION),):
+        raise RuntimeError(
+            f"installed acceptance ProjectStore schema drifted: expected {SCHEMA_VERSION}, got {row!r}"
+        )
 
 
 def _unique_installed_file(install_dir: Path, name: str) -> Path:
