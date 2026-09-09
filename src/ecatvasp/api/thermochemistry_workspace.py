@@ -330,6 +330,8 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
             "attempt_id": None,
             "source_analysis_id": None,
             "source_artifact_id": None,
+            "structure_snapshot_id": None,
+            "atoms": [],
             "reason": "frequency source is not resolved",
         }
         try:
@@ -347,6 +349,11 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
                 "attempt_id": str(source.attempt.id),
                 "source_analysis_id": str(source.source_analysis.id),
                 "source_artifact_id": str(source.source_artifact.id),
+                "structure_snapshot_id": str(source.snapshot.id),
+                "atoms": [
+                    {"atom_uid": str(site.atom_uid), "element": site.element}
+                    for site in source.snapshot.sites
+                ],
                 "reason": "exact persisted frequency result is canonical-replay verified",
             }
         )
