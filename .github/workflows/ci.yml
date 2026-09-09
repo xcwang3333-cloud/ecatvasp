@@ -137,6 +137,46 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib
       - name: Build Tauri Windows NSIS package
         run: npm run tauri build -- --bundles nsis
+      - name: Install exact NSIS and run installed desktop acceptance
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" |
+            Sort-Object FullName |
+            Select-Object -First 1
+          if ($null -eq $installer) { throw "NSIS installer is missing before installed acceptance" }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "ecatvasp-installed"
+          if (Test-Path $installDir) {
+            Remove-Item -Recurse -Force $installDir
+          }
+
+          try {
+            $install = Start-Process `
+              -FilePath $installer.FullName `
+              -ArgumentList @("/S", "/D=$installDir") `
+              -Wait `
+              -PassThru
+            if ($install.ExitCode -ne 0) {
+              throw "NSIS silent install failed with exit code $($install.ExitCode)"
+            }
+            if (-not (Test-Path $installDir)) {
+              throw "NSIS silent install did not create the isolated install directory"
+            }
+
+            python packaging/smoke_installed_windows.py "$installDir"
+            if ($LASTEXITCODE -ne 0) {
+              throw "installed desktop scientific acceptance failed with exit code $LASTEXITCODE"
+            }
+          }
+          finally {
+            Get-Process "ecatvasp-desktop-backend" -ErrorAction SilentlyContinue |
+              Stop-Process -Force -ErrorAction SilentlyContinue
+            Get-Process "ecatvasp-desktop" -ErrorAction SilentlyContinue |
+              Stop-Process -Force -ErrorAction SilentlyContinue
+            if (Test-Path $installDir) {
+              Remove-Item -Recurse -Force $installDir
+            }
+          }
       - name: Verify packaged Windows outputs
         shell: pwsh
         run: |
