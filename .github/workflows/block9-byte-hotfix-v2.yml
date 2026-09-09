@@ -1,0 +1,98 @@
+name: Block 9 byte-identity hotfix v2
+
+on:
+  push:
+    branches:
+      - feat/v11-block9-installed-desktop-scientific-e2e-acceptance
+
+permissions:
+  contents: write
+
+jobs:
+  apply-hotfix:
+    if: ${{ !contains(github.event.head_commit.message, '[block9-hotfix-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Repair strict matches and execute hotfix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def patch_writer(path: str, *, absolute_name: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              text, count = re.subn(
+                  r'(    text = canonical_json\(payload\) \+ "\\n"\n)',
+                  r'\1    body = text.encode("utf-8")\n',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise RuntimeError(f"{path}: canonical body anchor count={count}")
+              old = f'{absolute_name}.read_text(encoding="utf-8") != text'
+              new = f'{absolute_name}.read_bytes() != body'
+              if text.count(old) != 1:
+                  raise RuntimeError(f"{path}: read anchor count={text.count(old)}")
+              text = text.replace(old, new, 1)
+              old = 'temporary.write_text(text, encoding="utf-8")'
+              if text.count(old) != 1:
+                  raise RuntimeError(f"{path}: write anchor count={text.count(old)}")
+              text = text.replace(old, 'temporary.write_bytes(body)', 1)
+              text, count = re.subn(
+                  r'\n    body = text\.encode\("utf-8"\)\n(?=    return Artifact\()',
+                  '\n',
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise RuntimeError(f"{path}: trailing body anchor count={count}")
+              file.write_text(text, encoding="utf-8", newline="\n")
+
+          patch_writer(
+              "src/ecatvasp/vasp/result_provenance.py",
+              absolute_name="absolute_path",
+          )
+          patch_writer(
+              "src/ecatvasp/thermo/references.py",
+              absolute_name="absolute",
+          )
+
+          workflow = Path(".github/workflows/block9-byte-hotfix.yml").read_text(
+              encoding="utf-8"
+          )
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "          PY\n\n          git diff --check"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          block = workflow[start:end]
+          source = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in block.splitlines()
+          ) + "\n"
+          source = source.replace(
+              "    if count != 1:\n        raise RuntimeError(f\"{path}: expected one match, found {count}: {old!r}\")",
+              "    if count == 0:\n        return\n    if count != 1:\n        raise RuntimeError(f\"{path}: expected one match, found {count}: {old!r}\")",
+              1,
+          )
+          exec(compile(source, "block9-byte-hotfix-extracted.py", "exec"), {})
+          PY
+
+          git diff --check
+          git status --short
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/ecatvasp/vasp/result_provenance.py \
+                  src/ecatvasp/thermo/references.py \
+                  src/ecatvasp/execution/slurm.py \
+                  src/ecatvasp/execution/monitoring.py \
+                  src/ecatvasp/execution/retrieval.py \
+                  ui/desktop/packaging/installed_acceptance_fixture.py \
+                  tests/test_v05_result_provenance.py \
+                  tests/test_reference_corrections.py
+          git commit -m "[block9-hotfix-applied] fix: harden durable artifact byte identity"
+          git push origin HEAD:feat/v11-block9-installed-desktop-scientific-e2e-acceptance
