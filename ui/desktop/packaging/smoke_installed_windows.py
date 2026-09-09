@@ -40,7 +40,7 @@ def main() -> int:
     _assert_within_install_dir(install_dir, sidecar)
 
     with TemporaryDirectory(prefix="ecatvasp-installed-e2e-") as directory:
-        project_root = Path(directory) / "schema3-project"
+        project_root = Path(directory) / "schema 3 project with spaces"
         project = Project(name="Installed acceptance", slug="installed-acceptance")
         ProjectStore(project_root).save(ProjectBundle(project=project))
 
@@ -110,6 +110,31 @@ def main() -> int:
             _assert_v2_health(recovered)
         finally:
             _finish(process)
+
+        restarted = _start(sidecar)
+        try:
+            dashboard_after_restart = _exchange(
+                restarted,
+                {
+                    "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+                    "request_id": "installed-dashboard-after-restart",
+                    "operation": "project_dashboard",
+                    "project_root": str(project_root),
+                },
+            )
+            _assert_dashboard(dashboard_after_restart, project_id=str(project.id))
+            _assert_v2_health(
+                _exchange(
+                    restarted,
+                    {
+                        "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+                        "request_id": "installed-v2-health-after-restart",
+                        "operation": "health",
+                    },
+                )
+            )
+        finally:
+            _finish(restarted)
 
         reopened = ProjectStore(project_root).open()
         if reopened.project.id != project.id:
@@ -239,8 +264,7 @@ def _assert_dashboard(response: dict[str, Any], *, project_id: str) -> None:
     dashboard = payload.get("dashboard")
     if not isinstance(dashboard, dict):
         raise RuntimeError("installed backend project dashboard is missing")
-    project = dashboard.get("project")
-    if not isinstance(project, dict) or project.get("project_id") != project_id:
+    if dashboard.get("project_id") != project_id:
         raise RuntimeError("installed backend dashboard belongs to the wrong Project")
     if dashboard.get("schema_version") != SCHEMA_VERSION:
         raise RuntimeError("installed backend dashboard schema mismatch")
