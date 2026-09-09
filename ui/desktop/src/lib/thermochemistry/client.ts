@@ -122,7 +122,7 @@ export class ThermochemistryClient {
   ): Promise<T> {
     if (!projectRoot.trim()) throw new Error("project root must not be blank");
     const requestId = `thermochemistry-v2-${++this.sequence}`;
-    const raw = await this.invokeFn<string>("backend_exchange", {
+    const raw = await this.invokeFn<string>("backend_exchange_block7", {
       requestJson: JSON.stringify({
         protocol_version: THERMOCHEMISTRY_IPC_VERSION,
         request_id: requestId,
