@@ -682,7 +682,9 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             )
             for binding in prepared.bindings
         )
-        expected_descriptors = _json_value(prepared.descriptors)
+        expected_descriptors = _json_value(
+            tuple(sorted(prepared.descriptors, key=lambda item: item.key))
+        )
         expected_baseline = _json_value(prepared.baseline_conditions)
         expected_requested = _json_value(prepared.requested_conditions)
         matches: list[tuple[Analysis, Artifact]] = []
