@@ -482,9 +482,7 @@ def _validate_source_contract(
             "parsed-result Artifact requires hash and byte size"
         )
     if source_result.calculation_type is not calculation.calculation_type:
-        raise HarmonicThermochemistryError(
-            "parsed VASP result CalculationType differs"
-        )
+        raise HarmonicThermochemistryError("parsed VASP result CalculationType differs")
 
 
 def _validate_frequency_snapshot(
@@ -494,9 +492,7 @@ def _validate_frequency_snapshot(
 ) -> None:
     frequencies = source_result.frequencies
     if frequencies is None:
-        raise HarmonicThermochemistryError(
-            "parsed VASP result has no frequency dataset"
-        )
+        raise HarmonicThermochemistryError("parsed VASP result has no frequency dataset")
     snapshot_uids = tuple(site.atom_uid for site in snapshot.sites)
     if set(frequencies.atom_uids) != set(snapshot_uids):
         raise HarmonicThermochemistryError(
@@ -521,18 +517,12 @@ def _verify_parsed_result_artifact(
         )
     absolute = (root / Path(*relative.parts)).resolve()
     if not absolute.is_relative_to(root) or not absolute.is_file():
-        raise HarmonicThermochemistryError(
-            "parsed-result Artifact file is unavailable"
-        )
+        raise HarmonicThermochemistryError("parsed-result Artifact file is unavailable")
     body = absolute.read_bytes()
     if source_artifact.size_bytes != len(body):
-        raise HarmonicThermochemistryError(
-            "parsed-result Artifact byte size differs"
-        )
+        raise HarmonicThermochemistryError("parsed-result Artifact byte size differs")
     if source_artifact.sha256 != hashlib.sha256(body).hexdigest():
-        raise HarmonicThermochemistryError(
-            "parsed-result Artifact SHA-256 differs"
-        )
+        raise HarmonicThermochemistryError("parsed-result Artifact SHA-256 differs")
     try:
         payload_raw = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -541,13 +531,9 @@ def _verify_parsed_result_artifact(
         ) from error
     payload = _mapping(payload_raw, "parsed-result payload")
     if payload.get("format") != VASP_RESULT_DOCUMENT_FORMAT:
-        raise HarmonicThermochemistryError(
-            "parsed-result Artifact format is unsupported"
-        )
+        raise HarmonicThermochemistryError("parsed-result Artifact format is unsupported")
     if payload.get("version") != VASP_RESULT_DOCUMENT_VERSION:
-        raise HarmonicThermochemistryError(
-            "parsed-result Artifact version is unsupported"
-        )
+        raise HarmonicThermochemistryError("parsed-result Artifact version is unsupported")
     if payload.get("calculation_id") != str(calculation.id):
         raise HarmonicThermochemistryError(
             "parsed-result Artifact belongs to another Calculation"
@@ -579,25 +565,25 @@ def _write_result_artifact(
             "thermochemistry output path resolves outside project_root"
         )
     text = canonical_json(payload) + "\n"
+    body = text.encode("utf-8")
     absolute.parent.mkdir(parents=True, exist_ok=True)
     if absolute.exists():
         if not absolute.is_file():
             raise HarmonicThermochemistryError(
                 "thermochemistry output path is not a regular file"
             )
-        if absolute.read_text(encoding="utf-8") != text:
+        if absolute.read_bytes() != body:
             raise HarmonicThermochemistryError(
                 "thermochemistry output path already has different content"
             )
     else:
         temporary = absolute.with_name(f".{absolute.name}.tmp")
         try:
-            temporary.write_text(text, encoding="utf-8")
+            temporary.write_bytes(body)
             os.replace(temporary, absolute)
         finally:
             if temporary.exists():
                 temporary.unlink()
-    body = text.encode("utf-8")
     return Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
         producer=AnalysisProducerRef(analysis.id),
@@ -610,10 +596,6 @@ def _write_result_artifact(
 
 
 def _mapping(value: object, field_name: str) -> dict[str, object]:
-    if not isinstance(value, dict) or any(
-        not isinstance(key, str) for key in value
-    ):
-        raise HarmonicThermochemistryError(
-            f"{field_name} must be a JSON object"
-        )
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        raise HarmonicThermochemistryError(f"{field_name} must be a JSON object")
     return value
