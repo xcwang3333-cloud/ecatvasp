@@ -83,8 +83,9 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "materialize_harmonic_thermochemistry",
         "materialize_gas_reference",
         "thermochemistry_view",
-        "reaction_preset_preview",
+        "reaction_preview",
         "materialize_reaction_diagram",
+        "reaction_diagram_view",
     ]
     assert SCHEMA_VERSION == 3
 
