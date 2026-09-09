@@ -11,6 +11,13 @@ from __future__ import annotations
 from uuid import UUID
 
 from ecatvasp.api.application import ApplicationServiceError, ProjectApplicationService
+from ecatvasp.api.thermochemistry_reaction_support import (
+    ReactionRoleBinding,
+    build_reaction_workspace_context,
+    find_existing_reaction_diagram,
+    materialize_context_reaction_diagram,
+    required_roles,
+)
 from ecatvasp.api.thermochemistry_workspace_support import (
     GAS_OUTPUT,
     HARMONIC_OUTPUT,
@@ -39,6 +46,7 @@ from ecatvasp.thermo import (
     CANONICAL_HARMONIC_THERMOCHEMISTRY_VERSION,
     CANONICAL_IDEAL_GAS_THERMOCHEMISTRY_FORMAT,
     CANONICAL_IDEAL_GAS_THERMOCHEMISTRY_VERSION,
+    CHEPhSemantics,
     HARMONIC_THERMOCHEMISTRY_TOOL_NAME,
     HARMONIC_THERMOCHEMISTRY_TOOL_VERSION,
     IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME,
@@ -46,6 +54,8 @@ from ecatvasp.thermo import (
     INITIAL_GAS_REFERENCE_REGISTRY,
     DurableGasThermochemistry,
     DurableHarmonicThermochemistry,
+    ElectrocatalysisPresetKind,
+    ElectrodePotentialReference,
     ElectronicEnergyKind,
     ElectronicEntropyPolicy,
     GasAtomicMass,
@@ -100,6 +110,13 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
                     "reference_hash": item.content_hash,
                 }
                 for item in INITIAL_GAS_REFERENCE_REGISTRY
+            ],
+            "reaction_presets": [
+                {
+                    "preset_kind": kind.value,
+                    "required_roles": list(required_roles(kind)),
+                }
+                for kind in ElectrocatalysisPresetKind
             ],
             "analyses": analyses,
         }
@@ -271,6 +288,83 @@ class ProjectThermochemistryApplicationService(ProjectApplicationService):
             calculation_id=source.calculation.id,
             reused=False,
         )
+
+    def reaction_preview(
+        self,
+        *,
+        preset_kind: ElectrocatalysisPresetKind,
+        role_bindings: tuple[ReactionRoleBinding, ...],
+        baseline_potential_v: float,
+        baseline_ph: float,
+        baseline_potential_reference: ElectrodePotentialReference,
+        baseline_ph_semantics: CHEPhSemantics,
+        requested_potential_v: float,
+        requested_ph: float,
+        requested_potential_reference: ElectrodePotentialReference,
+        requested_ph_semantics: CHEPhSemantics,
+    ) -> dict[str, object]:
+        context = build_reaction_workspace_context(
+            store=self.store,
+            preset_kind=preset_kind,
+            role_bindings=role_bindings,
+            baseline_potential_v=baseline_potential_v,
+            baseline_ph=baseline_ph,
+            baseline_potential_reference=baseline_potential_reference,
+            baseline_ph_semantics=baseline_ph_semantics,
+            requested_potential_v=requested_potential_v,
+            requested_ph=requested_ph,
+            requested_potential_reference=requested_potential_reference,
+            requested_ph_semantics=requested_ph_semantics,
+        )
+        return context.preview_payload
+
+    def materialize_reaction_diagram(
+        self,
+        *,
+        preset_kind: ElectrocatalysisPresetKind,
+        role_bindings: tuple[ReactionRoleBinding, ...],
+        baseline_potential_v: float,
+        baseline_ph: float,
+        baseline_potential_reference: ElectrodePotentialReference,
+        baseline_ph_semantics: CHEPhSemantics,
+        requested_potential_v: float,
+        requested_ph: float,
+        requested_potential_reference: ElectrodePotentialReference,
+        requested_ph_semantics: CHEPhSemantics,
+    ) -> dict[str, object]:
+        context = build_reaction_workspace_context(
+            store=self.store,
+            preset_kind=preset_kind,
+            role_bindings=role_bindings,
+            baseline_potential_v=baseline_potential_v,
+            baseline_ph=baseline_ph,
+            baseline_potential_reference=baseline_potential_reference,
+            baseline_ph_semantics=baseline_ph_semantics,
+            requested_potential_v=requested_potential_v,
+            requested_ph=requested_ph,
+            requested_potential_reference=requested_potential_reference,
+            requested_ph_semantics=requested_ph_semantics,
+        )
+        existing = find_existing_reaction_diagram(store=self.store, context=context)
+        if existing is not None:
+            return {
+                "analysis_id": str(existing[0].id),
+                "artifact_id": str(existing[1].id),
+                "dataset_hash": existing[0].parameters_hash,
+                "reused": True,
+                "preview": context.preview_payload,
+            }
+        materialization = materialize_context_reaction_diagram(
+            store=self.store,
+            context=context,
+        )
+        return {
+            "analysis_id": str(materialization.analysis.id),
+            "artifact_id": str(materialization.artifact.id),
+            "dataset_hash": materialization.dataset.result_hash,
+            "reused": False,
+            "preview": context.preview_payload,
+        }
 
     def analysis_view(self, *, analysis_id: AnalysisId) -> dict[str, object]:
         bundle = self.store.open()
