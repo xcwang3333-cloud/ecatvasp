@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from ecatvasp.api.read_request_store import RequestScopedVerifiedReadStore
 from ecatvasp.api.thermochemistry_workspace import ProjectThermochemistryApplicationService
 from ecatvasp.desktop.protocol_v2_thermochemistry import (
     DesktopV2GasAtomicMass,
@@ -29,7 +30,7 @@ from ecatvasp.thermo import (
 
 def thermochemistry_catalog_action(project_root: Path | str) -> dict[str, object]:
     root = Path(project_root)
-    service = ProjectThermochemistryApplicationService(ProjectStore(root))
+    service = ProjectThermochemistryApplicationService(RequestScopedVerifiedReadStore(root))
     return {"project_root": str(root), **service.catalog()}
 
 
@@ -120,7 +121,7 @@ def thermochemistry_view_action(
     analysis_id: str,
 ) -> dict[str, object]:
     root = Path(project_root)
-    service = ProjectThermochemistryApplicationService(ProjectStore(root))
+    service = ProjectThermochemistryApplicationService(RequestScopedVerifiedReadStore(root))
     return {
         "project_root": str(root),
         **service.analysis_view(analysis_id=AnalysisId(UUID(analysis_id))),
