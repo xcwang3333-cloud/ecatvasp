@@ -1,14 +1,15 @@
 """Preset-bound electrocatalysis reaction workspace for v1.1 Block 7.
 
-All chemistry is delegated to the frozen v0.8 preset, CHE, reaction, descriptor, and reaction-diagram
-engines. The application layer accepts only durable THERMOCHEMISTRY Analysis identities plus explicit
-CHE conditions; it never accepts a free-energy table or user-supplied scientific hashes.
+All chemistry is delegated to the frozen v0.8 preset, CHE, reaction, descriptor, and
+reaction-diagram engines. The application layer accepts only durable THERMOCHEMISTRY Analysis
+identities plus explicit CHE conditions; it never accepts a free-energy table or scientific hashes.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import cast
 
 from ecatvasp.api.application import ApplicationServiceError, ProjectApplicationService
 from ecatvasp.api.reaction_workspace_support import (
@@ -23,7 +24,14 @@ from ecatvasp.api.thermochemistry_workspace_support import (
     require_analysis,
     require_artifact,
 )
-from ecatvasp.domain import Analysis, AnalysisId, AnalysisStatus, AnalysisType, canonical_json
+from ecatvasp.domain import (
+    Analysis,
+    AnalysisId,
+    AnalysisStatus,
+    AnalysisType,
+    Artifact,
+    canonical_json,
+)
 from ecatvasp.thermo import (
     REACTION_DIAGRAM_TOOL_NAME,
     REACTION_DIAGRAM_TOOL_VERSION,
@@ -69,6 +77,7 @@ _O2 = "O2"
 _CO2 = "CO2"
 _CO = "CO"
 _CHE = "H_plus_e"
+_CHE_H2 = "CHE_H2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +140,7 @@ class PreparedReactionWorkspace:
 
 
 class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
-    """Project-scoped reaction preview/materialization over canonical v0.8 scientific data."""
+    """Project-scoped reaction preview/materialization over canonical v0.8 data."""
 
     def preview_preset(
         self,
@@ -184,6 +193,7 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
                 "preset_kind": preset_kind.value,
                 "reused": True,
             }
+
         durable = materialize_reaction_diagram(
             project_root=self.store.root,
             definition=prepared.preset.definition,
@@ -245,7 +255,9 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             return self._prepare_oer(bindings, baseline_conditions, requested_conditions)
         if preset_kind is ElectrocatalysisPresetKind.CO2RR_TO_CO_2E:
             if not isinstance(bindings, CO2RRToCOPresetAnalysisBindings):
-                raise ApplicationServiceError("CO2RR-to-CO preset requires CO2RR analysis bindings")
+                raise ApplicationServiceError(
+                    "CO2RR-to-CO preset requires CO2RR analysis bindings"
+                )
             return self._prepare_co2rr(bindings, baseline_conditions, requested_conditions)
         raise ApplicationServiceError("unsupported electrocatalysis preset kind")
 
@@ -255,9 +267,21 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         baseline_conditions: CHEConditions,
         requested_conditions: CHEConditions,
     ) -> PreparedReactionWorkspace:
-        clean = self._surface(bindings.clean_surface_analysis_id, _CLEAN, ThermochemistrySubjectKind.SURFACE)
-        h_star = self._surface(bindings.h_adsorbed_analysis_id, _H_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        h2 = self._molecular(bindings.h2_reference_analysis_id, _H2, GasReferenceSpecies.H2)
+        clean = self._surface(
+            bindings.clean_surface_analysis_id,
+            _CLEAN,
+            ThermochemistrySubjectKind.SURFACE,
+        )
+        h_star = self._surface(
+            bindings.h_adsorbed_analysis_id,
+            _H_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        h2 = self._molecular(
+            bindings.h2_reference_analysis_id,
+            _H2,
+            GasReferenceSpecies.H2,
+        )
         che = _che_source(h2, baseline_conditions)
         preset = compile_her_volmer_heyrovsky_preset(
             pathway_key=ElectrocatalysisPresetKind.HER_VOLMER_HEYROVSKY.value,
@@ -272,7 +296,10 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             h2.source,
             che,
         )
-        baseline = evaluate_reaction_pathway(definition=preset.definition, sources=sources)
+        baseline = evaluate_reaction_pathway(
+            definition=preset.definition,
+            sources=sources,
+        )
         limiting = solve_limiting_potential(
             baseline_pathway=baseline,
             baseline_conditions=baseline_conditions,
@@ -291,9 +318,18 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             h2_reference=h2.source,
         )
         descriptors = (
-            define_limiting_potential_descriptor(key="limiting_potential", result=limiting),
-            define_reversible_potential_descriptor(key="reversible_potential", result=reversible),
-            define_her_delta_g_h_star_descriptor(key="delta_g_h_star", result=adsorption),
+            define_limiting_potential_descriptor(
+                key="limiting_potential",
+                result=limiting,
+            ),
+            define_reversible_potential_descriptor(
+                key="reversible_potential",
+                result=reversible,
+            ),
+            define_her_delta_g_h_star_descriptor(
+                key="delta_g_h_star",
+                result=adsorption,
+            ),
         )
         return _prepared(
             preset=preset,
@@ -311,13 +347,41 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         baseline_conditions: CHEConditions,
         requested_conditions: CHEConditions,
     ) -> PreparedReactionWorkspace:
-        clean = self._surface(bindings.clean_surface_analysis_id, _CLEAN, ThermochemistrySubjectKind.SURFACE)
-        ooh = self._surface(bindings.ooh_adsorbed_analysis_id, _OOH_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        oxygen = self._surface(bindings.o_adsorbed_analysis_id, _O_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        hydroxyl = self._surface(bindings.oh_adsorbed_analysis_id, _OH_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        o2 = self._molecular(bindings.o2_reference_analysis_id, _O2, GasReferenceSpecies.O2)
-        h2o = self._molecular(bindings.h2o_reference_analysis_id, _H2O, GasReferenceSpecies.H2O)
-        h2 = self._molecular(bindings.h2_reference_analysis_id, "CHE_H2", GasReferenceSpecies.H2)
+        clean = self._surface(
+            bindings.clean_surface_analysis_id,
+            _CLEAN,
+            ThermochemistrySubjectKind.SURFACE,
+        )
+        ooh = self._surface(
+            bindings.ooh_adsorbed_analysis_id,
+            _OOH_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        oxygen = self._surface(
+            bindings.o_adsorbed_analysis_id,
+            _O_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        hydroxyl = self._surface(
+            bindings.oh_adsorbed_analysis_id,
+            _OH_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        o2 = self._molecular(
+            bindings.o2_reference_analysis_id,
+            _O2,
+            GasReferenceSpecies.O2,
+        )
+        h2o = self._molecular(
+            bindings.h2o_reference_analysis_id,
+            _H2O,
+            GasReferenceSpecies.H2O,
+        )
+        h2 = self._molecular(
+            bindings.h2_reference_analysis_id,
+            _CHE_H2,
+            GasReferenceSpecies.H2,
+        )
         che = _che_source(h2, baseline_conditions)
         preset = compile_orr_associative_4e_preset(
             pathway_key=ElectrocatalysisPresetKind.ORR_ASSOCIATIVE_4E.value,
@@ -341,7 +405,14 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         return self._prepare_pathway(
             preset=preset,
             sources=sources,
-            bindings=(clean.binding, ooh.binding, oxygen.binding, hydroxyl.binding, o2.binding, h2o.binding),
+            bindings=(
+                clean.binding,
+                ooh.binding,
+                oxygen.binding,
+                hydroxyl.binding,
+                o2.binding,
+                h2o.binding,
+            ),
             baseline_conditions=baseline_conditions,
             requested_conditions=requested_conditions,
         )
@@ -352,13 +423,41 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         baseline_conditions: CHEConditions,
         requested_conditions: CHEConditions,
     ) -> PreparedReactionWorkspace:
-        clean = self._surface(bindings.clean_surface_analysis_id, _CLEAN, ThermochemistrySubjectKind.SURFACE)
-        hydroxyl = self._surface(bindings.oh_adsorbed_analysis_id, _OH_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        oxygen = self._surface(bindings.o_adsorbed_analysis_id, _O_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        ooh = self._surface(bindings.ooh_adsorbed_analysis_id, _OOH_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        h2o = self._molecular(bindings.h2o_reference_analysis_id, _H2O, GasReferenceSpecies.H2O)
-        o2 = self._molecular(bindings.o2_reference_analysis_id, _O2, GasReferenceSpecies.O2)
-        h2 = self._molecular(bindings.h2_reference_analysis_id, "CHE_H2", GasReferenceSpecies.H2)
+        clean = self._surface(
+            bindings.clean_surface_analysis_id,
+            _CLEAN,
+            ThermochemistrySubjectKind.SURFACE,
+        )
+        hydroxyl = self._surface(
+            bindings.oh_adsorbed_analysis_id,
+            _OH_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        oxygen = self._surface(
+            bindings.o_adsorbed_analysis_id,
+            _O_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        ooh = self._surface(
+            bindings.ooh_adsorbed_analysis_id,
+            _OOH_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        h2o = self._molecular(
+            bindings.h2o_reference_analysis_id,
+            _H2O,
+            GasReferenceSpecies.H2O,
+        )
+        o2 = self._molecular(
+            bindings.o2_reference_analysis_id,
+            _O2,
+            GasReferenceSpecies.O2,
+        )
+        h2 = self._molecular(
+            bindings.h2_reference_analysis_id,
+            _CHE_H2,
+            GasReferenceSpecies.H2,
+        )
         che = _che_source(h2, baseline_conditions)
         preset = compile_oer_associative_4e_preset(
             pathway_key=ElectrocatalysisPresetKind.OER_ASSOCIATIVE_4E.value,
@@ -379,7 +478,10 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             o2.source,
             che,
         )
-        baseline = evaluate_reaction_pathway(definition=preset.definition, sources=sources)
+        baseline = evaluate_reaction_pathway(
+            definition=preset.definition,
+            sources=sources,
+        )
         limiting = solve_limiting_potential(
             baseline_pathway=baseline,
             baseline_conditions=baseline_conditions,
@@ -393,14 +495,30 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             baseline_conditions=baseline_conditions,
         )
         descriptors = (
-            define_limiting_potential_descriptor(key="limiting_potential", result=limiting),
-            define_reversible_potential_descriptor(key="reversible_potential", result=reversible),
-            define_oer_overpotential_descriptor(key="oer_overpotential", result=overpotential),
+            define_limiting_potential_descriptor(
+                key="limiting_potential",
+                result=limiting,
+            ),
+            define_reversible_potential_descriptor(
+                key="reversible_potential",
+                result=reversible,
+            ),
+            define_oer_overpotential_descriptor(
+                key="oer_overpotential",
+                result=overpotential,
+            ),
         )
         return _prepared(
             preset=preset,
             sources=sources,
-            bindings=(clean.binding, hydroxyl.binding, oxygen.binding, ooh.binding, h2o.binding, o2.binding),
+            bindings=(
+                clean.binding,
+                hydroxyl.binding,
+                oxygen.binding,
+                ooh.binding,
+                h2o.binding,
+                o2.binding,
+            ),
             baseline=baseline,
             baseline_conditions=baseline_conditions,
             requested_conditions=requested_conditions,
@@ -413,13 +531,41 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         baseline_conditions: CHEConditions,
         requested_conditions: CHEConditions,
     ) -> PreparedReactionWorkspace:
-        clean = self._surface(bindings.clean_surface_analysis_id, _CLEAN, ThermochemistrySubjectKind.SURFACE)
-        cooh = self._surface(bindings.cooh_adsorbed_analysis_id, _COOH_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        co_star = self._surface(bindings.co_adsorbed_analysis_id, _CO_STAR, ThermochemistrySubjectKind.ADSORBATE)
-        co2 = self._molecular(bindings.co2_reference_analysis_id, _CO2, GasReferenceSpecies.CO2)
-        h2o = self._molecular(bindings.h2o_reference_analysis_id, _H2O, GasReferenceSpecies.H2O)
-        co = self._molecular(bindings.co_reference_analysis_id, _CO, GasReferenceSpecies.CO)
-        h2 = self._molecular(bindings.h2_reference_analysis_id, "CHE_H2", GasReferenceSpecies.H2)
+        clean = self._surface(
+            bindings.clean_surface_analysis_id,
+            _CLEAN,
+            ThermochemistrySubjectKind.SURFACE,
+        )
+        cooh = self._surface(
+            bindings.cooh_adsorbed_analysis_id,
+            _COOH_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        co_star = self._surface(
+            bindings.co_adsorbed_analysis_id,
+            _CO_STAR,
+            ThermochemistrySubjectKind.ADSORBATE,
+        )
+        co2 = self._molecular(
+            bindings.co2_reference_analysis_id,
+            _CO2,
+            GasReferenceSpecies.CO2,
+        )
+        h2o = self._molecular(
+            bindings.h2o_reference_analysis_id,
+            _H2O,
+            GasReferenceSpecies.H2O,
+        )
+        co = self._molecular(
+            bindings.co_reference_analysis_id,
+            _CO,
+            GasReferenceSpecies.CO,
+        )
+        h2 = self._molecular(
+            bindings.h2_reference_analysis_id,
+            _CHE_H2,
+            GasReferenceSpecies.H2,
+        )
         che = _che_source(h2, baseline_conditions)
         preset = compile_co2rr_to_co_2e_preset(
             pathway_key=ElectrocatalysisPresetKind.CO2RR_TO_CO_2E.value,
@@ -443,7 +589,14 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         return self._prepare_pathway(
             preset=preset,
             sources=sources,
-            bindings=(clean.binding, cooh.binding, co_star.binding, co2.binding, h2o.binding, co.binding),
+            bindings=(
+                clean.binding,
+                cooh.binding,
+                co_star.binding,
+                co2.binding,
+                h2o.binding,
+                co.binding,
+            ),
             baseline_conditions=baseline_conditions,
             requested_conditions=requested_conditions,
         )
@@ -457,7 +610,10 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         baseline_conditions: CHEConditions,
         requested_conditions: CHEConditions,
     ) -> PreparedReactionWorkspace:
-        baseline = evaluate_reaction_pathway(definition=preset.definition, sources=sources)
+        baseline = evaluate_reaction_pathway(
+            definition=preset.definition,
+            sources=sources,
+        )
         limiting = solve_limiting_potential(
             baseline_pathway=baseline,
             baseline_conditions=baseline_conditions,
@@ -467,8 +623,14 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
             baseline_conditions=baseline_conditions,
         )
         descriptors = (
-            define_limiting_potential_descriptor(key="limiting_potential", result=limiting),
-            define_reversible_potential_descriptor(key="reversible_potential", result=reversible),
+            define_limiting_potential_descriptor(
+                key="limiting_potential",
+                result=limiting,
+            ),
+            define_reversible_potential_descriptor(
+                key="reversible_potential",
+                result=reversible,
+            ),
         )
         return _prepared(
             preset=preset,
@@ -509,7 +671,7 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
     def _find_existing_diagram(
         self,
         prepared: PreparedReactionWorkspace,
-    ) -> tuple[Analysis, object] | None:
+    ) -> tuple[Analysis, Artifact] | None:
         bundle = self.store.open()
         expected_bindings = sorted(
             (
@@ -523,7 +685,7 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
         expected_descriptors = _json_value(prepared.descriptors)
         expected_baseline = _json_value(prepared.baseline_conditions)
         expected_requested = _json_value(prepared.requested_conditions)
-        matches: list[tuple[Analysis, object]] = []
+        matches: list[tuple[Analysis, Artifact]] = []
         for analysis in bundle.analyses:
             if analysis.analysis_type is not AnalysisType.REACTION_DIAGRAM:
                 continue
@@ -539,10 +701,16 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
                 bundle=bundle,
                 analysis=analysis,
             )
-            dataset = canonical.payload.get("dataset")
-            if not isinstance(dataset, dict):
-                raise ApplicationServiceError("canonical reaction diagram dataset must be a mapping")
-            if dataset.get("pathway_definition_hash") != prepared.preset.definition.content_hash:
+            dataset_raw = canonical.payload.get("dataset")
+            if not isinstance(dataset_raw, dict):
+                raise ApplicationServiceError(
+                    "canonical reaction diagram dataset must be a mapping"
+                )
+            dataset = cast(dict[str, object], dataset_raw)
+            if (
+                dataset.get("pathway_definition_hash")
+                != prepared.preset.definition.content_hash
+            ):
                 continue
             if dataset.get("baseline_conditions") != expected_baseline:
                 continue
@@ -550,25 +718,44 @@ class ProjectReactionWorkspaceApplicationService(ProjectApplicationService):
                 continue
             if dataset.get("descriptor_definitions") != expected_descriptors:
                 continue
-            receipts = dataset.get("source_receipts")
-            if not isinstance(receipts, list):
-                raise ApplicationServiceError("canonical reaction source receipts must be a list")
-            observed_bindings = sorted(
-                (
-                    str(item.get("species_key")),
-                    str(item.get("analysis_id")),
-                    str(item.get("artifact_id")),
-                    item.get("artifact_sha256"),
+            receipts_raw = dataset.get("source_receipts")
+            if not isinstance(receipts_raw, list):
+                raise ApplicationServiceError(
+                    "canonical reaction source receipts must be a list"
                 )
-                for item in receipts
-                if isinstance(item, dict)
+            observed_bindings = sorted(
+                _receipt_binding(item) for item in receipts_raw
             )
             if observed_bindings != expected_bindings:
                 continue
             matches.append((analysis, canonical.artifact))
         if len(matches) > 1:
-            raise ApplicationServiceError("duplicate exact reaction-diagram Analyses exist")
+            raise ApplicationServiceError(
+                "duplicate exact reaction-diagram Analyses exist"
+            )
         return matches[0] if matches else None
+
+
+def _receipt_binding(value: object) -> tuple[str, str, str, object]:
+    if not isinstance(value, dict):
+        raise ApplicationServiceError(
+            "canonical reaction source receipt must be a mapping"
+        )
+    item = cast(dict[str, object], value)
+    species_key = item.get("species_key")
+    analysis_id = item.get("analysis_id")
+    artifact_id = item.get("artifact_id")
+    artifact_sha = item.get("artifact_sha256")
+    if not all(isinstance(field, str) for field in (species_key, analysis_id, artifact_id)):
+        raise ApplicationServiceError(
+            "canonical reaction source receipt requires string identities"
+        )
+    return (
+        cast(str, species_key),
+        cast(str, analysis_id),
+        cast(str, artifact_id),
+        artifact_sha,
+    )
 
 
 def _che_source(
