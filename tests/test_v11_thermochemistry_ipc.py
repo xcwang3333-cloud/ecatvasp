@@ -7,6 +7,11 @@ import pytest
 
 from ecatvasp.desktop.protocol import DesktopIPCError
 from ecatvasp.desktop.protocol_v2_common import DESKTOP_IPC_V2_CONTRACT_VERSION
+from ecatvasp.desktop.protocol_v2_reaction import (
+    DesktopV2MaterializeReactionDiagramRequest,
+    DesktopV2ReactionDiagramViewRequest,
+    DesktopV2ReactionPreviewRequest,
+)
 from ecatvasp.desktop.protocol_v2_thermochemistry import (
     DesktopV2MaterializeGasReferenceRequest,
     DesktopV2MaterializeHarmonicThermochemistryRequest,
@@ -70,6 +75,32 @@ def _gas() -> dict[str, object]:
     }
 
 
+def _reaction(operation: str = "reaction_preview") -> dict[str, object]:
+    return {
+        **_base(operation),
+        "preset_kind": "her_volmer_heyrovsky",
+        "bindings": {
+            "clean_surface_analysis_id": str(uuid4()),
+            "h_adsorbed_analysis_id": str(uuid4()),
+            "h2_reference_analysis_id": str(uuid4()),
+        },
+        "baseline_conditions": {
+            "temperature_k": 298.15,
+            "potential_v": 0.0,
+            "ph": 0.0,
+            "potential_reference": "she",
+            "ph_semantics": "explicit_activity",
+        },
+        "requested_conditions": {
+            "temperature_k": 298.15,
+            "potential_v": -0.2,
+            "ph": 0.0,
+            "potential_reference": "she",
+            "ph_semantics": "explicit_activity",
+        },
+    }
+
+
 def test_block7_decodes_operation_specific_thermochemistry_requests() -> None:
     catalog = decode_desktop_v2_block7_request(
         json.dumps(_base("thermochemistry_catalog"))
@@ -94,6 +125,27 @@ def test_block7_decodes_operation_specific_thermochemistry_requests() -> None:
     assert isinstance(view, DesktopV2ThermochemistryViewRequest)
 
 
+def test_block7_decodes_operation_specific_reaction_requests() -> None:
+    preview = decode_desktop_v2_block7_request(json.dumps(_reaction()))
+    assert isinstance(preview, DesktopV2ReactionPreviewRequest)
+    assert preview.preset_kind == "her_volmer_heyrovsky"
+
+    materialize = decode_desktop_v2_block7_request(
+        json.dumps(_reaction("materialize_reaction_diagram"))
+    )
+    assert isinstance(materialize, DesktopV2MaterializeReactionDiagramRequest)
+
+    view = decode_desktop_v2_block7_request(
+        json.dumps(
+            {
+                **_base("reaction_diagram_view"),
+                "analysis_id": str(uuid4()),
+            }
+        )
+    )
+    assert isinstance(view, DesktopV2ReactionDiagramViewRequest)
+
+
 def test_block7_rejects_generic_scientific_escape_hatches() -> None:
     for field, value in (
         ("payload", {"energy_ev": -10.0}),
@@ -106,6 +158,11 @@ def test_block7_rejects_generic_scientific_escape_hatches() -> None:
         request[field] = value
         with pytest.raises(DesktopIPCError, match="unknown fields"):
             decode_desktop_v2_block7_request(json.dumps(request))
+
+        reaction = _reaction()
+        reaction[field] = value
+        with pytest.raises(DesktopIPCError, match="unknown fields"):
+            decode_desktop_v2_block7_request(json.dumps(reaction))
 
 
 def test_block7_rejects_unknown_nested_thermochemistry_fields() -> None:
@@ -126,6 +183,30 @@ def test_block7_rejects_unknown_nested_thermochemistry_fields() -> None:
     mass["element"] = "H"
     with pytest.raises(DesktopIPCError, match="unknown fields"):
         decode_desktop_v2_block7_request(json.dumps(gas))
+
+
+def test_block7_rejects_unknown_nested_reaction_fields() -> None:
+    reaction = _reaction()
+    bindings = reaction["bindings"]
+    assert isinstance(bindings, dict)
+    bindings["clean_surface_energy_ev"] = -10.0
+    with pytest.raises(DesktopIPCError, match="unknown fields"):
+        decode_desktop_v2_block7_request(json.dumps(reaction))
+
+    reaction = _reaction()
+    requested = reaction["requested_conditions"]
+    assert isinstance(requested, dict)
+    requested["che_shift_ev"] = -0.2
+    with pytest.raises(DesktopIPCError, match="unknown fields"):
+        decode_desktop_v2_block7_request(json.dumps(reaction))
+
+    view = {
+        **_base("reaction_diagram_view"),
+        "analysis_id": str(uuid4()),
+        "dataset_hash": "a" * 64,
+    }
+    with pytest.raises(DesktopIPCError, match="unknown fields"):
+        decode_desktop_v2_block7_request(json.dumps(view))
 
 
 def test_block7_rejects_invalid_ids_enums_and_numeric_contracts() -> None:
@@ -149,6 +230,18 @@ def test_block7_rejects_invalid_ids_enums_and_numeric_contracts() -> None:
     with pytest.raises(DesktopIPCError, match="unsupported value"):
         decode_desktop_v2_block7_request(json.dumps(bad_standard_state))
 
+    bad_reaction = _reaction()
+    bad_reaction["preset_kind"] = "custom_equation"
+    with pytest.raises(DesktopIPCError, match="unsupported value"):
+        decode_desktop_v2_block7_request(json.dumps(bad_reaction))
+
+    bad_reaction = _reaction()
+    requested = bad_reaction["requested_conditions"]
+    assert isinstance(requested, dict)
+    requested["temperature_k"] = 310.0
+    with pytest.raises(DesktopIPCError, match="same temperature_k"):
+        decode_desktop_v2_block7_request(json.dumps(bad_reaction))
+
 
 def test_block7_requires_unique_nested_scientific_identity_keys() -> None:
     harmonic = _harmonic()
@@ -169,3 +262,10 @@ def test_block7_requires_unique_nested_scientific_identity_keys() -> None:
     second["atom_uid"] = duplicate_uid
     with pytest.raises(DesktopIPCError, match="must be unique"):
         decode_desktop_v2_block7_request(json.dumps(gas))
+
+    reaction = _reaction()
+    bindings = reaction["bindings"]
+    assert isinstance(bindings, dict)
+    bindings["h_adsorbed_analysis_id"] = bindings["clean_surface_analysis_id"]
+    with pytest.raises(DesktopIPCError, match="must be distinct"):
+        decode_desktop_v2_block7_request(json.dumps(reaction))
