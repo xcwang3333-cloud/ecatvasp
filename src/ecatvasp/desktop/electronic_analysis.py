@@ -12,13 +12,14 @@ from ecatvasp.analysis import (
     ProjectionScope,
 )
 from ecatvasp.api.electronic_workspace import ProjectElectronicAnalysisApplicationService
+from ecatvasp.api.read_request_store import RequestScopedVerifiedReadStore
 from ecatvasp.domain import AnalysisId, AtomUid, CalculationId
 from ecatvasp.storage import ProjectStore
 
 
 def electronic_analysis_catalog_action(project_root: Path | str) -> dict[str, object]:
     root = Path(project_root)
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    service = ProjectElectronicAnalysisApplicationService(RequestScopedVerifiedReadStore(root))
     return {"project_root": str(root), **service.catalog()}
 
 
@@ -43,7 +44,7 @@ def electronic_analysis_view_action(
     analysis_id: str,
 ) -> dict[str, object]:
     root = Path(project_root)
-    service = ProjectElectronicAnalysisApplicationService(ProjectStore(root))
+    service = ProjectElectronicAnalysisApplicationService(RequestScopedVerifiedReadStore(root))
     return {
         "project_root": str(root),
         **service.analysis_view(analysis_id=AnalysisId(UUID(analysis_id))),
