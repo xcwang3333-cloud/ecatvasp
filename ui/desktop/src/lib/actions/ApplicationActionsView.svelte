@@ -11,6 +11,8 @@
   } from "../backend/contracts";
   import { ResultCenterClient } from "../results/client";
   import ResultCenterView from "../results/ResultCenterView.svelte";
+  import { ThermochemistryClient } from "../thermochemistry/client";
+  import ThermochemistryReactionView from "../thermochemistry/ThermochemistryReactionView.svelte";
   import type { ScientificWorkspace } from "../workspace/contracts";
 
   export let client: DesktopBackendClientV2;
@@ -23,6 +25,7 @@
 
   const resultCenterClient = new ResultCenterClient();
   const electronicAnalysisClient = new ElectronicAnalysisClient();
+  const thermochemistryClient = new ThermochemistryClient();
 
   let reportFormat: ReportFormat = "json";
   let reportBusy = false;
@@ -201,6 +204,13 @@
 
   <ElectronicAnalysisView
     client={electronicAnalysisClient}
+    {projectRoot}
+    {disabled}
+    {onMutation}
+  />
+
+  <ThermochemistryReactionView
+    client={thermochemistryClient}
     {projectRoot}
     {disabled}
     {onMutation}

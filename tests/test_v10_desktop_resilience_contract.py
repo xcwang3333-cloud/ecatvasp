@@ -31,18 +31,18 @@ def test_block8_keeps_python_scientific_and_storage_contracts_frozen() -> None:
 
 
 def test_runtime_recovery_and_exports_stay_in_desktop_boundary() -> None:
-    tauri_source = (_DESKTOP_ROOT / "src-tauri" / "src" / "lib.rs").read_text(
-        encoding="utf-8"
-    )
-    export_source = (_DESKTOP_ROOT / "src-tauri" / "src" / "exports.rs").read_text(
-        encoding="utf-8"
-    )
+    tauri_root = _DESKTOP_ROOT / "src-tauri" / "src"
+    tauri_extension = (tauri_root / "lib.rs").read_text(encoding="utf-8")
+    frozen_transport = (tauri_root / "transport_v1_v6.rs").read_text(encoding="utf-8")
+    export_source = (tauri_root / "exports.rs").read_text(encoding="utf-8")
 
-    assert "fn backend_restart" in tauri_source
-    assert "fn backend_diagnostics" in tauri_source
-    assert 'record_backend_failure(state, "transport")' in tauri_source
-    assert 'record_backend_failure(state, "compatibility")' in tauri_source
-    assert "exports::desktop_export_report" in tauri_source
+    assert 'include!("transport_v1_v6.rs")' in tauri_extension
+    assert "fn backend_restart" in frozen_transport
+    assert "fn backend_diagnostics" in frozen_transport
+    assert 'record_backend_failure(state, "transport")' in frozen_transport
+    assert 'record_backend_failure(state, "compatibility")' in frozen_transport
+    assert "exports::desktop_export_report" in frozen_transport
+    assert "backend_exchange_block7" in tauri_extension
     assert 'Sha256::digest(content)' in export_source
     assert "ecatvasp-report-{actual_sha256}" in export_source
     assert ".create_new(true)" in export_source

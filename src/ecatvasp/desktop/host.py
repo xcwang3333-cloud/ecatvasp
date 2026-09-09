@@ -19,12 +19,12 @@ from ecatvasp.desktop.protocol import (
 )
 from ecatvasp.desktop.protocol_v2 import DesktopV2Response
 from ecatvasp.desktop.protocol_v2_common import DESKTOP_IPC_V2_CONTRACT_VERSION
-from ecatvasp.desktop.protocol_v2_electronic_gateway import (
-    DesktopBackendV2Block6,
-    DesktopV2Block6Request,
-    decode_desktop_v2_block6_request,
+from ecatvasp.desktop.protocol_v2_thermochemistry_gateway import (
+    DesktopBackendV2Block7,
+    DesktopV2Block7Request,
+    decode_desktop_v2_block7_request,
     encode_desktop_v2_response,
-    is_desktop_v2_block6_request,
+    is_desktop_v2_block7_request,
 )
 
 DESKTOP_HOST_CONTRACT_VERSION = "ecatvasp-desktop-host-v1"
@@ -32,7 +32,7 @@ HOST_EXIT_OK = 0
 HOST_EXIT_BACKEND_FAILURE = 1
 _HOST_ERROR_FRAME_TYPE = "host_error"
 
-DesktopAnyRequest: TypeAlias = DesktopRequest | DesktopV2Block6Request
+DesktopAnyRequest: TypeAlias = DesktopRequest | DesktopV2Block7Request
 DesktopAnyResponse: TypeAlias = DesktopResponse | DesktopV2Response
 
 
@@ -47,10 +47,10 @@ class _VersionedDesktopBackend:
 
     def __init__(self) -> None:
         self._v1 = DesktopBackend()
-        self._v2 = DesktopBackendV2Block6()
+        self._v2 = DesktopBackendV2Block7()
 
     def handle(self, request: DesktopAnyRequest) -> DesktopAnyResponse:
-        if is_desktop_v2_block6_request(request):
+        if is_desktop_v2_block7_request(request):
             return self._v2.handle(request)
         if not isinstance(request, DesktopRequest):
             raise DesktopIPCError("desktop request family is unsupported")
@@ -112,7 +112,7 @@ def decode_versioned_desktop_request(line: str) -> DesktopAnyRequest:
     if protocol_version == DESKTOP_IPC_CONTRACT_VERSION:
         return decode_desktop_request(line)
     if protocol_version == DESKTOP_IPC_V2_CONTRACT_VERSION:
-        return decode_desktop_v2_block6_request(line)
+        return decode_desktop_v2_block7_request(line)
     raise DesktopIPCError("unsupported desktop IPC contract version")
 
 
