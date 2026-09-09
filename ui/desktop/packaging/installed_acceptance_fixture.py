@@ -71,14 +71,9 @@ from ecatvasp.vasp import (
 from ecatvasp.vasp.results import (
     VASP_RESULT_DOCUMENT_FORMAT,
     VASP_RESULT_DOCUMENT_VERSION,
-    VaspEnergySummary,
-    VaspFrequencyDataset,
     VaspFrequencyEigenvector,
     VaspFrequencyMode,
     VaspFrequencyModeKind,
-    VaspResultDocument,
-    VaspResultSource,
-    VaspResultSourceRole,
 )
 
 
