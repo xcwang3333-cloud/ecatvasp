@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
+from ecatvasp.api.application import ApplicationServiceError
 from ecatvasp.api.reaction_workspace import (
     CO2RRToCOPresetAnalysisBindings,
     HERPresetAnalysisBindings,
@@ -12,6 +13,9 @@ from ecatvasp.api.reaction_workspace import (
     ORRPresetAnalysisBindings,
     ProjectReactionWorkspaceApplicationService,
     ReactionPresetAnalysisBindings,
+)
+from ecatvasp.api.thermochemistry_workspace import (
+    ProjectThermochemistryApplicationService,
 )
 from ecatvasp.desktop.protocol import DesktopIPCError
 from ecatvasp.desktop.protocol_v2_reaction import (
@@ -32,7 +36,7 @@ from ecatvasp.thermo import (
 )
 
 
-def reaction_preset_preview_action(
+def reaction_preview_action(
     *,
     project_root: Path | str,
     preset_kind: str,
@@ -72,6 +76,19 @@ def materialize_reaction_diagram_action(
             requested_conditions=_conditions(requested_conditions),
         ),
     }
+
+
+def reaction_diagram_view_action(
+    *,
+    project_root: Path | str,
+    analysis_id: str,
+) -> dict[str, object]:
+    root = Path(project_root)
+    service = ProjectThermochemistryApplicationService(ProjectStore(root))
+    payload = service.analysis_view(analysis_id=_analysis_id(analysis_id))
+    if payload.get("analysis_type") != "reaction_diagram":
+        raise ApplicationServiceError("Analysis is not a REACTION_DIAGRAM")
+    return {"project_root": str(root), **payload}
 
 
 def _conditions(value: DesktopV2ReactionConditions) -> CHEConditions:
@@ -132,5 +149,6 @@ def _analysis_bindings(
 
 __all__ = [
     "materialize_reaction_diagram_action",
-    "reaction_preset_preview_action",
+    "reaction_diagram_view_action",
+    "reaction_preview_action",
 ]
