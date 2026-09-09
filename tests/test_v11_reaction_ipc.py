@@ -10,7 +10,8 @@ from ecatvasp.desktop.protocol_v2_common import DESKTOP_IPC_V2_CONTRACT_VERSION
 from ecatvasp.desktop.protocol_v2_reaction import (
     DesktopV2HERAnalysisBindings,
     DesktopV2MaterializeReactionDiagramRequest,
-    DesktopV2ReactionPresetPreviewRequest,
+    DesktopV2ReactionDiagramViewRequest,
+    DesktopV2ReactionPreviewRequest,
 )
 from ecatvasp.desktop.protocol_v2_thermochemistry_gateway import (
     decode_desktop_v2_block7_request,
@@ -27,7 +28,7 @@ def _conditions(potential_v: float) -> dict[str, object]:
     }
 
 
-def _her(operation: str = "reaction_preset_preview") -> dict[str, object]:
+def _her(operation: str = "reaction_preview") -> dict[str, object]:
     return {
         "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
         "request_id": f"request-{operation}",
@@ -44,9 +45,9 @@ def _her(operation: str = "reaction_preset_preview") -> dict[str, object]:
     }
 
 
-def test_block7_decodes_fixed_reaction_preview_and_materialization() -> None:
+def test_block7_decodes_fixed_reaction_preview_materialization_and_view() -> None:
     preview = decode_desktop_v2_block7_request(json.dumps(_her()))
-    assert isinstance(preview, DesktopV2ReactionPresetPreviewRequest)
+    assert isinstance(preview, DesktopV2ReactionPreviewRequest)
     assert preview.preset_kind == "her_volmer_heyrovsky"
     assert isinstance(preview.bindings, DesktopV2HERAnalysisBindings)
     assert preview.requested_conditions.potential_v == -0.2
@@ -55,6 +56,19 @@ def test_block7_decodes_fixed_reaction_preview_and_materialization() -> None:
         json.dumps(_her("materialize_reaction_diagram"))
     )
     assert isinstance(materialize, DesktopV2MaterializeReactionDiagramRequest)
+
+    view = decode_desktop_v2_block7_request(
+        json.dumps(
+            {
+                "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+                "request_id": "reaction-view",
+                "operation": "reaction_diagram_view",
+                "project_root": "/project",
+                "analysis_id": str(uuid4()),
+            }
+        )
+    )
+    assert isinstance(view, DesktopV2ReactionDiagramViewRequest)
 
 
 def test_reaction_ipc_rejects_free_energy_and_generic_payload_escape_hatches() -> None:
@@ -101,7 +115,7 @@ def test_reaction_ipc_rejects_unknown_conditions_and_temperature_drift() -> None
         decode_desktop_v2_block7_request(json.dumps(drift))
 
 
-def test_reaction_ipc_rejects_duplicate_analysis_bindings() -> None:
+def test_reaction_ipc_rejects_duplicate_analysis_bindings_and_view_hash_injection() -> None:
     request = _her()
     bindings = request["bindings"]
     assert isinstance(bindings, dict)
@@ -109,3 +123,14 @@ def test_reaction_ipc_rejects_duplicate_analysis_bindings() -> None:
     bindings["h_adsorbed_analysis_id"] = duplicate
     with pytest.raises(DesktopIPCError, match="must be distinct"):
         decode_desktop_v2_block7_request(json.dumps(request))
+
+    view = {
+        "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+        "request_id": "reaction-view-bad",
+        "operation": "reaction_diagram_view",
+        "project_root": "/project",
+        "analysis_id": str(uuid4()),
+        "dataset_hash": "a" * 64,
+    }
+    with pytest.raises(DesktopIPCError, match="unknown fields"):
+        decode_desktop_v2_block7_request(json.dumps(view))
