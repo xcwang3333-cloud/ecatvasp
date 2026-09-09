@@ -15,6 +15,8 @@
   import ThermochemistryReactionView from "../thermochemistry/ThermochemistryReactionView.svelte";
   import type { ScientificWorkspace } from "../workspace/contracts";
 
+  type ScientificTaskSurface = "results" | "electronic" | "thermochemistry";
+
   export let client: DesktopBackendClientV2;
   export let projectRoot: string;
   export let projectId: string;
@@ -43,6 +45,13 @@
   let workflowError = "";
   let workflowReceipt: PrepareWorkflowPayload | null = null;
 
+  let activeScientificSurface: ScientificTaskSurface | null = null;
+  let surfaceProjectRoot = projectRoot;
+
+  $: if (surfaceProjectRoot !== projectRoot) {
+    surfaceProjectRoot = projectRoot;
+    activeScientificSurface = null;
+  }
   $: structureSnapshots = workspace.inventory.rows.filter(
     (row) => row.entity_kind === "structure_snapshot",
   );
@@ -63,6 +72,10 @@
 
   function shortHash(value: string): string {
     return `${value.slice(0, 10)}…${value.slice(-6)}`;
+  }
+
+  function toggleScientificSurface(surface: ScientificTaskSurface): void {
+    activeScientificSurface = activeScientificSurface === surface ? null : surface;
   }
 
   async function generateReport(): Promise<void> {
@@ -195,42 +208,86 @@
     </section>
   </div>
 
-  <ResultCenterView
-    client={resultCenterClient}
-    {projectRoot}
-    {disabled}
-    {onMutation}
-  />
+  <section class="scientific-workspaces" aria-labelledby="scientific-workspaces-heading">
+    <header class="scientific-workspace-heading">
+      <div>
+        <span class="eyebrow">On-demand scientific surfaces</span>
+        <h3 id="scientific-workspaces-heading">Scientific workspaces</h3>
+        <p class="muted">Open only the task you need. Heavy catalogs are loaded when the workspace is selected, not when the project opens.</p>
+      </div>
+      <div class="workspace-launcher" role="group" aria-label="Scientific workspace">
+        <button
+          type="button"
+          class:active={activeScientificSurface === "results"}
+          aria-pressed={activeScientificSurface === "results"}
+          disabled={disabled}
+          onclick={() => toggleScientificSurface("results")}
+        >Results</button>
+        <button
+          type="button"
+          class:active={activeScientificSurface === "electronic"}
+          aria-pressed={activeScientificSurface === "electronic"}
+          disabled={disabled}
+          onclick={() => toggleScientificSurface("electronic")}
+        >Electronic analysis</button>
+        <button
+          type="button"
+          class:active={activeScientificSurface === "thermochemistry"}
+          aria-pressed={activeScientificSurface === "thermochemistry"}
+          disabled={disabled}
+          onclick={() => toggleScientificSurface("thermochemistry")}
+        >Thermochemistry & reactions</button>
+      </div>
+    </header>
 
-  <ElectronicAnalysisView
-    client={electronicAnalysisClient}
-    {projectRoot}
-    {disabled}
-    {onMutation}
-  />
-
-  <ThermochemistryReactionView
-    client={thermochemistryClient}
-    {projectRoot}
-    {disabled}
-    {onMutation}
-  />
+    {#if activeScientificSurface === null}
+      <div class="workspace-empty" role="status">
+        Select a scientific workspace to load its current ProjectStore-backed catalog.
+      </div>
+    {:else if activeScientificSurface === "results"}
+      <ResultCenterView
+        client={resultCenterClient}
+        {projectRoot}
+        {disabled}
+        {onMutation}
+      />
+    {:else if activeScientificSurface === "electronic"}
+      <ElectronicAnalysisView
+        client={electronicAnalysisClient}
+        {projectRoot}
+        {disabled}
+        {onMutation}
+      />
+    {:else}
+      <ThermochemistryReactionView
+        client={thermochemistryClient}
+        {projectRoot}
+        {disabled}
+        {onMutation}
+      />
+    {/if}
+  </section>
 </section>
 
 <style>
   .actions-workspace { display: grid; gap: 1.25rem; }
-  header h2, .action-card h3 { margin: .2rem 0 .35rem; }
+  header h2, .action-card h3, .scientific-workspace-heading h3 { margin: .2rem 0 .35rem; }
   header p, .muted { margin: 0; color: var(--muted-text,#5d6470); }
   .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-text,#5d6470); }
   .action-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(310px,1fr)); gap: 1rem; }
-  .action-card { border: 1px solid rgba(100,110,125,.22); border-radius: 12px; padding: 1rem; min-width: 0; }
+  .action-card, .scientific-workspaces { border: 1px solid rgba(100,110,125,.22); border-radius: 12px; padding: 1rem; min-width: 0; }
   form { display: grid; gap: .55rem; margin-top: .8rem; }
   select, input { width: 100%; box-sizing: border-box; padding: .6rem .65rem; border: 1px solid rgba(100,110,125,.32); border-radius: 8px; background: inherit; color: inherit; }
   button { justify-self: start; border: 0; border-radius: 8px; padding: .62rem .8rem; font-weight: 700; cursor: pointer; }
   button:disabled { opacity: .5; cursor: not-allowed; }
+  button.active { outline: 2px solid currentColor; outline-offset: 2px; }
   .error { margin-top: .7rem; color: #8b1f2d; }
   .receipt { display: grid; gap: .65rem; margin-top: .8rem; padding: .7rem; border: 1px solid rgba(100,110,125,.2); border-radius: 8px; }
   .receipt > div { display: flex; justify-content: space-between; gap: .5rem; }
+  .scientific-workspaces { display: grid; gap: 1rem; }
+  .scientific-workspace-heading { display: grid; gap: .8rem; }
+  .workspace-launcher { display: flex; flex-wrap: wrap; gap: .55rem; }
+  .workspace-empty { padding: 1rem; border: 1px dashed rgba(100,110,125,.32); border-radius: 8px; color: var(--muted-text,#5d6470); }
   pre { max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: .65rem; border-radius: 6px; background: rgba(20,25,32,.06); font-size: .76rem; }
   code { overflow-wrap: anywhere; }
   details { margin-top: .3rem; }
