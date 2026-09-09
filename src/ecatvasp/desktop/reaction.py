@@ -14,6 +14,7 @@ from ecatvasp.api.reaction_workspace import (
     ProjectReactionWorkspaceApplicationService,
     ReactionPresetAnalysisBindings,
 )
+from ecatvasp.api.read_request_store import RequestScopedVerifiedReadStore
 from ecatvasp.api.thermochemistry_workspace import (
     ProjectThermochemistryApplicationService,
 )
@@ -84,7 +85,7 @@ def reaction_diagram_view_action(
     analysis_id: str,
 ) -> dict[str, object]:
     root = Path(project_root)
-    service = ProjectThermochemistryApplicationService(ProjectStore(root))
+    service = ProjectThermochemistryApplicationService(RequestScopedVerifiedReadStore(root))
     payload = service.analysis_view(analysis_id=_analysis_id(analysis_id))
     if payload.get("analysis_type") != "reaction_diagram":
         raise ApplicationServiceError("Analysis is not a REACTION_DIAGRAM")

@@ -13,6 +13,7 @@
     ThermochemistryAnalysisViewPayload,
     ThermochemistryCatalogPayload,
   } from "./contracts";
+  import { isPositiveSafeInteger } from "./input_validation";
   import { LatestThermochemistryLoad } from "./load_guard";
 
   export let client: ThermochemistryClient;
@@ -78,6 +79,8 @@
     row.freshness.readiness === "satisfied"
   ) ?? [];
   $: selectedGasSource = gasSources.find((row) => row.calculation_id === gasCalculationId) ?? null;
+  $: gasSymmetryValid = isPositiveSafeInteger(gasSymmetry);
+  $: gasMultiplicityValid = isPositiveSafeInteger(gasMultiplicity);
   $: if (gasCalculationId !== observedGasCalculationId) {
     observedGasCalculationId = gasCalculationId;
     gasMasses = Object.fromEntries((selectedGasSource?.atoms ?? []).map((atom) => [atom.atom_uid, ""]));
@@ -184,7 +187,8 @@
       mass_amu: Number(gasMasses[atom.atom_uid]),
     }));
     if (atomic_masses.some((item) => !Number.isFinite(item.mass_amu) || item.mass_amu <= 0)) return null;
-    if (![gasTemperature, gasPressure, gasSymmetry, gasMultiplicity, gasCutoff].every((value) => Number.isFinite(value) && value > 0)) return null;
+    if (![gasTemperature, gasPressure, gasCutoff].every((value) => Number.isFinite(value) && value > 0)) return null;
+    if (!gasSymmetryValid || !gasMultiplicityValid) return null;
     return {
       calculation_id: gasCalculationId,
       species: gasSpecies,
@@ -194,8 +198,8 @@
       electronic_energy_kind: gasEnergy,
       electronic_entropy_policy: gasEntropy,
       geometry_kind: gasGeometry,
-      symmetry_number: Math.trunc(gasSymmetry),
-      spin_multiplicity: Math.trunc(gasMultiplicity),
+      symmetry_number: gasSymmetry,
+      spin_multiplicity: gasMultiplicity,
       atomic_masses,
       frequency_cutoff_cm_inverse: gasCutoff,
       imaginary_mode_policy: "reject_any",
@@ -466,8 +470,14 @@
           <label>Pressure (Pa)<input type="number" min="0.001" step="1" bind:value={gasPressure} /></label>
           <label>Standard state<select bind:value={gasStandardState}><option value="ideal_gas_1_bar">1 bar</option><option value="ideal_gas_1_atm">1 atm</option></select></label>
           <label>Geometry<select bind:value={gasGeometry}><option value="monatomic">Monatomic</option><option value="linear">Linear</option><option value="nonlinear">Nonlinear</option></select></label>
-          <label>Symmetry number<input type="number" min="1" step="1" bind:value={gasSymmetry} /></label>
-          <label>Spin multiplicity<input type="number" min="1" step="1" bind:value={gasMultiplicity} /></label>
+          <label>Symmetry number
+            <input type="number" min="1" step="1" bind:value={gasSymmetry} aria-invalid={!gasSymmetryValid} />
+            {#if !gasSymmetryValid}<span class="field-error">Positive integer required; fractional values are rejected.</span>{/if}
+          </label>
+          <label>Spin multiplicity
+            <input type="number" min="1" step="1" bind:value={gasMultiplicity} aria-invalid={!gasMultiplicityValid} />
+            {#if !gasMultiplicityValid}<span class="field-error">Positive integer required; fractional values are rejected.</span>{/if}
+          </label>
           <label>Electronic entropy<select bind:value={gasEntropy}><option value="neglected">Neglected</option><option value="spin_degeneracy">Spin degeneracy</option></select></label>
           <label>Energy semantic<select bind:value={gasEnergy}><option value="energy_sigma0_ev">σ→0 energy</option><option value="energy_without_entropy_ev">Without entropy</option><option value="free_energy_toten_ev">TOTEN</option></select></label>
           <label>Frequency cutoff (cm⁻¹)<input type="number" min="0.001" step="1" bind:value={gasCutoff} /></label>
@@ -631,6 +641,7 @@
   svg { width: 100%; min-height: 180px; border: 1px solid rgba(100,110,125,.18); border-radius: 8px; background: rgba(100,110,125,.035); }
   pre { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: .65rem; border-radius: 8px; background: rgba(20,25,32,.06); font-size: .75rem; }
   details { margin-top: .55rem; }
-  .error { color: #8b1f2d; }
+  .error, .field-error { color: #8b1f2d; }
+  .field-error { font-size: .76rem; }
   .hint { font-size: .8rem; margin: .6rem 0; }
 </style>

@@ -49,6 +49,20 @@ describe("desktop IPC v2 contracts", () => {
     );
   });
 
+  it("includes the complete Block 7 thermochemistry/reaction operation catalog", () => {
+    expect(DESKTOP_V2_OPERATIONS).toEqual(
+      expect.arrayContaining([
+        "thermochemistry_catalog",
+        "materialize_harmonic_thermochemistry",
+        "materialize_gas_reference",
+        "thermochemistry_view",
+        "reaction_preview",
+        "materialize_reaction_diagram",
+        "reaction_diagram_view",
+      ]),
+    );
+  });
+
   it("rejects v1 responses when parsing the v2 contract", () => {
     const raw = JSON.stringify({
       protocol_version: DESKTOP_IPC_V1_CONTRACT_VERSION,

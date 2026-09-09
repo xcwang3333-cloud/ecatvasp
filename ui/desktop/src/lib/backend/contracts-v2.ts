@@ -51,6 +51,13 @@ export const DESKTOP_V2_OPERATIONS = [
   "materialize_dos_analysis",
   "electronic_analysis_view",
   "materialize_band_center",
+  "thermochemistry_catalog",
+  "materialize_harmonic_thermochemistry",
+  "materialize_gas_reference",
+  "thermochemistry_view",
+  "reaction_preview",
+  "materialize_reaction_diagram",
+  "reaction_diagram_view",
 ] as const;
 
 export type DesktopV2Operation = (typeof DESKTOP_V2_OPERATIONS)[number];
