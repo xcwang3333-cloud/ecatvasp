@@ -47,6 +47,31 @@ def test_request_scoped_read_store_reuses_one_verified_bundle(
         store.save(first)
 
 
+def test_request_scoped_read_store_allows_only_base_open_internal_save(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "project"
+    persisted = _empty_store(root).open()
+    save_calls = 0
+
+    def counted_save(self: ProjectStore, bundle: ProjectBundle) -> None:
+        nonlocal save_calls
+        del self, bundle
+        save_calls += 1
+
+    monkeypatch.setattr(ProjectStore, "save", counted_save)
+    store = RequestScopedVerifiedReadStore(root)
+    store._base_open_in_progress = True
+    store.save(persisted)
+    store._base_open_in_progress = False
+
+    assert save_calls == 1
+    with pytest.raises(ProjectStorageError, match="cannot persist project mutations"):
+        store.save(persisted)
+    assert save_calls == 1
+
+
 def test_electronic_catalog_action_bounds_reopens_within_one_read_request(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
