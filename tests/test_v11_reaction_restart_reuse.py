@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Protocol, cast
 from uuid import UUID
 
 from ecatvasp.api.reaction_workspace import (
@@ -30,9 +33,13 @@ from ecatvasp.thermo import (
     ThermochemicalStandardState,
     ThermochemistrySubjectKind,
 )
-from ui.desktop.packaging.installed_acceptance_fixture import (
-    build_installed_acceptance_fixture,
-)
+
+
+class _InstalledFixture(Protocol):
+    clean_frequency_calculation_id: str
+    ads_frequency_calculation_id: str
+    h2_frequency_calculation_id: str
+    h2_atom_uids: tuple[str, str]
 
 
 def _analysis_id(value: str) -> AnalysisId:
@@ -53,8 +60,32 @@ def _conditions(*, potential_v: float, ph: float) -> CHEConditions:
     )
 
 
+def _build_fixture(root: Path) -> _InstalledFixture:
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "ui"
+        / "desktop"
+        / "packaging"
+        / "installed_acceptance_fixture.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "ecatvasp_test_installed_acceptance_fixture",
+        path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("installed acceptance fixture module could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    builder = cast(
+        Callable[[Path], _InstalledFixture],
+        getattr(module, "build_installed_acceptance_fixture"),
+    )
+    return builder(root)
+
+
 def _materialize_sources(root: Path) -> tuple[str, str, str]:
-    fixture = build_installed_acceptance_fixture(root)
+    fixture = _build_fixture(root)
     service = ProjectThermochemistryApplicationService(ProjectStore(root))
     clean = service.materialize_harmonic(
         calculation_id=_calculation_id(fixture.clean_frequency_calculation_id),
