@@ -14,21 +14,36 @@ from ecatvasp.api.application import ApplicationServiceError
 from ecatvasp.api.thermochemistry_workspace_support import (
     CanonicalAnalysisPayload,
     canonical_analysis_payload,
+    observed_artifact_state,
     require_analysis,
+    require_artifact,
+    thermochemistry_projection,
 )
-from ecatvasp.domain import Analysis, AnalysisId, Artifact, AtomUid, canonical_sha256
-from ecatvasp.storage import ProjectStore
+from ecatvasp.domain import (
+    Analysis,
+    AnalysisId,
+    Artifact,
+    ArtifactId,
+    AtomUid,
+    canonical_sha256,
+)
+from ecatvasp.storage import ProjectBundle, ProjectStore
 from ecatvasp.thermo import (
     HARMONIC_THERMOCHEMISTRY_TOOL_NAME,
     HARMONIC_THERMOCHEMISTRY_TOOL_VERSION,
     IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME,
     IDEAL_GAS_THERMOCHEMISTRY_TOOL_VERSION,
+    REFERENCE_CORRECTION_TOOL_NAME,
+    REFERENCE_CORRECTION_TOOL_VERSION,
     BoundGasReferenceThermochemistry,
+    CorrectionEvidence,
+    CorrectionEvidenceKind,
     ElectronicEnergyKind,
     ElectronicEntropyPolicy,
     GasAtomicMass,
     GasGeometryKind,
     GasMoleculeModel,
+    GasReferenceAdjustmentIdentity,
     GasReferenceDefinition,
     GasReferenceSpecies,
     ImaginaryModePolicy,
@@ -37,6 +52,8 @@ from ecatvasp.thermo import (
     ModeExclusionReason,
     MolecularReferenceReactionSource,
     ReactionSourceArtifactBinding,
+    ReferenceCorrectionPolicy,
+    ReferencePhase,
     ReferenceThermochemistryResult,
     ThermochemicalConditions,
     ThermochemicalStandardState,
@@ -49,6 +66,10 @@ from ecatvasp.thermo import (
     ThermochemistryResult,
     ThermochemistrySubjectKind,
     VibrationalModePolicy,
+)
+from ecatvasp.workflow import (
+    ThermochemistryAnalysisScientificState,
+    WorkflowStepReadiness,
 )
 
 
@@ -92,6 +113,7 @@ def resolve_surface_reaction_source(
         )
     bundle = store.open()
     analysis = require_analysis(bundle, analysis_id)
+    _require_current_source(store=store, bundle=bundle, analysis=analysis)
     if (analysis.tool, analysis.tool_version) != (
         HARMONIC_THERMOCHEMISTRY_TOOL_NAME,
         HARMONIC_THERMOCHEMISTRY_TOOL_VERSION,
@@ -131,19 +153,76 @@ def resolve_molecular_reaction_source(
 ) -> ResolvedMolecularReactionSource:
     bundle = store.open()
     analysis = require_analysis(bundle, analysis_id)
-    if (analysis.tool, analysis.tool_version) != (
+    _require_current_source(store=store, bundle=bundle, analysis=analysis)
+    if (analysis.tool, analysis.tool_version) == (
         IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME,
         IDEAL_GAS_THERMOCHEMISTRY_TOOL_VERSION,
     ):
-        raise ApplicationServiceError(
-            "molecular reaction source must be canonical ideal-gas thermochemistry"
+        canonical = canonical_analysis_payload(
+            root=store.root,
+            bundle=bundle,
+            analysis=analysis,
         )
-    canonical = canonical_analysis_payload(
-        root=store.root,
-        bundle=bundle,
-        analysis=analysis,
-    )
-    raw = _decode_bound_gas_reference(canonical)
+        raw = _decode_bound_gas_reference(canonical)
+        corrected = None
+    elif (analysis.tool, analysis.tool_version) == (
+        REFERENCE_CORRECTION_TOOL_NAME,
+        REFERENCE_CORRECTION_TOOL_VERSION,
+    ):
+        canonical = canonical_analysis_payload(
+            root=store.root,
+            bundle=bundle,
+            analysis=analysis,
+        )
+        corrected = decode_reference_thermochemistry_result(canonical.payload)
+        receipt = _mapping(
+            canonical.payload.get("source_receipt"),
+            "reference source_receipt",
+        )
+        raw_analysis_id = _analysis_id(
+            receipt.get("source_analysis_id"),
+            "source_analysis_id",
+        )
+        raw_artifact_id = _artifact_id(
+            receipt.get("source_artifact_id"),
+            "source_artifact_id",
+        )
+        raw_analysis = require_analysis(bundle, raw_analysis_id)
+        raw_artifact = require_artifact(bundle, raw_artifact_id)
+        _require_current_source(store=store, bundle=bundle, analysis=raw_analysis)
+        if (raw_analysis.tool, raw_analysis.tool_version) != (
+            IDEAL_GAS_THERMOCHEMISTRY_TOOL_NAME,
+            IDEAL_GAS_THERMOCHEMISTRY_TOOL_VERSION,
+        ):
+            raise ApplicationServiceError(
+                "corrected molecular reference must derive from canonical ideal-gas thermochemistry"
+            )
+        raw_canonical = canonical_analysis_payload(
+            root=store.root,
+            bundle=bundle,
+            analysis=raw_analysis,
+        )
+        if raw_canonical.artifact != raw_artifact:
+            raise ApplicationServiceError(
+                "corrected molecular reference points to another raw Artifact"
+            )
+        raw = _decode_bound_gas_reference(raw_canonical)
+        if corrected.adjustment.reference != raw.reference:
+            raise ApplicationServiceError(
+                "corrected molecular reference species differs from raw source"
+            )
+        if corrected.source_result_hash != raw.result.result_hash:
+            raise ApplicationServiceError(
+                "corrected molecular reference result hash differs from raw source"
+            )
+        if corrected.source_gibbs_free_energy_ev != raw.result.gibbs_free_energy_ev:
+            raise ApplicationServiceError(
+                "corrected molecular reference Gibbs energy differs from raw source"
+            )
+    else:
+        raise ApplicationServiceError(
+            "molecular reaction source must be raw ideal-gas or corrected reference thermochemistry"
+        )
     if raw.reference.species is not expected_species:
         raise ApplicationServiceError(
             f"reaction role requires molecular reference {expected_species.value}"
@@ -151,7 +230,7 @@ def resolve_molecular_reaction_source(
     source = MolecularReferenceReactionSource(
         species_key=species_key,
         raw=raw,
-        corrected=None,
+        corrected=corrected,
     )
     return ResolvedMolecularReactionSource(
         analysis=analysis,
@@ -196,6 +275,56 @@ def decode_thermochemistry_result(payload: dict[str, object]) -> Thermochemistry
             "canonical thermochemistry typed reopen differs from Artifact payload"
         )
     return result
+
+
+def decode_reference_thermochemistry_result(
+    payload: dict[str, object],
+) -> ReferenceThermochemistryResult:
+    raw = _mapping(payload.get("result"), "reference thermochemistry result")
+    result = ReferenceThermochemistryResult(
+        adjustment=_decode_adjustment(
+            _mapping(raw.get("adjustment"), "reference adjustment")
+        ),
+        source_result_hash=_required_string(raw, "source_result_hash"),
+        source_gibbs_free_energy_ev=_required_float(
+            raw,
+            "source_gibbs_free_energy_ev",
+        ),
+    )
+    expected_hash = _required_string(raw, "result_hash")
+    if result.result_hash != expected_hash or payload.get("result_hash") != expected_hash:
+        raise ApplicationServiceError(
+            "canonical reference thermochemistry typed result hash differs"
+        )
+    if canonical_sha256(result) != canonical_sha256(raw):
+        raise ApplicationServiceError(
+            "canonical reference typed reopen differs from Artifact payload"
+        )
+    return result
+
+
+def _require_current_source(
+    *,
+    store: ProjectStore,
+    bundle: ProjectBundle,
+    analysis: Analysis,
+) -> None:
+    observations, invalid_ids = observed_artifact_state(store.root, bundle)
+    projection = thermochemistry_projection(
+        store=store,
+        bundle=bundle,
+        analysis=analysis,
+        current_hash_overrides=observations,
+        invalid_ids=invalid_ids,
+    )
+    if (
+        projection.scientific_state is not ThermochemistryAnalysisScientificState.COMPLETED
+        or projection.readiness is not WorkflowStepReadiness.SATISFIED
+    ):
+        reasons = ",".join(projection.reason_codes) or "unknown"
+        raise ApplicationServiceError(
+            "reaction source thermochemistry is not current/satisfied: " + reasons
+        )
 
 
 def _decode_bound_gas_reference(
@@ -386,6 +515,60 @@ def _decode_reference(raw: dict[str, object]) -> GasReferenceDefinition:
     )
 
 
+def _decode_adjustment(raw: dict[str, object]) -> GasReferenceAdjustmentIdentity:
+    return GasReferenceAdjustmentIdentity(
+        reference=_decode_reference(
+            _mapping(raw.get("reference"), "adjustment reference")
+        ),
+        target_phase=ReferencePhase(_required_string(raw, "target_phase")),
+        policies=tuple(
+            _decode_reference_policy(_mapping(item, "reference correction policy"))
+            for item in _sequence(raw.get("policies"), "reference correction policies")
+        ),
+    )
+
+
+def _decode_reference_policy(raw: dict[str, object]) -> ReferenceCorrectionPolicy:
+    note = raw.get("note")
+    return ReferenceCorrectionPolicy(
+        correction=_decode_correction(
+            _mapping(raw.get("correction"), "reference correction")
+        ),
+        evidence=_decode_correction_evidence(
+            _mapping(raw.get("evidence"), "correction evidence")
+        ),
+        note=None if note is None else _string(note, "note"),
+    )
+
+
+def _decode_correction_evidence(raw: dict[str, object]) -> CorrectionEvidence:
+    citation = raw.get("citation")
+    artifact_id = raw.get("artifact_id")
+    artifact_sha = raw.get("artifact_sha256")
+    return CorrectionEvidence(
+        kind=CorrectionEvidenceKind(_required_string(raw, "kind")),
+        source_id=_required_string(raw, "source_id"),
+        source_version=_required_string(raw, "source_version"),
+        citation=None if citation is None else _string(citation, "citation"),
+        artifact_id=(
+            None
+            if artifact_id is None
+            else ArtifactId(UUID(_string(artifact_id, "artifact_id")))
+        ),
+        artifact_sha256=(
+            None if artifact_sha is None else _string(artifact_sha, "artifact_sha256")
+        ),
+    )
+
+
+def _analysis_id(value: object, field_name: str) -> AnalysisId:
+    return AnalysisId(UUID(_string(value, field_name)))
+
+
+def _artifact_id(value: object, field_name: str) -> ArtifactId:
+    return ArtifactId(UUID(_string(value, field_name)))
+
+
 def _mapping(value: object, field_name: str) -> dict[str, object]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise ApplicationServiceError(
@@ -436,6 +619,7 @@ def _required_int(raw: dict[str, object], field_name: str) -> int:
 __all__ = [
     "ResolvedMolecularReactionSource",
     "ResolvedSurfaceReactionSource",
+    "decode_reference_thermochemistry_result",
     "decode_thermochemistry_result",
     "resolve_molecular_reaction_source",
     "resolve_surface_reaction_source",
