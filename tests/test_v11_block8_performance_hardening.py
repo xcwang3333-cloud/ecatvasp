@@ -38,10 +38,9 @@ def test_request_scoped_read_store_reuses_one_verified_bundle(
     store = RequestScopedVerifiedReadStore(root)
 
     first = store.open()
-    second = store.open()
-    third = store.open()
+    for _ in range(500):
+        assert store.open() is first
 
-    assert first is second is third
     assert open_calls == 1
     with pytest.raises(ProjectStorageError, match="cannot persist project mutations"):
         store.save(first)
@@ -87,11 +86,10 @@ def test_electronic_catalog_action_bounds_reopens_within_one_read_request(
         return original_open(self)
 
     def fake_catalog(self: ProjectElectronicAnalysisApplicationService) -> dict[str, object]:
-        one = self.store.open()
-        two = self.store.open()
-        three = self.store.open()
-        assert one is two is three
-        return {"project_id": str(one.project.id), "dos_sources": [], "analyses": []}
+        bundle = self.store.open()
+        for _ in range(500):
+            assert self.store.open() is bundle
+        return {"project_id": str(bundle.project.id), "dos_sources": [], "analyses": []}
 
     monkeypatch.setattr(ProjectStore, "open", counted_open)
     monkeypatch.setattr(ProjectElectronicAnalysisApplicationService, "catalog", fake_catalog)
