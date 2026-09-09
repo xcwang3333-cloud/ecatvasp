@@ -29,6 +29,7 @@ from ecatvasp.domain import (
 from ecatvasp.provenance import (
     DependencyKind,
     DependencyRecord,
+    ProvenanceRecord,
     scientific_hash,
 )
 from ecatvasp.storage import ProjectBundle, ProjectStore
@@ -71,6 +72,7 @@ class _ThermochemistryFixture:
     source_artifact: Artifact
     analysis: Analysis
     artifact: Artifact
+    provenance: tuple[ProvenanceRecord, ...]
     dependencies: tuple[DependencyRecord, ...]
 
 
@@ -243,6 +245,32 @@ def _write_thermochemistry(
         artifact_type=ArtifactType.DERIVED_DATASET,
         producer=AnalysisProducerRef(analysis.id),
     )
+    provenance = (
+        ProvenanceRecord(
+            subject_id=source_analysis.id,
+            tool=source_analysis.tool,
+            tool_version=source_analysis.tool_version,
+            parameters_hash=source_analysis.parameters_hash,
+        ),
+        ProvenanceRecord(
+            subject_id=source_artifact.id,
+            tool=source_analysis.tool,
+            tool_version=source_analysis.tool_version,
+            parameters_hash=source_artifact.sha256,
+        ),
+        ProvenanceRecord(
+            subject_id=analysis.id,
+            tool=analysis.tool,
+            tool_version=analysis.tool_version,
+            parameters_hash=analysis.parameters_hash,
+        ),
+        ProvenanceRecord(
+            subject_id=artifact.id,
+            tool=analysis.tool,
+            tool_version=analysis.tool_version,
+            parameters_hash=artifact.sha256,
+        ),
+    )
     dependencies = (
         DependencyRecord(
             upstream_id=source_analysis.id,
@@ -271,6 +299,7 @@ def _write_thermochemistry(
         source_artifact=source_artifact,
         analysis=analysis,
         artifact=artifact,
+        provenance=provenance,
         dependencies=dependencies,
     )
 
@@ -294,6 +323,11 @@ def _store_reaction_sources(
                 item
                 for fixture in fixtures
                 for item in (fixture.source_artifact, fixture.artifact)
+            ),
+            provenance_records=tuple(
+                provenance
+                for fixture in fixtures
+                for provenance in fixture.provenance
             ),
             dependency_records=tuple(
                 dependency
