@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import PurePosixPath
 from typing import Protocol, runtime_checkable
 
 from ecatvasp.domain import SchedulerType
@@ -36,6 +37,7 @@ class ReasonCode(StrEnum):
     SCHEDULER_UNSUPPORTED = "SCHEDULER_UNSUPPORTED"
     MODULE_ENVIRONMENT_UNVERIFIED = "MODULE_ENVIRONMENT_UNVERIFIED"
     MODULE_ENVIRONMENT_UNAVAILABLE = "MODULE_ENVIRONMENT_UNAVAILABLE"
+    EXECUTABLE_IDENTITY_UNRESOLVED = "EXECUTABLE_IDENTITY_UNRESOLVED"
     VASP_NOT_FOUND = "VASP_NOT_FOUND"
     MPI_LAUNCHER_NOT_FOUND = "MPI_LAUNCHER_NOT_FOUND"
     POTCAR_UNAVAILABLE = "POTCAR_UNAVAILABLE"
@@ -418,17 +420,39 @@ class PreflightService:
             command=command,
             module_environment=module_environment,
         )
-        ready = result.exit_code == 0
         environment_evidence = (
             ("environment=configured_modules",) if module_environment else ()
         )
-        if ready:
+        if result.exit_code == 0:
+            resolved_path = _resolved_executable_path(result.stdout)
+            if resolved_path is None:
+                return PreflightCheck(
+                    check_name,
+                    (
+                        PreflightStatus.UNAVAILABLE_OPTIONAL
+                        if optional
+                        else PreflightStatus.BLOCKED
+                    ),
+                    ReasonCode.EXECUTABLE_IDENTITY_UNRESOLVED,
+                    (
+                        "optional executable command did not resolve to one normalized absolute "
+                        "POSIX path"
+                        if optional
+                        else "required executable command did not resolve to one normalized "
+                        "absolute POSIX path"
+                    ),
+                    (f"command={command}", *environment_evidence),
+                )
             return PreflightCheck(
                 check_name,
                 PreflightStatus.READY,
                 None,
-                "configured executable command is available",
-                (f"command={command}", *environment_evidence),
+                "configured executable command is available with a resolved path identity",
+                (
+                    f"command={command}",
+                    f"resolved_path={resolved_path}",
+                    *environment_evidence,
+                ),
             )
         return PreflightCheck(
             check_name,
@@ -468,6 +492,21 @@ class PreflightService:
             checks=tuple(checks),
             timestamp=observed.astimezone(UTC).isoformat(),
         )
+
+
+def _resolved_executable_path(stdout: str) -> str | None:
+    """Return one normalized absolute POSIX path from untrusted ``command -v`` output."""
+
+    lines = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+    if len(lines) != 1:
+        return None
+    candidate = lines[0]
+    if any(character.isspace() for character in candidate) or "\x00" in candidate:
+        return None
+    path = PurePosixPath(candidate)
+    if not path.is_absolute() or ".." in path.parts or path.as_posix() != candidate:
+        return None
+    return candidate
 
 
 def _utc_now() -> datetime:
