@@ -95,6 +95,39 @@ class FakeTransport:
         return CommandResult(exit_code=1)
 
 
+class ModuleFakeTransport(FakeTransport):
+    def __init__(
+        self,
+        *,
+        module_environment_ready: bool = True,
+        module_available_commands: set[str] | None = None,
+        available_commands: set[str] | None = None,
+    ) -> None:
+        super().__init__(available_commands=available_commands)
+        self.module_environment_ready = module_environment_ready
+        self.module_available_commands = (
+            {"vasp_std", "srun"}
+            if module_available_commands is None
+            else set(module_available_commands)
+        )
+        self.module_probes: list[str | None] = []
+
+    def probe_module_environment(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: str | None = None,
+    ) -> CommandResult:
+        self.module_probes.append(command)
+        if not self.module_environment_ready:
+            return CommandResult(exit_code=1)
+        if command is None:
+            return CommandResult(exit_code=0)
+        return CommandResult(
+            exit_code=0 if command in self.module_available_commands else 1
+        )
+
+
 def _profile(**overrides: object) -> SiteProfile:
     values: dict[str, object] = {
         "site_id": "cluster",
@@ -219,6 +252,43 @@ def test_preflight_reports_module_environment_as_unverified_warning() -> None:
         _check("module_environment", report).reason_code
         is ReasonCode.MODULE_ENVIRONMENT_UNVERIFIED
     )
+
+
+def test_preflight_verifies_commands_inside_configured_module_environment() -> None:
+    direct_commands = {"sbatch", "squeue", "sacct", "scancel"}
+    transport = ModuleFakeTransport(available_commands=direct_commands)
+    profile = _profile(
+        module_loads=("intel/2026", "vasp/6.4"),
+        bader_executable=None,
+        lobster_executable=None,
+    )
+
+    report = _service(transport).run(profile)
+
+    assert report.status is PreflightStatus.READY
+    assert _check("module_environment", report).status is PreflightStatus.READY
+    assert _check("vasp_executable", report).status is PreflightStatus.READY
+    assert _check("mpi_launcher", report).status is PreflightStatus.READY
+    assert "environment=configured_modules" in _check(
+        "vasp_executable", report
+    ).evidence
+    assert transport.module_probes == [None, "vasp_std", "srun"]
+    assert ("command", "-v", "vasp_std") not in transport.commands
+
+
+def test_preflight_blocks_on_failed_module_activation_without_false_command_reason() -> None:
+    transport = ModuleFakeTransport(module_environment_ready=False)
+
+    report = _service(transport).run(_profile(module_loads=("vasp/6.4",)))
+
+    assert report.status is PreflightStatus.BLOCKED
+    assert (
+        _check("module_environment", report).reason_code
+        is ReasonCode.MODULE_ENVIRONMENT_UNAVAILABLE
+    )
+    assert transport.module_probes == [None]
+    assert all(item.check_name != "vasp_executable" for item in report.checks)
+    assert all(item.check_name != "mpi_launcher" for item in report.checks)
 
 
 def test_preflight_rejects_unsupported_scheduler_without_guessing() -> None:
