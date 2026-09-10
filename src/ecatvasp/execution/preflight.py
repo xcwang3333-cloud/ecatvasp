@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Protocol, runtime_checkable
 
 from ecatvasp.domain import SchedulerType
 from ecatvasp.execution.adapters import CommandResult, CommandSpec, TransportAdapter
@@ -34,6 +35,7 @@ class ReasonCode(StrEnum):
     SCHEDULER_NOT_FOUND = "SCHEDULER_NOT_FOUND"
     SCHEDULER_UNSUPPORTED = "SCHEDULER_UNSUPPORTED"
     MODULE_ENVIRONMENT_UNVERIFIED = "MODULE_ENVIRONMENT_UNVERIFIED"
+    MODULE_ENVIRONMENT_UNAVAILABLE = "MODULE_ENVIRONMENT_UNAVAILABLE"
     VASP_NOT_FOUND = "VASP_NOT_FOUND"
     MPI_LAUNCHER_NOT_FOUND = "MPI_LAUNCHER_NOT_FOUND"
     POTCAR_UNAVAILABLE = "POTCAR_UNAVAILABLE"
@@ -61,6 +63,18 @@ class PreflightReport:
 
 ExecutableResolver = Callable[[str], str | None]
 Clock = Callable[[], datetime]
+
+
+@runtime_checkable
+class ModuleEnvironmentProbeAdapter(Protocol):
+    """Optional transport capability for one bounded configured-module environment probe."""
+
+    def probe_module_environment(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: str | None = None,
+    ) -> CommandResult: ...
 
 
 class PreflightService:
@@ -200,40 +214,37 @@ class PreflightService:
 
         checks.append(self._scheduler_check(target, site_profile.scheduler_type))
 
+        module_status: PreflightStatus | None = None
         if site_profile.module_loads:
-            checks.append(
-                PreflightCheck(
-                    "module_environment",
-                    PreflightStatus.WARNING,
-                    ReasonCode.MODULE_ENVIRONMENT_UNVERIFIED,
-                    (
-                        "configured modules require the bounded typed-script probe "
-                        "before they can be verified"
-                    ),
-                    tuple(f"module={item}" for item in site_profile.module_loads),
-                )
-            )
+            module_check = self._module_environment_check(target)
+            checks.append(module_check)
+            module_status = module_check.status
 
-        checks.append(
-            self._command_check(
-                target=target,
-                check_name="vasp_executable",
-                command=site_profile.vasp_executable,
-                missing_reason=ReasonCode.VASP_NOT_FOUND,
-                optional=False,
-            )
-        )
-
-        if site_profile.mpi_launcher is not None:
+        module_environment = module_status is PreflightStatus.READY
+        module_blocked = module_status is PreflightStatus.BLOCKED
+        if not module_blocked:
             checks.append(
                 self._command_check(
                     target=target,
-                    check_name="mpi_launcher",
-                    command=site_profile.mpi_launcher,
-                    missing_reason=ReasonCode.MPI_LAUNCHER_NOT_FOUND,
+                    check_name="vasp_executable",
+                    command=site_profile.vasp_executable,
+                    missing_reason=ReasonCode.VASP_NOT_FOUND,
                     optional=False,
+                    module_environment=module_environment,
                 )
             )
+
+            if site_profile.mpi_launcher is not None:
+                checks.append(
+                    self._command_check(
+                        target=target,
+                        check_name="mpi_launcher",
+                        command=site_profile.mpi_launcher,
+                        missing_reason=ReasonCode.MPI_LAUNCHER_NOT_FOUND,
+                        optional=False,
+                        module_environment=module_environment,
+                    )
+                )
 
         potcar_root = site_profile.potcar_root
         potcar_ready = self._remote_test(target, "-d", potcar_root) and self._remote_test(
@@ -256,20 +267,22 @@ class PreflightService:
             )
         )
 
-        for check_name, command in (
-            ("bader", site_profile.bader_executable),
-            ("lobster", site_profile.lobster_executable),
-        ):
-            if command is not None:
-                checks.append(
-                    self._command_check(
-                        target=target,
-                        check_name=check_name,
-                        command=command,
-                        missing_reason=ReasonCode.OPTIONAL_TOOL_MISSING,
-                        optional=True,
+        if not module_blocked:
+            for check_name, command in (
+                ("bader", site_profile.bader_executable),
+                ("lobster", site_profile.lobster_executable),
+            ):
+                if command is not None:
+                    checks.append(
+                        self._command_check(
+                            target=target,
+                            check_name=check_name,
+                            command=command,
+                            missing_reason=ReasonCode.OPTIONAL_TOOL_MISSING,
+                            optional=True,
+                            module_environment=module_environment,
+                        )
                     )
-                )
 
         return self._report(site_profile, checks)
 
@@ -341,8 +354,54 @@ class PreflightService:
             tuple(f"missing={command}" for command in missing),
         )
 
+    def _module_environment_check(
+        self,
+        target: ExecutionTargetProfile,
+    ) -> PreflightCheck:
+        modules = tuple(f"module={item}" for item in target.module_loads)
+        if not isinstance(self._transport, ModuleEnvironmentProbeAdapter):
+            return PreflightCheck(
+                "module_environment",
+                PreflightStatus.WARNING,
+                ReasonCode.MODULE_ENVIRONMENT_UNVERIFIED,
+                "configured modules cannot be verified by the active transport capability",
+                modules,
+            )
+        try:
+            result = self._transport.probe_module_environment(target=target)
+        except RuntimeError:
+            result = CommandResult(exit_code=255)
+        ready = result.exit_code == 0
+        return PreflightCheck(
+            "module_environment",
+            PreflightStatus.READY if ready else PreflightStatus.BLOCKED,
+            None if ready else ReasonCode.MODULE_ENVIRONMENT_UNAVAILABLE,
+            (
+                "configured modules load successfully in the bounded login-shell probe"
+                if ready
+                else "configured modules failed the bounded login-shell probe"
+            ),
+            modules + (() if ready else (f"exit_code={result.exit_code}",)),
+        )
+
     def _command_exists(self, target: ExecutionTargetProfile, command: str) -> bool:
         return self._remote(target, ("command", "-v", command)).exit_code == 0
+
+    def _command_probe(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: str,
+        module_environment: bool,
+    ) -> CommandResult:
+        if not module_environment:
+            return self._remote(target, ("command", "-v", command))
+        if not isinstance(self._transport, ModuleEnvironmentProbeAdapter):
+            return CommandResult(exit_code=255)
+        try:
+            return self._transport.probe_module_environment(target=target, command=command)
+        except RuntimeError:
+            return CommandResult(exit_code=255)
 
     def _command_check(
         self,
@@ -352,15 +411,24 @@ class PreflightService:
         command: str,
         missing_reason: ReasonCode,
         optional: bool,
+        module_environment: bool = False,
     ) -> PreflightCheck:
-        ready = self._command_exists(target, command)
+        result = self._command_probe(
+            target=target,
+            command=command,
+            module_environment=module_environment,
+        )
+        ready = result.exit_code == 0
+        environment_evidence = (
+            ("environment=configured_modules",) if module_environment else ()
+        )
         if ready:
             return PreflightCheck(
                 check_name,
                 PreflightStatus.READY,
                 None,
                 "configured executable command is available",
-                (f"command={command}",),
+                (f"command={command}",) + environment_evidence,
             )
         return PreflightCheck(
             check_name,
@@ -375,7 +443,7 @@ class PreflightService:
                 if optional
                 else "required executable command is unavailable"
             ),
-            (f"command={command}",),
+            (f"command={command}",) + environment_evidence,
         )
 
     def _report(
