@@ -88,6 +88,7 @@ from ecatvasp.domain.method import (
 )
 from ecatvasp.domain.validation import DomainIntegrityError, validate_conformer_context
 from ecatvasp.domain.value_objects import (
+    ActiveSiteNuclearityClass,
     BindingEdge,
     BindingMode,
     Lattice,
@@ -108,6 +109,7 @@ from ecatvasp.domain.workflow import (
 __all__ = [
     "ActiveSite",
     "ActiveSiteId",
+    "ActiveSiteNuclearityClass",
     "AdsorptionState",
     "AdsorptionStateId",
     "Analysis",

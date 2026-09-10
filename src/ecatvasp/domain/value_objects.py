@@ -32,6 +32,14 @@ class VariantType(StrEnum):
     CUSTOM = "custom"
 
 
+class ActiveSiteNuclearityClass(StrEnum):
+    """Lossless high-level classification derived only from active-center count."""
+
+    SINGLE_CENTER = "single_center"
+    DUAL_CENTER = "dual_center"
+    MULTI_CENTER = "multi_center"
+
+
 class SiteSide(StrEnum):
     """Relative side of a two-dimensional support occupied by an active center."""
 

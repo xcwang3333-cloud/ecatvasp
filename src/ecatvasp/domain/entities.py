@@ -23,6 +23,7 @@ from ecatvasp.domain.ids import (
     new_structure_variant_id,
 )
 from ecatvasp.domain.value_objects import (
+    ActiveSiteNuclearityClass,
     BindingEdge,
     BindingMode,
     Lattice,
@@ -150,6 +151,16 @@ class ActiveSite:
         """Return the number of explicitly identified active centers."""
 
         return len(self.center_atom_uids)
+
+    @property
+    def nuclearity_class(self) -> ActiveSiteNuclearityClass:
+        """Return a schema-free site class derived only from explicit center count."""
+
+        if self.nuclearity == 1:
+            return ActiveSiteNuclearityClass.SINGLE_CENTER
+        if self.nuclearity == 2:
+            return ActiveSiteNuclearityClass.DUAL_CENTER
+        return ActiveSiteNuclearityClass.MULTI_CENTER
 
 
 @dataclass(frozen=True, slots=True)

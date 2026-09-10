@@ -106,14 +106,12 @@ def create_active_site(
     topology: str | None = None,
     coordination_environment: str | None = None,
 ) -> ActiveSite:
-    """Create a one-, two-, or three-center ActiveSite on a variant's current snapshot."""
+    """Create a one- or multi-center ActiveSite on a variant's current snapshot."""
 
     _validate_current_snapshot(variant, snapshot)
     centers = tuple(center_atom_uids)
-    if len(centers) not in (1, 2, 3):
-        raise ActiveSiteToolingError(
-            "ActiveSite tooling supports exactly one, two, or three center atom_uids"
-        )
+    if not centers:
+        raise ActiveSiteToolingError("ActiveSite tooling requires at least one center atom_uid")
     if len(centers) != len(set(centers)):
         raise ActiveSiteToolingError("center_atom_uids must be unique")
     if any(not snapshot.contains_atom(atom_uid) for atom_uid in centers):
