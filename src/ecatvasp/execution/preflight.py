@@ -428,7 +428,7 @@ class PreflightService:
                 PreflightStatus.READY,
                 None,
                 "configured executable command is available",
-                (f"command={command}",) + environment_evidence,
+                (f"command={command}", *environment_evidence),
             )
         return PreflightCheck(
             check_name,
@@ -443,7 +443,7 @@ class PreflightService:
                 if optional
                 else "required executable command is unavailable"
             ),
-            (f"command={command}",) + environment_evidence,
+            (f"command={command}", *environment_evidence),
         )
 
     def _report(
