@@ -111,7 +111,9 @@ def test_desktop_action_returns_transient_sanitized_report() -> None:
     assert "potcar_root" not in payload
 
 
-def test_block8_backend_routes_site_preflight_without_project_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_block8_backend_routes_site_preflight_without_project_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     expected = {
         "site_id": "site-a",
         "profile_hash": "b" * 64,
