@@ -79,7 +79,12 @@ class FakeTransport:
         if argv == ("true",):
             return CommandResult(exit_code=0 if self.reachable else 255)
         if argv[:2] == ("command", "-v"):
-            return CommandResult(exit_code=0 if argv[2] in self.available_commands else 1)
+            if argv[2] in self.available_commands:
+                return CommandResult(
+                    exit_code=0,
+                    stdout=f"/opt/ecatvasp/bin/{argv[2]}\n",
+                )
+            return CommandResult(exit_code=1)
         if argv[:2] == ("test", "-d"):
             if argv[2] == "/scratch/ecatvasp":
                 return CommandResult(exit_code=0 if self.remote_root_exists else 1)
@@ -123,9 +128,25 @@ class ModuleFakeTransport(FakeTransport):
             return CommandResult(exit_code=1)
         if command is None:
             return CommandResult(exit_code=0)
-        return CommandResult(
-            exit_code=0 if command in self.module_available_commands else 1
-        )
+        if command in self.module_available_commands:
+            return CommandResult(
+                exit_code=0,
+                stdout=f"/apps/modules/bin/{command}\n",
+            )
+        return CommandResult(exit_code=1)
+
+
+class UnresolvedCommandTransport(FakeTransport):
+    def run(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: CommandSpec,
+    ) -> CommandResult:
+        if command.argv == ("command", "-v", "vasp_std"):
+            self.commands.append(command.argv)
+            return CommandResult(exit_code=0, stdout="vasp_std\n")
+        return super().run(target=target, command=command)
 
 
 def _profile(**overrides: object) -> SiteProfile:
@@ -207,6 +228,12 @@ def test_real_preflight_ready_core_and_optional_tools_do_not_block() -> None:
     assert _check("potcar_library", report).status is PreflightStatus.READY
     assert _check("bader", report).status is PreflightStatus.UNAVAILABLE_OPTIONAL
     assert _check("lobster", report).status is PreflightStatus.UNAVAILABLE_OPTIONAL
+    assert "resolved_path=/opt/ecatvasp/bin/vasp_std" in _check(
+        "vasp_executable", report
+    ).evidence
+    assert "resolved_path=/opt/ecatvasp/bin/srun" in _check(
+        "mpi_launcher", report
+    ).evidence
 
 
 def test_preflight_blocks_before_remote_probe_when_local_openssh_is_missing() -> None:
@@ -235,6 +262,16 @@ def test_preflight_blocks_on_remote_root_or_vasp_failure() -> None:
     assert _check("remote_root_exists", root_report).reason_code is ReasonCode.REMOTE_ROOT_MISSING
     assert vasp_report.status is PreflightStatus.BLOCKED
     assert _check("vasp_executable", vasp_report).reason_code is ReasonCode.VASP_NOT_FOUND
+
+
+def test_preflight_blocks_when_executable_resolution_is_not_absolute() -> None:
+    report = _service(UnresolvedCommandTransport()).run(_profile())
+
+    assert report.status is PreflightStatus.BLOCKED
+    check = _check("vasp_executable", report)
+    assert check.status is PreflightStatus.BLOCKED
+    assert check.reason_code is ReasonCode.EXECUTABLE_IDENTITY_UNRESOLVED
+    assert "resolved_path=" not in "\n".join(check.evidence)
 
 
 def test_preflight_blocks_on_potcar_library_unavailability() -> None:
@@ -271,6 +308,12 @@ def test_preflight_verifies_commands_inside_configured_module_environment() -> N
     assert _check("mpi_launcher", report).status is PreflightStatus.READY
     assert "environment=configured_modules" in _check(
         "vasp_executable", report
+    ).evidence
+    assert "resolved_path=/apps/modules/bin/vasp_std" in _check(
+        "vasp_executable", report
+    ).evidence
+    assert "resolved_path=/apps/modules/bin/srun" in _check(
+        "mpi_launcher", report
     ).evidence
     assert transport.module_probes == [None, "vasp_std", "srun"]
     assert ("command", "-v", "vasp_std") not in transport.commands
