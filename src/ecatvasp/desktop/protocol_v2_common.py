@@ -51,3 +51,4 @@ class DesktopV2Operation(StrEnum):
     REACTION_PREVIEW = "reaction_preview"
     MATERIALIZE_REACTION_DIAGRAM = "materialize_reaction_diagram"
     REACTION_DIAGRAM_VIEW = "reaction_diagram_view"
+    SITE_PREFLIGHT = "site_preflight"
