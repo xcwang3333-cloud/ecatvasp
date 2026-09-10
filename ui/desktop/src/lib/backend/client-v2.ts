@@ -42,6 +42,11 @@ import {
   parseDesktopV2Response,
   requireDesktopV2Success,
 } from "./contracts-v2";
+import {
+  type SitePreflightPayload,
+  type SiteProfileInput,
+  assertSitePreflightPayload,
+} from "./site-preflight";
 import type { InvokeFn } from "./client";
 
 interface V2WireRequest extends Record<string, unknown> {
@@ -231,6 +236,18 @@ export class DesktopBackendClientV2 {
       projectRoot,
       { ...input },
     );
+  }
+
+  async sitePreflight(
+    profile: SiteProfileInput,
+  ): Promise<DesktopV2SuccessResponse<SitePreflightPayload>> {
+    this.requireReady();
+    if (profile.site_id.trim().length === 0) throw new Error("site id must not be blank");
+    const response = await this.exchange<SitePreflightPayload>(
+      this.request("site_preflight", { profile }),
+    );
+    assertSitePreflightPayload(response.payload, profile.site_id);
+    return response;
   }
 
   async applicationReport(

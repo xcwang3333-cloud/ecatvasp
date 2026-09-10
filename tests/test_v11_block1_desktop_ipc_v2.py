@@ -86,6 +86,7 @@ def test_v11_keeps_v1_operation_set_frozen_and_adds_separate_v2() -> None:
         "reaction_preview",
         "materialize_reaction_diagram",
         "reaction_diagram_view",
+        "site_preflight",
     ]
     assert SCHEMA_VERSION == 3
 

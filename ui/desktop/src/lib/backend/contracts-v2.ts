@@ -58,6 +58,7 @@ export const DESKTOP_V2_OPERATIONS = [
   "reaction_preview",
   "materialize_reaction_diagram",
   "reaction_diagram_view",
+  "site_preflight",
 ] as const;
 
 export type DesktopV2Operation = (typeof DESKTOP_V2_OPERATIONS)[number];
