@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -14,6 +15,7 @@ from ecatvasp.execution.adapters import (
 from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
 
 _SAFE_REMOTE_ARG = re.compile(r"^[A-Za-z0-9_./+,:=@%=-]+$")
+_SAFE_COMMAND_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _SAFE_REMOTE_PATH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+@%=-]*$")
 
 
@@ -120,6 +122,43 @@ class OpenSshTransport:
                     "remote command arguments must be shell-inert literal tokens"
                 )
         completed = _run_local((*_ssh_prefix(target), *command.argv))
+        return CommandResult(
+            exit_code=completed.returncode,
+            stdout=completed.stdout.decode("utf-8", errors="replace"),
+            stderr=completed.stderr.decode("utf-8", errors="replace"),
+        )
+
+    def probe_module_environment(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: str | None = None,
+    ) -> CommandResult:
+        """Load configured modules in a bounded login shell and optionally resolve one command.
+
+        This is intentionally separate from :meth:`run`: callers cannot supply shell text. The
+        script is rendered only from module identifiers already validated by ExecutionTargetProfile
+        and one additional portable command name. The generic argv transport boundary remains
+        shell-inert.
+        """
+
+        _validate_ssh_target(target)
+        if not target.module_loads:
+            raise OpenSshTransportError(
+                "module environment probe requires configured module_loads"
+            )
+        if command is not None and not _SAFE_COMMAND_NAME.fullmatch(command):
+            raise OpenSshTransportError(
+                "module environment probe command must be a portable command name"
+            )
+
+        script_parts = ["set -euo pipefail"]
+        script_parts.extend(f"module load {module}" for module in target.module_loads)
+        if command is not None:
+            script_parts.append(f"command -v {command}")
+        script = "; ".join(script_parts)
+        remote_command = f"bash -lc {shlex.quote(script)}"
+        completed = _run_local((*_ssh_prefix(target), remote_command))
         return CommandResult(
             exit_code=completed.returncode,
             stdout=completed.stdout.decode("utf-8", errors="replace"),
