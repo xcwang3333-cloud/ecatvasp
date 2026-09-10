@@ -62,6 +62,7 @@ Windows frozen-backend, NSIS packaging, exact-install, and installed-product acc
 
 - [CHANGELOG.md](CHANGELOG.md) records durable development/release baselines and distribution status.
 - [CONTRIBUTING.md](CONTRIBUTING.md) describes contribution checks and frozen authority boundaries.
+- [Real HPC/VASP site-specific acceptance](docs/acceptance/real-hpc-vasp.md) defines the protocol and evidence boundary for institutional SSH/Slurm/VASP validation.
 - [docs/adr](docs/adr/README.md) contains the architecture decision record index and the detailed contracts behind the workbench.
 
 ECatVASP is licensed under the BSD 3-Clause License.
