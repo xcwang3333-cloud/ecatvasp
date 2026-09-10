@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory records durable product and implementation decisions for ECatVASP.
+This directory records durable product and implementation decisions for ECatVASP. For accepted development/release baselines and distribution status, see [`../../CHANGELOG.md`](../../CHANGELOG.md).
 
 1. Scientific Core Architecture
 2. Domain Schema and Identity
@@ -68,3 +68,27 @@ This directory records durable product and implementation decisions for ECatVASP
 64. v0.8 Potential-Dependent Electrocatalysis Descriptor Boundary
 65. v0.8 Durable Reaction Diagram and Reconciliation Boundary
 66. v0.8 Final Thermochemistry and Electrocatalysis Acceptance and Hardening Boundary
+67. v0.9 Research Workspace Scientific Presentation Architecture Boundary
+68. v0.9 Workspace Projection Contracts Boundary
+69. v0.9 Scientific Inventory and Provenance Inspection Boundary
+70. v0.9 Workflow and Execution Readiness Dashboard Boundary
+71. v0.9 Scientific Visualization Presentation Datasets Boundary
+72. v0.9 Scientific Reporting Export Boundary
+73. v0.9 Experiment-like Application Services Boundary
+74. v0.9 Headless CLI and Python Application Facade Boundary
+75. v0.9 Frontend Handoff and Workspace Interoperability Boundary
+76. v0.9 Final E2E Acceptance and Hardening Boundary
+77. v1.0 Production Desktop Workspace Architecture Boundary
+78. v1.0 Local Desktop Backend Host Lifecycle Boundary
+79. v1.0 Tauri/Svelte Desktop Shell and Typed Client Boundary
+80. v1.0 Desktop Project Lifecycle and Local Preferences Boundary
+81. v1.0 Desktop Scientific Workspace Views Boundary
+82. v1.0 Typed Desktop Application Actions Boundary
+83. v1.0 Windows Sidecar Packaging Boundary
+84. v1.0 Desktop Resilience, Security, Diagnostics, and Exports Boundary
+85. v1.0 Final Desktop E2E Acceptance and Hardening Boundary
+86. v1.1 Research Workflow UX and Closed-loop Productivity Boundary
+87. v1.1 Electronic Analysis Workspace Boundary
+88. v1.1 Thermochemistry and Reaction Workspace Boundary
+89. v1.1 Large-project Performance and Product Hardening Boundary
+90. v1.1 Installed Desktop Scientific E2E Acceptance Boundary
