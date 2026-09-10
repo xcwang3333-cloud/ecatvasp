@@ -6,7 +6,7 @@ This module intentionally does not perform SSH, scheduler, or executable discove
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from ecatvasp.execution.site_profile import SiteProfile
@@ -79,5 +79,5 @@ class PreflightService:
             site_id=site_profile.site_id,
             status=status,
             checks=tuple(checks),
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
         )
