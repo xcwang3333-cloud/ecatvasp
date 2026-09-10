@@ -384,8 +384,8 @@ def _persist_monitoring_record(
             "vasp_runtime_progress": progress,
         }
     ) + "\n"
-    path.write_text(text, encoding="utf-8")
     body = text.encode("utf-8")
+    path.write_bytes(body)
     return Artifact(
         artifact_type=ArtifactType.SCHEDULER_RECORD,
         producer=ExecutionAttemptProducerRef(attempt.id),

@@ -641,8 +641,8 @@ def _persist_retrieval_manifest(
     if path.exists():
         raise RetrievalError("retrieval manifest Artifact already exists")
     text = manifest.text
-    path.write_text(text, encoding="utf-8")
     body = text.encode("utf-8")
+    path.write_bytes(body)
     return Artifact(
         artifact_type=ArtifactType.RETRIEVAL_MANIFEST,
         producer=ExecutionAttemptProducerRef(attempt.id),

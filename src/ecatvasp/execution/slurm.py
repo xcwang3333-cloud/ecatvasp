@@ -560,8 +560,8 @@ def _persist_scheduler_record(
             "submit_stderr_sha256": stderr_sha256,
         }
     ) + "\n"
-    path.write_text(text, encoding="utf-8")
     body = text.encode("utf-8")
+    path.write_bytes(body)
     relative = path.relative_to(staged.project_root).as_posix()
     return Artifact(
         artifact_type=ArtifactType.SCHEDULER_RECORD,

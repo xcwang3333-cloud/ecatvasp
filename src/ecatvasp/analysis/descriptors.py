@@ -648,23 +648,23 @@ def _write_result_artifact(
     if not absolute.is_relative_to(root):
         raise BandCenterError("canonical band-center path resolves outside project_root")
     text = canonical_json(payload) + "\n"
+    body = text.encode("utf-8")
     absolute.parent.mkdir(parents=True, exist_ok=True)
     if absolute.exists():
         if not absolute.is_file():
             raise BandCenterError("canonical band-center path is not a regular file")
-        if absolute.read_text(encoding="utf-8") != text:
+        if absolute.read_bytes() != body:
             raise BandCenterError(
                 "canonical band-center path already has different content"
             )
     else:
         temporary = absolute.with_name(f".{absolute.name}.tmp")
         try:
-            temporary.write_text(text, encoding="utf-8")
+            temporary.write_bytes(body)
             os.replace(temporary, absolute)
         finally:
             if temporary.exists():
                 temporary.unlink()
-    body = text.encode("utf-8")
     return Artifact(
         artifact_type=ArtifactType.DERIVED_DATASET,
         producer=AnalysisProducerRef(analysis.id),

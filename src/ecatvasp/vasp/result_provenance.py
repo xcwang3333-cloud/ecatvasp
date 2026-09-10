@@ -313,6 +313,7 @@ def _write_json_artifact(
     producer: AnalysisProducerRef,
 ) -> Artifact:
     text = canonical_json(payload) + "\n"
+    body = text.encode("utf-8")
     absolute_path = (root / relative_path).resolve()
     if not absolute_path.is_relative_to(root):
         raise VaspResultProvenanceError("derived result path resolves outside project_root")
@@ -320,15 +321,14 @@ def _write_json_artifact(
     if absolute_path.exists():
         if not absolute_path.is_file():
             raise VaspResultProvenanceError("derived result path is not a regular file")
-        if absolute_path.read_text(encoding="utf-8") != text:
+        if absolute_path.read_bytes() != body:
             raise VaspResultProvenanceError(
                 "derived scientific result already exists with different content"
             )
     else:
         temporary = absolute_path.with_name(f".{absolute_path.name}.tmp")
-        temporary.write_text(text, encoding="utf-8")
+        temporary.write_bytes(body)
         os.replace(temporary, absolute_path)
-    body = text.encode("utf-8")
     return Artifact(
         artifact_type=artifact_type,
         producer=producer,
