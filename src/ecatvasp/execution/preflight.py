@@ -74,7 +74,9 @@ class PreflightService:
         clock: Clock | None = None,
     ) -> None:
         self._transport = OpenSshTransport() if transport is None else transport
-        self._executable_resolver = shutil.which if executable_resolver is None else executable_resolver
+        self._executable_resolver = (
+            shutil.which if executable_resolver is None else executable_resolver
+        )
         self._clock = _utc_now if clock is None else clock
 
     def run(self, site_profile: SiteProfile) -> PreflightReport:
@@ -204,7 +206,10 @@ class PreflightService:
                     "module_environment",
                     PreflightStatus.WARNING,
                     ReasonCode.MODULE_ENVIRONMENT_UNVERIFIED,
-                    "configured modules require the bounded typed-script probe before they can be verified",
+                    (
+                        "configured modules require the bounded typed-script probe "
+                        "before they can be verified"
+                    ),
                     tuple(f"module={item}" for item in site_profile.module_loads),
                 )
             )
@@ -319,7 +324,11 @@ class PreflightService:
                 (f"scheduler={scheduler.value}",),
             )
         commands = ("sbatch", "squeue", "sacct", "scancel")
-        missing = tuple(command for command in commands if not self._command_exists(target, command))
+        missing = tuple(
+            command
+            for command in commands
+            if not self._command_exists(target, command)
+        )
         return PreflightCheck(
             "scheduler",
             PreflightStatus.READY if not missing else PreflightStatus.BLOCKED,

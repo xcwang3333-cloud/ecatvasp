@@ -7,6 +7,8 @@ from pathlib import Path
 from ecatvasp.domain import SchedulerType
 from ecatvasp.execution.adapters import CommandResult, CommandSpec, TargetRelativePath
 from ecatvasp.execution.preflight import (
+    PreflightCheck,
+    PreflightReport,
     PreflightService,
     PreflightStatus,
     ReasonCode,
@@ -126,9 +128,8 @@ def _service(transport: FakeTransport, *, local_ssh: bool = True) -> PreflightSe
     )
 
 
-def _check(report_name: str, report: object) -> object:
-    checks = getattr(report, "checks")
-    return next(item for item in checks if item.check_name == report_name)
+def _check(report_name: str, report: PreflightReport) -> PreflightCheck:
+    return next(item for item in report.checks if item.check_name == report_name)
 
 
 def test_site_profile_resolves_existing_execution_authorities() -> None:
