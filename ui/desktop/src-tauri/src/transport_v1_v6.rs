@@ -27,10 +27,11 @@ const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend.exe";
 #[cfg(not(target_os = "windows"))]
 const BUNDLED_BACKEND_FILENAME: &str = "ecatvasp-desktop-backend";
 
-const V2_FRONTEND_OPERATIONS: [&str; 33] = [
+const V2_FRONTEND_OPERATIONS: [&str; 34] = [
     "open_project",
     "status",
     "frontend_handoff",
+    "site_preflight",
     "application_report",
     "prepare_workflow",
     "project_dashboard",
@@ -62,11 +63,12 @@ const V2_FRONTEND_OPERATIONS: [&str; 33] = [
     "electronic_analysis_view",
     "materialize_band_center",
 ];
-const V2_HEALTH_OPERATIONS: [&str; 34] = [
+const V2_HEALTH_OPERATIONS: [&str; 35] = [
     "health",
     "open_project",
     "status",
     "frontend_handoff",
+    "site_preflight",
     "application_report",
     "prepare_workflow",
     "project_dashboard",
@@ -255,6 +257,22 @@ const EXECUTION_TARGET_FIELDS: [&str; 7] = [
     "module_loads",
 ];
 const REMOTE_POTCAR_FIELDS: [&str; 3] = ["resolver_id", "family", "root"];
+const SITE_PREFLIGHT_PROFILE_FIELDS: [&str; 14] = [
+    "site_id",
+    "name",
+    "host_alias",
+    "remote_root",
+    "potcar_resolver_id",
+    "potcar_family",
+    "potcar_root",
+    "scheduler_type",
+    "ssh_mode",
+    "vasp_executable",
+    "mpi_launcher",
+    "module_loads",
+    "bader_executable",
+    "lobster_executable",
+];
 
 #[derive(Default)]
 struct BackendState {
@@ -550,6 +568,9 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
     if !V2_FRONTEND_OPERATIONS.contains(&operation) {
         return Err("desktop frontend operation is not available".to_string());
     }
+    if operation == "site_preflight" {
+        return validate_site_preflight_request(object);
+    }
 
     if matches!(
         operation,
@@ -690,6 +711,54 @@ fn validate_frontend_request(request: &Value) -> Result<(), String> {
         _ => {}
     }
     Ok(())
+}
+
+fn validate_site_preflight_request(object: &Map<String, Value>) -> Result<(), String> {
+    reject_unknown_nested(
+        object,
+        &["protocol_version", "request_id", "operation", "profile"],
+        "site preflight request",
+    )?;
+    let profile = require_object(object, "profile")?;
+    reject_unknown_nested(
+        profile,
+        &SITE_PREFLIGHT_PROFILE_FIELDS,
+        "site preflight profile",
+    )?;
+    for field in [
+        "site_id",
+        "name",
+        "host_alias",
+        "remote_root",
+        "potcar_resolver_id",
+        "potcar_family",
+        "potcar_root",
+    ] {
+        require_nonblank_string(profile, field)?;
+    }
+    if profile.contains_key("scheduler_type") {
+        let scheduler = require_nonblank_string(profile, "scheduler_type")?;
+        if scheduler != "slurm" {
+            return Err("desktop site preflight scheduler_type is unsupported".to_string());
+        }
+    }
+    if profile.contains_key("ssh_mode") {
+        let ssh_mode = require_nonblank_string(profile, "ssh_mode")?;
+        if ssh_mode != "system_openssh" {
+            return Err("desktop site preflight ssh_mode is unsupported".to_string());
+        }
+    }
+    for field in [
+        "vasp_executable",
+        "mpi_launcher",
+        "bader_executable",
+        "lobster_executable",
+    ] {
+        if profile.contains_key(field) {
+            require_nonblank_string(profile, field)?;
+        }
+    }
+    validate_optional_string_array(profile, "module_loads")
 }
 
 fn validate_band_center_request(object: &Map<String, Value>) -> Result<(), String> {
@@ -1258,6 +1327,39 @@ mod tests {
         assert!(validate_frontend_request(&analyze).is_ok());
         assert!(validate_frontend_request(&legacy).is_err());
         assert!(validate_frontend_request(&future).is_err());
+    }
+
+    #[test]
+    fn site_preflight_transport_accepts_typed_profile_and_rejects_credentials() {
+        let request = json!({
+            "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+            "request_id": "site-preflight-1",
+            "operation": "site_preflight",
+            "profile": {
+                "site_id": "cluster-a",
+                "name": "Institutional Slurm",
+                "host_alias": "cluster-a",
+                "remote_root": "/scratch/ecatvasp",
+                "potcar_resolver_id": "pbe54-remote",
+                "potcar_family": "PBE_54",
+                "potcar_root": "/apps/vasp/potpaw_PBE.54",
+                "scheduler_type": "slurm",
+                "ssh_mode": "system_openssh",
+                "vasp_executable": "vasp_std",
+                "mpi_launcher": "srun",
+                "module_loads": ["vasp/6"]
+            }
+        });
+        let mut credential_request = request.clone();
+        credential_request
+            .get_mut("profile")
+            .and_then(Value::as_object_mut)
+            .expect("profile must be an object")
+            .insert("password".to_string(), Value::String("secret".to_string()));
+
+        assert!(V2_HEALTH_OPERATIONS.contains(&"site_preflight"));
+        assert!(validate_frontend_request(&request).is_ok());
+        assert!(validate_frontend_request(&credential_request).is_err());
     }
 
     #[test]
