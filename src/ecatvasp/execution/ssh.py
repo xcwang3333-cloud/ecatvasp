@@ -45,7 +45,12 @@ class OpenSshTransport:
     than attempting quoting or interpolation.
     """
 
-    def __init__(self, *, command_timeout_seconds: float | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        command_timeout_seconds: float | None = None,
+        download_timeout_seconds: float = 3600.0,
+    ) -> None:
         if command_timeout_seconds is not None:
             if (
                 isinstance(command_timeout_seconds, bool)
@@ -56,6 +61,14 @@ class OpenSshTransport:
                 raise ValueError("command_timeout_seconds must be finite and positive")
             command_timeout_seconds = float(command_timeout_seconds)
         self._command_timeout_seconds = command_timeout_seconds
+        if (
+            isinstance(download_timeout_seconds, bool)
+            or not isinstance(download_timeout_seconds, (int, float))
+            or not math.isfinite(download_timeout_seconds)
+            or download_timeout_seconds <= 0
+        ):
+            raise ValueError("download_timeout_seconds must be finite and positive")
+        self._download_timeout_seconds = float(download_timeout_seconds)
 
     @property
     def transport_kind(self) -> TransportKind:
@@ -124,7 +137,9 @@ class OpenSshTransport:
                 "StrictHostKeyChecking=yes",
                 f"{host}:{remote}",
                 str(destination),
-            )
+            ),
+            timeout_seconds=self._download_timeout_seconds,
+            operation="download",
         )
         if completed.returncode != 0:
             raise OpenSshTransportError(
@@ -258,6 +273,7 @@ def _run_local(
     argv: tuple[str, ...],
     *,
     timeout_seconds: float | None = None,
+    operation: str = "command",
 ) -> subprocess.CompletedProcess[bytes]:
     try:
         if timeout_seconds is not None:
@@ -278,7 +294,7 @@ def _run_local(
         if timeout_seconds is None:  # pragma: no cover - subprocess cannot time out unbounded.
             raise
         raise OpenSshTimeoutError(
-            operation="command",
+            operation=operation,
             timeout_seconds=timeout_seconds,
         ) from None
     except OSError as exc:
