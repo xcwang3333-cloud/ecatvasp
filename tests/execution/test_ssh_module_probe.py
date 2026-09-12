@@ -180,6 +180,7 @@ def test_download_timeout_is_typed_and_sanitized(
     assert error.timeout_seconds == 7.5
     assert "cluster-a" not in str(error)
     assert "OUTCAR" not in str(error)
+    assert str(tmp_path / "OUTCAR.part") not in str(error)
 
 
 def test_default_download_timeout_is_applied(
@@ -196,6 +197,36 @@ def test_default_download_timeout_is_applied(
         local_path=tmp_path / "OUTCAR",
     )
     assert observed == [3600.0]
+
+
+def test_default_command_is_unbounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().run(target=_target(), command=CommandSpec(argv=("true",)))
+    assert "timeout" not in observed[0]
+
+
+def test_upload_remains_unbounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    source = tmp_path / "INCAR"
+    source.write_text("ENCUT = 400\n", encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().upload(
+        target=_target(), local_path=source, destination=TargetRelativePath("INCAR")
+    )
+    assert "timeout" not in observed[0]
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
