@@ -10,7 +10,22 @@ from pathlib import Path
 from typing import TextIO
 
 from ecatvasp.api import ApplicationReportFormat, ApplicationServiceError, open_project
-from ecatvasp.storage import ProjectStorageError
+from ecatvasp.storage import (
+    MigrationPathError,
+    ProjectIntegrityError,
+    ProjectStorageError,
+    StorageCodecError,
+    UnsupportedSchemaVersionError,
+)
+
+_PROJECT_READ_ERRORS = (
+    ApplicationServiceError,
+    MigrationPathError,
+    ProjectIntegrityError,
+    ProjectStorageError,
+    StorageCodecError,
+    UnsupportedSchemaVersionError,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,7 +90,7 @@ def main(
         else:  # pragma: no cover - argparse guarantees the command set.
             parser.error(f"unsupported command: {args.command}")
             return 2
-    except (ApplicationServiceError, ProjectStorageError) as error:
+    except _PROJECT_READ_ERRORS as error:
         errors.write(f"ecatvasp: error: {error}\n")
         return 2
 

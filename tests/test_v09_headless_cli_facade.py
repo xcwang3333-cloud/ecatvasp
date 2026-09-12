@@ -13,7 +13,7 @@ from ecatvasp.api import (
 from ecatvasp.cli import _status_text, main
 from ecatvasp.domain import Project
 from ecatvasp.schema.version import SCHEMA_VERSION
-from ecatvasp.storage import ProjectBundle, ProjectStore
+from ecatvasp.storage import ProjectBundle, ProjectStore, UnsupportedSchemaVersionError
 
 
 def _store(tmp_path: Path) -> ProjectStore:
@@ -124,6 +124,30 @@ def test_cli_missing_project_fails_closed_without_traceback(tmp_path: Path) -> N
     assert output.getvalue() == ""
     assert errors.getvalue().startswith("ecatvasp: error: ")
     assert "project database or manifest is missing" in errors.getvalue()
+
+
+def test_cli_future_schema_fails_closed_without_traceback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def reject_open(_store: ProjectStore) -> ProjectBundle:
+        raise UnsupportedSchemaVersionError("project schema is newer than this backend")
+
+    monkeypatch.setattr(ProjectStore, "open", reject_open)
+    output = io.StringIO()
+    errors = io.StringIO()
+
+    code = main(
+        ["--project", str(tmp_path / "project"), "status"],
+        stdout=output,
+        stderr=errors,
+    )
+
+    assert code == 2
+    assert output.getvalue() == ""
+    assert errors.getvalue().startswith("ecatvasp: error: ")
+    assert "project schema is newer than this backend" in errors.getvalue()
+    assert "Traceback" not in errors.getvalue()
 
 
 def test_block7_keeps_schema_version_three(tmp_path: Path) -> None:
