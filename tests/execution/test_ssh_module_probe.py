@@ -182,6 +182,22 @@ def test_download_timeout_is_typed_and_sanitized(
     assert "OUTCAR" not in str(error)
 
 
+def test_default_download_timeout_is_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[float] = []
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs["timeout"])  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().download(
+        target=_target(),
+        source=TargetRelativePath("OUTCAR"),
+        local_path=tmp_path / "OUTCAR",
+    )
+    assert observed == [3600.0]
+
+
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
 def test_download_timeout_must_be_finite_and_positive(value: object) -> None:
     with pytest.raises(ValueError, match="finite and positive"):
