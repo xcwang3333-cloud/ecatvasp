@@ -17,8 +17,10 @@ from typing import Protocol, runtime_checkable
 from ecatvasp.domain import SchedulerType
 from ecatvasp.execution.adapters import CommandResult, CommandSpec, TransportAdapter
 from ecatvasp.execution.site_profile import SiteProfile
-from ecatvasp.execution.ssh import OpenSshTransport
+from ecatvasp.execution.ssh import OpenSshTimeoutError, OpenSshTransport
 from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
+
+_PREFLIGHT_OPENSSH_TIMEOUT_SECONDS = 30.0
 
 
 class PreflightStatus(StrEnum):
@@ -30,6 +32,7 @@ class PreflightStatus(StrEnum):
 
 class ReasonCode(StrEnum):
     SSH_UNAVAILABLE = "SSH_UNAVAILABLE"
+    SSH_TRANSPORT_TIMEOUT = "SSH_TRANSPORT_TIMEOUT"
     REMOTE_ROOT_MISSING = "REMOTE_ROOT_MISSING"
     REMOTE_ROOT_NOT_READABLE = "REMOTE_ROOT_NOT_READABLE"
     REMOTE_ROOT_NOT_WRITABLE = "REMOTE_ROOT_NOT_WRITABLE"
@@ -89,13 +92,39 @@ class PreflightService:
         executable_resolver: ExecutableResolver | None = None,
         clock: Clock | None = None,
     ) -> None:
-        self._transport = OpenSshTransport() if transport is None else transport
+        self._transport = (
+            OpenSshTransport(
+                command_timeout_seconds=_PREFLIGHT_OPENSSH_TIMEOUT_SECONDS,
+            )
+            if transport is None
+            else transport
+        )
         self._executable_resolver = (
             shutil.which if executable_resolver is None else executable_resolver
         )
         self._clock = _utc_now if clock is None else clock
 
     def run(self, site_profile: SiteProfile) -> PreflightReport:
+        try:
+            return self._run_checks(site_profile)
+        except OpenSshTimeoutError as error:
+            return self._report(
+                site_profile,
+                [
+                    PreflightCheck(
+                        "ssh_transport",
+                        PreflightStatus.BLOCKED,
+                        ReasonCode.SSH_TRANSPORT_TIMEOUT,
+                        "OpenSSH preflight command exceeded its bounded duration",
+                        (
+                            f"operation={error.operation}",
+                            f"timeout_seconds={error.timeout_seconds:g}",
+                        ),
+                    )
+                ],
+            )
+
+    def _run_checks(self, site_profile: SiteProfile) -> PreflightReport:
         checks: list[PreflightCheck] = []
         issues = site_profile.validate()
         if issues:
@@ -295,6 +324,8 @@ class PreflightService:
     ) -> CommandResult:
         try:
             return self._transport.run(target=target, command=CommandSpec(argv=argv))
+        except OpenSshTimeoutError:
+            raise
         except RuntimeError:
             return CommandResult(exit_code=255)
 
@@ -371,6 +402,8 @@ class PreflightService:
             )
         try:
             result = self._transport.probe_module_environment(target=target)
+        except OpenSshTimeoutError:
+            raise
         except RuntimeError:
             result = CommandResult(exit_code=255)
         ready = result.exit_code == 0
@@ -402,6 +435,8 @@ class PreflightService:
             return CommandResult(exit_code=255)
         try:
             return self._transport.probe_module_environment(target=target, command=command)
+        except OpenSshTimeoutError:
+            raise
         except RuntimeError:
             return CommandResult(exit_code=255)
 

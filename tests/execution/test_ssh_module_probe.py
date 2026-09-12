@@ -6,7 +6,11 @@ import pytest
 
 from ecatvasp.domain import SchedulerType
 from ecatvasp.execution.adapters import CommandSpec
-from ecatvasp.execution.ssh import OpenSshTransport, OpenSshTransportError
+from ecatvasp.execution.ssh import (
+    OpenSshTimeoutError,
+    OpenSshTransport,
+    OpenSshTransportError,
+)
 from ecatvasp.execution.targets import (
     ExecutionTargetProfile,
     SshSecurityPolicy,
@@ -86,3 +90,70 @@ def test_module_probe_does_not_relax_generic_shell_injection_boundary() -> None:
             target=target,
             command=CommandSpec(argv=("echo", "unsafe;token")),
         )
+
+
+def test_configured_command_timeout_bounds_module_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout: list[float] = []
+
+    def fake_run(
+        argv: tuple[str, ...],
+        *,
+        capture_output: bool,
+        check: bool,
+        shell: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[bytes]:
+        observed_timeout.append(timeout)
+        return subprocess.CompletedProcess(argv, 0, b"/apps/vasp_std\n", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = OpenSshTransport(command_timeout_seconds=30).probe_module_environment(
+        target=_target(),
+        command="vasp_std",
+    )
+
+    assert result.exit_code == 0
+    assert observed_timeout == [30.0]
+
+
+def test_configured_command_timeout_is_typed_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        argv: tuple[str, ...],
+        *,
+        capture_output: bool,
+        check: bool,
+        shell: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(OpenSshTimeoutError) as captured:
+        OpenSshTransport(command_timeout_seconds=12.5).run(
+            target=_target(),
+            command=CommandSpec(argv=("test", "-d", "/scratch/ecatvasp/private")),
+        )
+
+    error = captured.value
+    assert isinstance(error, OpenSshTransportError)
+    assert error.code == "SSH_TRANSPORT_TIMEOUT"
+    assert error.operation == "command"
+    assert error.timeout_seconds == 12.5
+    diagnostic = str(error)
+    assert "12.5" in diagnostic
+    assert "cluster-a" not in diagnostic
+    assert "/scratch/ecatvasp/private" not in diagnostic
+    assert "test" not in diagnostic
+    assert error.__cause__ is None
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
+def test_command_timeout_must_be_finite_and_positive(value: object) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        OpenSshTransport(command_timeout_seconds=value)  # type: ignore[arg-type]

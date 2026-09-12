@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import shlex
 import subprocess
@@ -23,6 +24,19 @@ class OpenSshTransportError(RuntimeError):
     """Raised when a system OpenSSH transport operation cannot be performed safely."""
 
 
+class OpenSshTimeoutError(OpenSshTransportError):
+    """Raised when one bounded system OpenSSH client invocation times out."""
+
+    code = "SSH_TRANSPORT_TIMEOUT"
+
+    def __init__(self, *, operation: str, timeout_seconds: float) -> None:
+        self.operation = operation
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            f"OpenSSH {operation} timed out after {timeout_seconds:g} seconds"
+        )
+
+
 class OpenSshTransport:
     """Concrete SSH transport that delegates credentials to system OpenSSH.
 
@@ -30,6 +44,18 @@ class OpenSshTransport:
     remote login shell, so Block 4 deliberately rejects whitespace and shell metacharacters rather
     than attempting quoting or interpolation.
     """
+
+    def __init__(self, *, command_timeout_seconds: float | None = None) -> None:
+        if command_timeout_seconds is not None:
+            if (
+                isinstance(command_timeout_seconds, bool)
+                or not isinstance(command_timeout_seconds, (int, float))
+                or not math.isfinite(command_timeout_seconds)
+                or command_timeout_seconds <= 0
+            ):
+                raise ValueError("command_timeout_seconds must be finite and positive")
+            command_timeout_seconds = float(command_timeout_seconds)
+        self._command_timeout_seconds = command_timeout_seconds
 
     @property
     def transport_kind(self) -> TransportKind:
@@ -121,7 +147,10 @@ class OpenSshTransport:
                 raise OpenSshTransportError(
                     "remote command arguments must be shell-inert literal tokens"
                 )
-        completed = _run_local((*_ssh_prefix(target), *command.argv))
+        completed = _run_local(
+            (*_ssh_prefix(target), *command.argv),
+            timeout_seconds=self._command_timeout_seconds,
+        )
         return CommandResult(
             exit_code=completed.returncode,
             stdout=completed.stdout.decode("utf-8", errors="replace"),
@@ -158,7 +187,10 @@ class OpenSshTransport:
             script_parts.append(f"command -v {command}")
         script = "; ".join(script_parts)
         remote_command = f"bash -lc {shlex.quote(script)}"
-        completed = _run_local((*_ssh_prefix(target), remote_command))
+        completed = _run_local(
+            (*_ssh_prefix(target), remote_command),
+            timeout_seconds=self._command_timeout_seconds,
+        )
         return CommandResult(
             exit_code=completed.returncode,
             stdout=completed.stdout.decode("utf-8", errors="replace"),
@@ -222,14 +254,33 @@ def _validate_ssh_target(target: ExecutionTargetProfile) -> None:
         raise OpenSshTransportError("SSH target violates the frozen credential/security boundary")
 
 
-def _run_local(argv: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
+def _run_local(
+    argv: tuple[str, ...],
+    *,
+    timeout_seconds: float | None = None,
+) -> subprocess.CompletedProcess[bytes]:
     try:
+        if timeout_seconds is not None:
+            return subprocess.run(
+                argv,
+                capture_output=True,
+                check=False,
+                shell=False,
+                timeout=timeout_seconds,
+            )
         return subprocess.run(
             argv,
             capture_output=True,
             check=False,
             shell=False,
         )
+    except subprocess.TimeoutExpired:
+        if timeout_seconds is None:  # pragma: no cover - subprocess cannot time out unbounded.
+            raise
+        raise OpenSshTimeoutError(
+            operation="command",
+            timeout_seconds=timeout_seconds,
+        ) from None
     except OSError as exc:
         raise OpenSshTransportError(f"OpenSSH process launch failed: {exc}") from exc
 

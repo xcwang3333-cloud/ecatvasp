@@ -91,6 +91,7 @@ from ecatvasp.execution.slurm import (
     submit_remote_slurm,
 )
 from ecatvasp.execution.ssh import (
+    OpenSshTimeoutError,
     OpenSshTransport,
     OpenSshTransportError,
     remote_absolute_path,
@@ -126,6 +127,7 @@ __all__ = [
     "LocalExecutor",
     "LocalPotcarResolution",
     "LocalRuntimePackage",
+    "OpenSshTimeoutError",
     "OpenSshTransport",
     "OpenSshTransportError",
     "RecoveryAction",
