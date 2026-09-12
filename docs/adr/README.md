@@ -93,3 +93,4 @@ This directory records durable product and implementation decisions for ECatVASP
 89. v1.1 Large-project Performance and Product Hardening Boundary
 90. v1.1 Installed Desktop Scientific E2E Acceptance Boundary
 91. v1.2 Architecture Baseline and Dependency Audit Boundary
+92. v1.2 OpenSSH Timeout and Reconciliation Boundary

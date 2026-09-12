@@ -35,6 +35,7 @@ from ecatvasp.execution import (
     remote_absolute_path,
     retrieve_remote_outputs,
 )
+from ecatvasp.execution.ssh import OpenSshTimeoutError
 from ecatvasp.vasp.contracts import VaspSystemContext, VaspSystemKind
 from ecatvasp.vasp.execution_plan import (
     ExecutionPlan,
@@ -115,6 +116,13 @@ class _FakeRetrievalTransport:
             del self.files[path]
             return CommandResult(0)
         return CommandResult(127, stderr="unsupported")
+
+
+class _TimeoutRetrievalTransport(_FakeRetrievalTransport):
+    def download(self, *, target, source, local_path) -> None:
+        local_path.write_bytes(b"partial")
+        self.downloads.append(source.value)
+        raise OpenSshTimeoutError(operation="download", timeout_seconds=3600.0)
 
 
 def _target() -> ExecutionTargetProfile:
@@ -421,6 +429,31 @@ def test_download_checksum_mismatch_fails_closed_without_manifest(tmp_path: Path
     assert not output.exists()
     provenance = tmp_path / "artifacts" / "execution" / str(attempt.id)
     assert not list(provenance.glob("retrieval-*.json"))
+
+
+def test_download_timeout_cleans_partial_without_manifest_or_remote_delete(tmp_path: Path) -> None:
+    plan, attempt, remote_job = _plan_and_attempt()
+    target = _target()
+    transport = _TimeoutRetrievalTransport()
+    _prepare_root(tmp_path, attempt.id)
+    _seed_outputs(transport=transport, target=target, remote_job=remote_job)
+    with pytest.raises(OpenSshTimeoutError, match="OpenSSH download timed out"):
+        retrieve_remote_outputs(
+            project_root=tmp_path,
+            plan=plan,
+            attempt=attempt,
+            remote_job=remote_job,
+            target=target,
+            transport=transport,
+        )
+    output_dir = tmp_path / "artifacts" / "execution" / str(attempt.id) / "outputs"
+    assert not (output_dir / "OUTCAR").exists()
+    assert not list(output_dir.glob("*.part"))
+    assert not list(output_dir.parent.glob("retrieval-*.json"))
+    assert not any(
+        command and command[0] in {"rm", "release", "discard"}
+        for command in transport.commands
+    )
 
 
 def test_nonterminal_scheduler_state_is_not_retrievable(tmp_path: Path) -> None:

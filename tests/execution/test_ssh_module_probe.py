@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from ecatvasp.domain import SchedulerType
-from ecatvasp.execution.adapters import CommandSpec
-from ecatvasp.execution.ssh import OpenSshTransport, OpenSshTransportError
+from ecatvasp.execution.adapters import CommandSpec, TargetRelativePath
+from ecatvasp.execution.ssh import (
+    OpenSshTimeoutError,
+    OpenSshTransport,
+    OpenSshTransportError,
+)
 from ecatvasp.execution.targets import (
     ExecutionTargetProfile,
     SshSecurityPolicy,
@@ -86,3 +91,145 @@ def test_module_probe_does_not_relax_generic_shell_injection_boundary() -> None:
             target=target,
             command=CommandSpec(argv=("echo", "unsafe;token")),
         )
+
+
+def test_configured_command_timeout_bounds_module_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeout: list[float] = []
+
+    def fake_run(
+        argv: tuple[str, ...],
+        *,
+        capture_output: bool,
+        check: bool,
+        shell: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[bytes]:
+        observed_timeout.append(timeout)
+        return subprocess.CompletedProcess(argv, 0, b"/apps/vasp_std\n", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = OpenSshTransport(command_timeout_seconds=30).probe_module_environment(
+        target=_target(),
+        command="vasp_std",
+    )
+
+    assert result.exit_code == 0
+    assert observed_timeout == [30.0]
+
+
+def test_configured_command_timeout_is_typed_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        argv: tuple[str, ...],
+        *,
+        capture_output: bool,
+        check: bool,
+        shell: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(argv, timeout)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(OpenSshTimeoutError) as captured:
+        OpenSshTransport(command_timeout_seconds=12.5).run(
+            target=_target(),
+            command=CommandSpec(argv=("test", "-d", "/scratch/ecatvasp/private")),
+        )
+
+    error = captured.value
+    assert isinstance(error, OpenSshTransportError)
+    assert error.code == "SSH_TRANSPORT_TIMEOUT"
+    assert error.operation == "command"
+    assert error.timeout_seconds == 12.5
+    diagnostic = str(error)
+    assert "12.5" in diagnostic
+    assert "cluster-a" not in diagnostic
+    assert "/scratch/ecatvasp/private" not in diagnostic
+    assert "test" not in diagnostic
+    assert error.__cause__ is None
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
+def test_command_timeout_must_be_finite_and_positive(value: object) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        OpenSshTransport(command_timeout_seconds=value)  # type: ignore[arg-type]
+
+
+def test_download_timeout_is_typed_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        assert kwargs["timeout"] == 7.5
+        raise subprocess.TimeoutExpired(argv, 7.5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(OpenSshTimeoutError) as captured:
+        OpenSshTransport(download_timeout_seconds=7.5).download(
+            target=_target(),
+            source=TargetRelativePath("OUTCAR"),
+            local_path=tmp_path / "OUTCAR.part",
+        )
+    error = captured.value
+    assert error.code == "SSH_TRANSPORT_TIMEOUT"
+    assert error.operation == "download"
+    assert error.timeout_seconds == 7.5
+    assert "cluster-a" not in str(error)
+    assert "OUTCAR" not in str(error)
+    assert str(tmp_path / "OUTCAR.part") not in str(error)
+
+
+def test_default_download_timeout_is_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[float] = []
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs["timeout"])  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().download(
+        target=_target(),
+        source=TargetRelativePath("OUTCAR"),
+        local_path=tmp_path / "OUTCAR",
+    )
+    assert observed == [3600.0]
+
+
+def test_default_command_is_unbounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().run(target=_target(), command=CommandSpec(argv=("true",)))
+    assert "timeout" not in observed[0]
+
+
+def test_upload_remains_unbounded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    observed: list[dict[str, object]] = []
+
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.append(kwargs)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    source = tmp_path / "INCAR"
+    source.write_text("ENCUT = 400\n", encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    OpenSshTransport().upload(
+        target=_target(), local_path=source, destination=TargetRelativePath("INCAR")
+    )
+    assert "timeout" not in observed[0]
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
+def test_download_timeout_must_be_finite_and_positive(value: object) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        OpenSshTransport(download_timeout_seconds=value)  # type: ignore[arg-type]

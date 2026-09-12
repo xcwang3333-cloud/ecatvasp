@@ -97,7 +97,7 @@ def _optional_string(raw: dict[str, Any], field: str) -> None:
 
 def _optional_enum(raw: dict[str, Any], field: str, allowed: set[str]) -> None:
     value = raw.get(field)
-    if value is not None and value not in allowed:
+    if value is not None and (not isinstance(value, str) or value not in allowed):
         raise DesktopIPCError(f"profile.{field} is unsupported")
 
 

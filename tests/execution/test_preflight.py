@@ -14,6 +14,7 @@ from ecatvasp.execution.preflight import (
     ReasonCode,
 )
 from ecatvasp.execution.site_profile import SiteProfile
+from ecatvasp.execution.ssh import OpenSshTimeoutError
 from ecatvasp.execution.targets import ExecutionTargetProfile, TransportKind
 
 
@@ -149,6 +150,28 @@ class UnresolvedCommandTransport(FakeTransport):
         return super().run(target=target, command=command)
 
 
+class TimeoutTransport(FakeTransport):
+    def run(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: CommandSpec,
+    ) -> CommandResult:
+        self.commands.append(command.argv)
+        raise OpenSshTimeoutError(operation="command", timeout_seconds=30.0)
+
+
+class ModuleTimeoutTransport(ModuleFakeTransport):
+    def probe_module_environment(
+        self,
+        *,
+        target: ExecutionTargetProfile,
+        command: str | None = None,
+    ) -> CommandResult:
+        self.module_probes.append(command)
+        raise OpenSshTimeoutError(operation="command", timeout_seconds=30.0)
+
+
 def _profile(**overrides: object) -> SiteProfile:
     values: dict[str, object] = {
         "site_id": "cluster",
@@ -253,6 +276,20 @@ def test_preflight_blocks_on_noninteractive_ssh_failure() -> None:
     assert _check("ssh_reachability", report).reason_code is ReasonCode.SSH_UNAVAILABLE
 
 
+def test_preflight_preserves_typed_reachability_timeout() -> None:
+    transport = TimeoutTransport()
+
+    report = _service(transport).run(_profile())
+
+    assert report.status is PreflightStatus.BLOCKED
+    assert tuple(item.check_name for item in report.checks) == ("ssh_transport",)
+    check = report.checks[0]
+    assert check.reason_code is ReasonCode.SSH_TRANSPORT_TIMEOUT
+    assert check.evidence == ("operation=command", "timeout_seconds=30")
+    assert "exit_code=255" not in check.evidence
+    assert transport.commands == [("true",)]
+
+
 def test_preflight_blocks_on_remote_root_or_vasp_failure() -> None:
     root_report = _service(FakeTransport(remote_root_exists=False)).run(_profile())
     commands = {"sbatch", "squeue", "sacct", "scancel", "srun"}
@@ -332,6 +369,29 @@ def test_preflight_blocks_on_failed_module_activation_without_false_command_reas
     assert transport.module_probes == [None]
     assert all(item.check_name != "vasp_executable" for item in report.checks)
     assert all(item.check_name != "mpi_launcher" for item in report.checks)
+
+
+def test_preflight_preserves_typed_module_probe_timeout_and_stops() -> None:
+    direct_commands = {"sbatch", "squeue", "sacct", "scancel"}
+    transport = ModuleTimeoutTransport(available_commands=direct_commands)
+
+    report = _service(transport).run(
+        _profile(
+            module_loads=("vasp/6.4",),
+            bader_executable=None,
+            lobster_executable=None,
+        )
+    )
+
+    assert report.status is PreflightStatus.BLOCKED
+    assert tuple(item.check_name for item in report.checks) == ("ssh_transport",)
+    check = report.checks[0]
+    assert check.reason_code is ReasonCode.SSH_TRANSPORT_TIMEOUT
+    assert check.evidence == ("operation=command", "timeout_seconds=30")
+    assert transport.module_probes == [None]
+    assert ("command", "-v", "vasp_std") not in transport.commands
+    assert ("command", "-v", "srun") not in transport.commands
+    assert all("/apps/vasp/potpaw_PBE.54" not in command for command in transport.commands)
 
 
 def test_preflight_rejects_unsupported_scheduler_without_guessing() -> None:

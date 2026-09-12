@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -60,6 +62,58 @@ def test_site_preflight_decoder_rejects_credential_like_unknown_fields() -> None
     profile["password"] = "secret"
     with pytest.raises(DesktopIPCError, match="profile contains unsupported fields: password"):
         decode_versioned_desktop_request(_wire(profile))
+
+
+@pytest.mark.parametrize("field", ["scheduler_type", "ssh_mode"])
+@pytest.mark.parametrize("value", [[], {}, ["slurm"], {"value": "slurm"}, True, 1, "unknown"])
+def test_site_preflight_rejects_malformed_enums(field: str, value: object) -> None:
+    profile = _profile()
+    profile[field] = value
+    with pytest.raises(DesktopIPCError, match=rf"profile\.{field} is unsupported"):
+        decode_versioned_desktop_request(_wire(profile))
+
+
+@pytest.mark.parametrize("field", ["scheduler_type", "ssh_mode"])
+@pytest.mark.parametrize("value", [[], {}])
+def test_site_preflight_invalid_enum_does_not_terminate_sidecar(
+    field: str, value: object,
+) -> None:
+    profile = _profile()
+    profile[field] = value
+    health = json.dumps({
+        "protocol_version": DESKTOP_IPC_V2_CONTRACT_VERSION,
+        "request_id": "health-after-invalid-preflight",
+        "operation": "health",
+    })
+    result = subprocess.run(
+        [sys.executable, "-m", "ecatvasp.desktop"],
+        input=_wire(profile) + "\n" + health + "\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    invalid, recovered = [json.loads(line) for line in result.stdout.splitlines()]
+    assert invalid["frame_type"] == "host_error"
+    assert invalid["error"]["code"] == "invalid_request"
+    assert invalid["error"]["message"] == f"profile.{field} is unsupported"
+    assert recovered["request_id"] == "health-after-invalid-preflight"
+    assert recovered["ok"] is True
+
+
+@pytest.mark.parametrize("field", ["scheduler_type", "ssh_mode"])
+def test_site_preflight_preserves_decoder_null_and_omission_compatibility(field: str) -> None:
+    profile = _profile()
+    profile.pop(field)
+    omitted = decode_versioned_desktop_request(_wire(profile))
+    assert isinstance(omitted, DesktopV2SitePreflightRequest)
+    assert field not in omitted.profile
+    profile[field] = None
+    explicit_null = decode_versioned_desktop_request(_wire(profile))
+    assert isinstance(explicit_null, DesktopV2SitePreflightRequest)
+    assert explicit_null.profile[field] is None
 
 
 class _StubSitePreflightApplicationService(SitePreflightApplicationService):
