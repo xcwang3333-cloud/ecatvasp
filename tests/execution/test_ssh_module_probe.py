@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from ecatvasp.domain import SchedulerType
-from ecatvasp.execution.adapters import CommandSpec
+from ecatvasp.execution.adapters import CommandSpec, TargetRelativePath
 from ecatvasp.execution.ssh import (
     OpenSshTimeoutError,
     OpenSshTransport,
@@ -157,3 +158,31 @@ def test_configured_command_timeout_is_typed_and_sanitized(
 def test_command_timeout_must_be_finite_and_positive(value: object) -> None:
     with pytest.raises(ValueError, match="finite and positive"):
         OpenSshTransport(command_timeout_seconds=value)  # type: ignore[arg-type]
+
+
+def test_download_timeout_is_typed_and_sanitized(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_run(argv: tuple[str, ...], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        assert kwargs["timeout"] == 7.5
+        raise subprocess.TimeoutExpired(argv, 7.5)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(OpenSshTimeoutError) as captured:
+        OpenSshTransport(download_timeout_seconds=7.5).download(
+            target=_target(),
+            source=TargetRelativePath("OUTCAR"),
+            local_path=tmp_path / "OUTCAR.part",
+        )
+    error = captured.value
+    assert error.code == "SSH_TRANSPORT_TIMEOUT"
+    assert error.operation == "download"
+    assert error.timeout_seconds == 7.5
+    assert "cluster-a" not in str(error)
+    assert "OUTCAR" not in str(error)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True, "30"])
+def test_download_timeout_must_be_finite_and_positive(value: object) -> None:
+    with pytest.raises(ValueError, match="finite and positive"):
+        OpenSshTransport(download_timeout_seconds=value)  # type: ignore[arg-type]
