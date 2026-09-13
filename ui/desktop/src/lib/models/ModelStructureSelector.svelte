@@ -24,6 +24,17 @@
 
 <section class="selector-shell">
   <div class="viewer-frame">
+    <div class="viewer-overlay viewer-overlay-left">
+      <span>Interactive structure</span>
+      <strong>{atomUids.length} atoms</strong>
+    </div>
+    <div class="viewer-overlay viewer-overlay-right" class:active={selectedAtomUids.length > 0}>
+      <strong>{selectedAtomUids.length}</strong>
+      <span>selected</span>
+      {#if selectedAtomUids.length > 0}
+        <button type="button" onclick={() => onSelectionChange([])}>Clear</button>
+      {/if}
+    </div>
     <Structure
       {structure}
       highlighted_sites={selectedIndices}
@@ -35,13 +46,13 @@
     />
   </div>
 
-  <div class="selection-panel">
-    <div class="selection-heading">
+  <div class="atom-drawer">
+    <div class="drawer-heading">
       <div>
-        <strong>Atoms</strong>
-        <small>Select by viewer index; ECatVASP submits the mapped atom identity.</small>
+        <strong>Atom selection</strong>
+        <small>Select viewer indices here when precise atom targeting is required. ECatVASP sends mapped atom UIDs to the backend.</small>
       </div>
-      <span>{selectedAtomUids.length} selected</span>
+      <span>{selectedAtomUids.length}/{atomUids.length}</span>
     </div>
     <div class="atom-grid">
       {#each atomUids as atomUid, index (atomUid)}
@@ -49,106 +60,59 @@
           type="button"
           class:selected={selectedAtomUids.includes(atomUid)}
           aria-pressed={selectedAtomUids.includes(atomUid)}
+          title={atomUid}
           onclick={() => toggle(atomUid)}
         >
-          Atom {index}
+          <span>{index}</span>
         </button>
       {/each}
     </div>
     <details>
-      <summary>Advanced identity map</summary>
-      {#each atomUids as atomUid, index (atomUid)}
-        <div class="identity-row"><span>Atom {index}</span><code>{atomUid}</code></div>
-      {/each}
+      <summary>Atom identity map</summary>
+      <div class="identity-map">
+        {#each atomUids as atomUid, index (atomUid)}
+          <div class:selected={selectedAtomUids.includes(atomUid)}>
+            <span>Atom {index}</span><code>{atomUid}</code>
+          </div>
+        {/each}
+      </div>
     </details>
   </div>
 </section>
 
 <style>
-  .selector-shell {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(230px, 0.6fr);
-    gap: 1rem;
-  }
-
-  .viewer-frame {
-    min-height: 380px;
-    overflow: hidden;
-    border: 1px solid rgba(100, 110, 125, 0.25);
-    border-radius: 12px;
-    background: #fafafa;
-  }
-
-  .selection-panel {
-    display: grid;
-    align-content: start;
-    gap: 0.8rem;
-  }
-
-  .selection-heading {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .selection-heading > div {
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  small {
-    color: var(--muted-text, #5d6470);
-    line-height: 1.35;
-  }
-
-  .atom-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
-    gap: 0.4rem;
-    max-height: 310px;
-    overflow: auto;
-  }
-
-  .atom-grid button {
-    border: 1px solid rgba(100, 110, 125, 0.3);
-    border-radius: 8px;
-    padding: 0.5rem;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-  }
-
-  .atom-grid button.selected {
-    border-width: 2px;
-    font-weight: 700;
-  }
-
-  details {
-    border-top: 1px solid rgba(100, 110, 125, 0.2);
-    padding-top: 0.65rem;
-  }
-
-  summary {
-    cursor: pointer;
-    font-size: 0.8rem;
-    font-weight: 650;
-  }
-
-  .identity-row {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 0.6rem;
-    margin-top: 0.4rem;
-    font-size: 0.72rem;
-  }
-
-  code {
-    overflow-wrap: anywhere;
-  }
-
-  @media (max-width: 900px) {
-    .selector-shell {
-      grid-template-columns: 1fr;
-    }
+  .selector-shell { display: grid; grid-template-rows: minmax(430px,1fr) auto; height: 100%; min-height: 520px; gap: .45rem; }
+  .viewer-frame { position: relative; min-height: 430px; overflow: hidden; border: 1px solid var(--border, #dce4e0); border-radius: 9px; background: #f8faf9; }
+  .viewer-overlay { position: absolute; z-index: 2; top: .55rem; display: grid; gap: .06rem; padding: .4rem .48rem; border: 1px solid rgb(203 214 209 / 86%); border-radius: 7px; background: rgb(255 255 255 / 88%); box-shadow: 0 5px 16px rgb(24 46 39 / 7%); backdrop-filter: blur(5px); pointer-events: none; }
+  .viewer-overlay-left { left: .55rem; }
+  .viewer-overlay-right { right: .55rem; grid-template-columns: auto auto; align-items: center; column-gap: .3rem; }
+  .viewer-overlay span { color: #697a74; font-size: .46rem; text-transform: uppercase; letter-spacing: .06em; }
+  .viewer-overlay strong { color: #20302b; font-size: .58rem; }
+  .viewer-overlay-right.active { border-color: #97c7b9; background: rgb(235 248 243 / 92%); }
+  .viewer-overlay-right button { grid-column: 1 / -1; margin-top: .15rem; padding: .18rem .28rem; border: 0; border-radius: 4px; color: #0e6656; background: rgb(23 123 104 / 10%); font-size: .44rem; font-weight: 700; cursor: pointer; pointer-events: auto; }
+  .atom-drawer { display: grid; gap: .35rem; padding: .45rem .5rem .35rem; border: 1px solid var(--border, #dce4e0); border-radius: 8px; background: var(--surface, #fff); }
+  .drawer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; }
+  .drawer-heading > div { min-width: 0; }
+  .drawer-heading strong, .drawer-heading small { display: block; }
+  .drawer-heading strong { font-size: .57rem; }
+  .drawer-heading small { max-width: 580px; margin-top: .08rem; color: var(--muted-text, #687570); font-size: .45rem; line-height: 1.35; }
+  .drawer-heading > span { color: var(--accent-strong, #0e6656); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .5rem; font-weight: 700; }
+  .atom-grid { display: flex; gap: .2rem; overflow-x: auto; overflow-y: hidden; padding-bottom: .12rem; scrollbar-width: thin; }
+  .atom-grid button { display: inline-flex; min-width: 27px; height: 25px; align-items: center; justify-content: center; border: 1px solid var(--border, #dce4e0); border-radius: 5px; color: #65756f; background: var(--surface-soft, #f7f9f8); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .48rem; cursor: pointer; }
+  .atom-grid button:hover { border-color: #9ab9af; }
+  .atom-grid button.selected { border-color: var(--accent, #177b68); color: #fff; background: var(--accent, #177b68); font-weight: 800; }
+  details { border-top: 1px solid var(--border, #dce4e0); padding-top: .28rem; }
+  summary { color: var(--muted-text, #687570); font-size: .48rem; font-weight: 650; cursor: pointer; }
+  .identity-map { display: grid; max-height: 140px; overflow: auto; margin-top: .3rem; border: 1px solid var(--border, #dce4e0); border-radius: 6px; }
+  .identity-map > div { display: grid; grid-template-columns: 56px minmax(0,1fr); gap: .35rem; padding: .28rem .35rem; border-bottom: 1px solid var(--border, #dce4e0); font-size: .45rem; }
+  .identity-map > div:last-child { border-bottom: 0; }
+  .identity-map > div.selected { background: var(--accent-soft, #e7f4ef); }
+  code { overflow-wrap: anywhere; color: var(--muted-text, #687570); }
+  @media (prefers-color-scheme: dark) {
+    .viewer-frame { background: #111816; }
+    .viewer-overlay { border-color: #34453f; background: rgb(24 34 31 / 90%); }
+    .viewer-overlay span { color: #91a39d; }
+    .viewer-overlay strong { color: #e1ebe7; }
+    .viewer-overlay-right.active { background: rgb(27 55 47 / 92%); }
   }
 </style>

@@ -6,7 +6,7 @@ import type { ScientificWorkspace } from "../workspace/contracts";
 import ApplicationActionsView from "./ApplicationActionsView.svelte";
 
 describe("ApplicationActionsView lazy scientific workspaces", () => {
-  it("does not render heavy scientific workspace contents before selection", () => {
+  it("shows stable analysis navigation without mounting a heavy workspace before selection", () => {
     const workspace = {
       inventory: { rows: [] },
     } as unknown as ScientificWorkspace;
@@ -23,10 +23,11 @@ describe("ApplicationActionsView lazy scientific workspaces", () => {
       },
     });
 
+    expect(body).toContain("Results &amp; analysis");
     expect(body).toContain("Scientific workspaces");
-    expect(body).toContain("Select a scientific workspace to load its current ProjectStore-backed catalog.");
+    expect(body).toContain("Choose an analysis workspace");
     expect(body).not.toContain("Thermochemistry &amp; Reaction Workspace");
     expect(body).not.toContain("Electronic Analysis Workspace");
-    expect(body).not.toContain("Result Center");
+    expect(body).not.toContain("Scientific Result Center");
   });
 });
