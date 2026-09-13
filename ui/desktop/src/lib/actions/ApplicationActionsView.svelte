@@ -45,12 +45,12 @@
   let workflowError = "";
   let workflowReceipt: PrepareWorkflowPayload | null = null;
 
-  let activeScientificSurface: ScientificTaskSurface = "results";
+  let activeScientificSurface: ScientificTaskSurface | null = null;
   let surfaceProjectRoot = projectRoot;
 
   $: if (surfaceProjectRoot !== projectRoot) {
     surfaceProjectRoot = projectRoot;
-    activeScientificSurface = "results";
+    activeScientificSurface = null;
   }
   $: structureSnapshots = workspace.inventory.rows.filter(
     (row) => row.entity_kind === "structure_snapshot",
@@ -197,13 +197,24 @@
         {disabled}
         {onMutation}
       />
-    {:else}
+    {:else if activeScientificSurface === "thermochemistry"}
       <ThermochemistryReactionView
         client={thermochemistryClient}
         {projectRoot}
         {disabled}
         {onMutation}
       />
+    {:else}
+      <div class="analysis-landing">
+        <span class="eyebrow">Scientific workspaces</span>
+        <h3>Choose an analysis workspace</h3>
+        <p>Results, electronic analysis, and thermochemistry remain lazy. Select one of the tabs above to load only that ProjectStore-backed scientific catalog.</p>
+        <div class="landing-grid">
+          <button type="button" disabled={disabled} onclick={() => toggleScientificSurface("results")}><strong>Results</strong><small>Convergence evidence and relaxed-structure promotion</small></button>
+          <button type="button" disabled={disabled} onclick={() => toggleScientificSurface("electronic")}><strong>Electronic</strong><small>DOS, Bader, COHP and electronic descriptors</small></button>
+          <button type="button" disabled={disabled} onclick={() => toggleScientificSurface("thermochemistry")}><strong>Thermo & reactions</strong><small>Thermochemistry, CHE and reaction free-energy pathways</small></button>
+        </div>
+      </div>
     {/if}
   </section>
 
@@ -305,6 +316,14 @@
   .analysis-tabs strong { font-size: .62rem; }
   .analysis-tabs small { margin-top: .1rem; color: var(--muted-text, #687570); font-size: .49rem; }
   .analysis-surface { min-width: 0; }
+  .analysis-landing { display: grid; gap: .35rem; padding: 1rem; border: 1px solid var(--border, #dce4e0); border-radius: 10px; background: var(--surface, #fff); }
+  .analysis-landing h3 { margin: .08rem 0 0; font-size: .78rem; }
+  .analysis-landing > p { max-width: 720px; margin: 0; color: var(--muted-text, #687570); font-size: .55rem; line-height: 1.5; }
+  .landing-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .5rem; margin-top: .45rem; }
+  .landing-grid button { display: grid; gap: .14rem; padding: .65rem; border: 1px solid var(--border, #dce4e0); border-radius: 8px; color: inherit; background: var(--surface-soft, #f7f9f8); text-align: left; cursor: pointer; }
+  .landing-grid button:hover:not(:disabled) { border-color: #a8c7bd; background: var(--accent-soft, #e7f4ef); }
+  .landing-grid strong { font-size: .6rem; }
+  .landing-grid small { color: var(--muted-text, #687570); font-size: .48rem; line-height: 1.4; }
   .project-tools { border: 1px solid var(--border, #dce4e0); border-radius: 10px; background: var(--surface, #fff); overflow: hidden; }
   .project-tools > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .68rem .8rem; cursor: pointer; list-style: none; }
   .project-tools > summary::-webkit-details-marker { display: none; }
@@ -340,6 +359,7 @@
   @media (max-width: 820px) {
     .analysis-header { flex-direction: column; }
     .tools-grid { grid-template-columns: 1fr; }
+    .landing-grid { grid-template-columns: 1fr; }
     .analysis-tabs { grid-template-columns: 1fr; }
     .analysis-tabs button { border-right: 0; border-bottom: 1px solid var(--border, #dce4e0); }
     .analysis-tabs button:last-child { border-bottom: 0; }

@@ -472,8 +472,11 @@
           </div>
 
           <div class="identity-block">
-            <div><span>Calculation ID</span><code>{selectedCalculation.calculation_id}</code></div>
-            <div><span>Slurm job</span><code>{selectedCalculation.scheduler_job_id ?? "—"}</code></div>
+            <details class="advanced-identity">
+              <summary>Advanced execution identity</summary>
+              <div><span>Calculation identity</span><code>{selectedCalculation.calculation_id}</code></div>
+              <div><span>Slurm job</span><code>{selectedCalculation.scheduler_job_id ?? "—"}</code></div>
+            </details>
           </div>
 
           {#if selectedCalculation.remote_job_id !== null}
@@ -490,7 +493,7 @@
 
         <div class="scientific-boundary">
           <strong>Three independent states</strong>
-          <p>Scientific status, execution attempt state, and scheduler state are intentionally displayed separately.</p>
+          <p>Scientific convergence remains unclassified until results are parsed. Scheduler state is execution evidence only. Execution attempt state records transport/runtime progress separately.</p>
         </div>
       </aside>
     </div>
@@ -608,6 +611,8 @@
   .state-stack small { margin-top: .12rem; color: var(--muted-text, #687570); font-size: .44rem; }
   .identity-block { display: grid; gap: .42rem; margin-top: .65rem; padding-top: .6rem; border-top: 1px solid var(--border, #dce4e0); }
   .identity-block span { display: block; margin-bottom: .14rem; color: var(--subtle-text, #84908b); font-size: .43rem; text-transform: uppercase; }
+  .advanced-identity summary { margin-bottom: .35rem; color: var(--muted-text, #687570); font-size: .46rem; font-weight: 650; cursor: pointer; }
+  .advanced-identity > div + div { margin-top: .35rem; }
   .identity-block code { display: block; overflow-wrap: anywhere; color: var(--muted-text, #687570); font-size: .44rem; }
   .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; margin-top: .65rem; }
   .inspector-actions button { min-height: 30px; border: 1px solid var(--border, #dce4e0); border-radius: 6px; color: inherit; background: var(--surface, #fff); font-size: .47rem; font-weight: 650; cursor: pointer; }
