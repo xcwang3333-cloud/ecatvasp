@@ -371,243 +371,384 @@
 <section class="model-studio" aria-labelledby="model-studio-heading">
   <header class="studio-header">
     <div>
-      <span class="eyebrow">Build scientific structures</span>
+      <span class="eyebrow">Structure workspace</span>
       <h2 id="model-studio-heading">Model Studio</h2>
-      <p>Create and edit catalyst models while atom identity and structure lineage remain Python-owned.</p>
+      <p>Build catalyst structures, select atoms in the 3D scene, and derive explicit scientific variants without losing atom identity or lineage.</p>
     </div>
-    <button type="button" class="secondary" disabled={catalogBusy} onclick={() => void refreshCatalog()}>
-      {catalogBusy ? "Refreshing…" : "Refresh models"}
-    </button>
+    <div class="studio-header-actions">
+      {#if catalog !== null}
+        <div class="catalog-metrics" aria-label="Model catalog summary">
+          <span><strong>{catalog.catalysts.length}</strong> catalysts</span>
+          <span><strong>{catalog.variants.length}</strong> models</span>
+          <span><strong>{catalog.active_sites.length}</strong> sites</span>
+        </div>
+      {/if}
+      <button type="button" class="secondary" disabled={catalogBusy} onclick={() => void refreshCatalog()}>
+        {catalogBusy ? "Refreshing…" : "Refresh"}
+      </button>
+    </div>
   </header>
 
-  {#if catalogError}<div class="error" role="alert">{catalogError}</div>{/if}
-  {#if actionError}<div class="error" role="alert">{actionError}</div>{/if}
-  {#if actionMessage}<div class="success" aria-live="polite">{actionMessage}</div>{/if}
+  {#if catalogError}<div class="studio-alert error" role="alert">{catalogError}</div>{/if}
+  {#if actionError}<div class="studio-alert error" role="alert">{actionError}</div>{/if}
+  {#if actionMessage}<div class="studio-alert success" aria-live="polite">{actionMessage}</div>{/if}
 
-  <div class="catalog-row">
-    <label>
-      Catalyst
-      <select
-        value={selectedCatalystId}
-        disabled={catalogBusy || actionBusy}
-        onchange={(event) => void selectCatalyst(event.currentTarget.value)}
-      >
-        <option value="">Select catalyst</option>
-        {#each catalysts as catalyst (catalyst.catalyst_id)}
-          <option value={catalyst.catalyst_id}>{catalyst.name}{catalyst.formula_label ? ` · ${catalyst.formula_label}` : ""}</option>
-        {/each}
-      </select>
-    </label>
-    <label>
-      Structure model
-      <select
-        value={selectedVariantId}
-        disabled={catalogBusy || actionBusy || variants.length === 0}
-        onchange={(event) => void selectVariant(event.currentTarget.value)}
-      >
-        <option value="">Select model</option>
-        {#each variants as variant (variant.structure_variant_id)}
-          <option value={variant.structure_variant_id}>{variant.name} · {variant.atom_count ?? 0} atoms</option>
-        {/each}
-      </select>
-    </label>
-    <details class="advanced">
-      <summary>Advanced identifiers</summary>
-      <code>project: {catalog?.project_id ?? "—"}</code>
-      <code>variant: {selectedVariant?.structure_variant_id ?? "—"}</code>
-      <code>snapshot: {currentSnapshotId ?? "—"}</code>
-    </details>
-  </div>
+  <div class="studio-layout">
+    <aside class="inventory-pane" aria-label="Catalyst and structure inventory">
+      <div class="pane-heading">
+        <div>
+          <span class="eyebrow">Project inventory</span>
+          <h3>Structures</h3>
+        </div>
+        <span class="count-chip">{variants.length}</span>
+      </div>
 
-  <div class="workspace-grid">
-    <section class="viewer-card">
-      {#if presentationBusy}
-        <div class="empty">Loading selected structure…</div>
-      {:else if presentationError}
-        <div class="error">{presentationError}</div>
-      {:else if presentation !== null}
-        <ModelStructureSelector
-          presentation={presentation.presentation}
-          {selectedAtomUids}
-          onSelectionChange={updateAtomSelection}
-        />
+      <details class="create-catalyst">
+        <summary>New catalyst system</summary>
+        <div class="create-fields">
+          <input bind:value={catalystName} placeholder="Catalyst name" />
+          <input bind:value={catalystSlug} placeholder="Stable slug" />
+          <input bind:value={catalystFormula} placeholder="Formula label (optional)" />
+          <input bind:value={catalystSupport} placeholder="Support type (optional)" />
+          <button
+            class="primary"
+            disabled={actionBusy || !catalystName.trim() || !catalystSlug.trim()}
+            onclick={() => void createCatalyst()}
+          >Create catalyst</button>
+        </div>
+      </details>
+
+      {#if catalysts.length === 0}
+        <div class="inventory-empty">
+          <strong>No catalyst systems</strong>
+          <p>Create the scientific system first, then build or import its starting structure.</p>
+        </div>
       {:else}
-        <div class="empty">Select or create a structure model to begin atom-level operations.</div>
+        <div class="catalyst-list">
+          {#each catalysts as catalyst (catalyst.catalyst_id)}
+            <section class:active={selectedCatalystId === catalyst.catalyst_id} class="catalyst-group">
+              <button
+                type="button"
+                class="catalyst-button"
+                disabled={catalogBusy || actionBusy}
+                onclick={() => void selectCatalyst(catalyst.catalyst_id)}
+              >
+                <span class="catalyst-symbol">{(catalyst.formula_label ?? catalyst.name).slice(0, 2).toUpperCase()}</span>
+                <span class="catalyst-copy">
+                  <strong>{catalyst.name}</strong>
+                  <small>{catalyst.formula_label ?? catalyst.support_type ?? "Catalyst system"}</small>
+                </span>
+                <span class="catalyst-count">{(catalog?.variants ?? []).filter((item) => item.catalyst_id === catalyst.catalyst_id).length}</span>
+              </button>
+
+              {#if selectedCatalystId === catalyst.catalyst_id}
+                <div class="variant-list">
+                  {#each variants as variant (variant.structure_variant_id)}
+                    <button
+                      type="button"
+                      class:selected={selectedVariantId === variant.structure_variant_id}
+                      class="variant-button"
+                      disabled={catalogBusy || actionBusy}
+                      onclick={() => void selectVariant(variant.structure_variant_id)}
+                    >
+                      <span class="variant-line" aria-hidden="true"></span>
+                      <span>
+                        <strong>{variant.name}</strong>
+                        <small>{variant.variant_type.replaceAll("_", " ")} · {variant.atom_count ?? 0} atoms</small>
+                      </span>
+                    </button>
+                  {/each}
+                  {#if variants.length === 0}
+                    <div class="variant-empty">No structure models yet.</div>
+                  {/if}
+                </div>
+              {/if}
+            </section>
+          {/each}
+        </div>
       {/if}
+
+      <details class="identity-details">
+        <summary>Scientific identifiers</summary>
+        <dl>
+          <div><dt>Project</dt><dd>{catalog?.project_id ?? "—"}</dd></div>
+          <div><dt>Variant</dt><dd>{selectedVariant?.structure_variant_id ?? "—"}</dd></div>
+          <div><dt>Snapshot</dt><dd>{currentSnapshotId ?? "—"}</dd></div>
+        </dl>
+      </details>
+    </aside>
+
+    <section class="viewer-pane" aria-label="Interactive structure viewer">
+      <header class="viewer-heading">
+        <div>
+          <span class="eyebrow">{selectedVariant?.variant_type.replaceAll("_", " ") ?? "Structure viewer"}</span>
+          <h3>{selectedVariant?.name ?? "Select a structure model"}</h3>
+          {#if selectedVariant !== null}
+            <p>{selectedVariant.atom_count ?? 0} atoms · {selectedVariant.structure_origin ?? "project structure"} · {activeSites.length} active site{activeSites.length === 1 ? "" : "s"}</p>
+          {/if}
+        </div>
+        {#if selectedVariant !== null}
+          <div class="selection-counter" class:active={selectedAtomUids.length > 0}>
+            <strong>{selectedAtomUids.length}</strong>
+            <span>selected</span>
+          </div>
+        {/if}
+      </header>
+
+      <div class="viewer-surface">
+        {#if presentationBusy}
+          <div class="viewer-state"><div class="mini-spinner" aria-hidden="true"></div><strong>Loading structure</strong></div>
+        {:else if presentationError}
+          <div class="viewer-state error"><strong>Structure unavailable</strong><p>{presentationError}</p></div>
+        {:else if presentation !== null}
+          <ModelStructureSelector
+            presentation={presentation.presentation}
+            {selectedAtomUids}
+            onSelectionChange={updateAtomSelection}
+          />
+        {:else}
+          <div class="viewer-state">
+            <span class="empty-orbit" aria-hidden="true"><i></i><i></i><i></i></span>
+            <strong>No structure selected</strong>
+            <p>Select a model from the inventory, or use the Build / Import tools to create the first structure.</p>
+          </div>
+        {/if}
+      </div>
     </section>
 
-    <aside class="task-panel">
-      <section class="task-card">
-        <h3>New catalyst</h3>
-        <input bind:value={catalystName} placeholder="Catalyst name" />
-        <input bind:value={catalystSlug} placeholder="Stable slug" />
-        <input bind:value={catalystFormula} placeholder="Formula label (optional)" />
-        <input bind:value={catalystSupport} placeholder="Support type (optional)" />
-        <button disabled={actionBusy || !catalystName.trim() || !catalystSlug.trim()} onclick={() => void createCatalyst()}>
-          Create catalyst
-        </button>
-      </section>
+    <aside class="tool-pane" aria-label="Structure construction tools">
+      <div class="pane-heading tool-heading">
+        <div>
+          <span class="eyebrow">Construction</span>
+          <h3>Model tools</h3>
+        </div>
+        {#if actionBusy}<span class="working-chip">Working…</span>{/if}
+      </div>
 
-      <section class="task-card">
-        <h3>Model action</h3>
-        <select bind:value={tool}>
-          <option value="graphene">Build graphene</option>
-          <option value="import">Import structure</option>
-          <option value="mutate">Vacancy / dopant</option>
-          <option value="single">Single metal center</option>
-          <option value="multi">Dual / triple metal centers</option>
-          <option value="site">Define active site</option>
-          <option value="adsorbate">Add adsorbate conformer</option>
-        </select>
+      <div class="tool-switcher" role="group" aria-label="Model construction tool">
+        <button type="button" class:active={tool === "graphene"} onclick={() => (tool = "graphene")}><span>Base</span><strong>Graphene</strong></button>
+        <button type="button" class:active={tool === "import"} onclick={() => (tool = "import")}><span>File</span><strong>Import</strong></button>
+        <button type="button" class:active={tool === "mutate"} onclick={() => (tool = "mutate")}><span>Edit</span><strong>Defect</strong></button>
+        <button type="button" class:active={tool === "single"} onclick={() => (tool = "single")}><span>Site</span><strong>Single M</strong></button>
+        <button type="button" class:active={tool === "multi"} onclick={() => (tool = "multi")}><span>Site</span><strong>Multi M</strong></button>
+        <button type="button" class:active={tool === "site"} onclick={() => (tool = "site")}><span>Map</span><strong>Active site</strong></button>
+        <button type="button" class:active={tool === "adsorbate"} onclick={() => (tool = "adsorbate")}><span>State</span><strong>Adsorbate</strong></button>
+      </div>
 
+      <section class="tool-form">
         {#if toolNeedsVariant(tool) && selectedVariant === null}
-          <p class="hint">Select a structure model first.</p>
+          <div class="tool-empty"><strong>Structure required</strong><p>Select a model in the left inventory before using this operation.</p></div>
         {:else if tool === "graphene"}
-          <input bind:value={variantName} placeholder="Model name, e.g. graphene-4x4" />
+          <div class="tool-title"><span>Build base support</span><h4>Graphene supercell</h4><p>Create a periodic graphene support as a new structure model for the selected catalyst.</p></div>
+          <label>Model name<input bind:value={variantName} placeholder="graphene-4x4" /></label>
           <div class="two-col">
-            <label>nx <input type="number" min="1" bind:value={grapheneNx} /></label>
-            <label>ny <input type="number" min="1" bind:value={grapheneNy} /></label>
+            <label>Cells X<input type="number" min="1" bind:value={grapheneNx} /></label>
+            <label>Cells Y<input type="number" min="1" bind:value={grapheneNy} /></label>
           </div>
           <div class="two-col">
-            <label>C–C Å <input type="number" step="0.01" bind:value={grapheneBond} /></label>
-            <label>Vacuum Å <input type="number" step="0.5" bind:value={grapheneVacuum} /></label>
+            <label>C–C / Å<input type="number" step="0.01" bind:value={grapheneBond} /></label>
+            <label>Vacuum / Å<input type="number" step="0.5" bind:value={grapheneVacuum} /></label>
           </div>
-          <button disabled={actionBusy || !selectedCatalystId || !variantName.trim()} onclick={() => void buildGraphene()}>
-            Build graphene
-          </button>
+          <button class="primary" disabled={actionBusy || !selectedCatalystId || !variantName.trim()} onclick={() => void buildGraphene()}>Build graphene</button>
         {:else if tool === "import"}
-          <input bind:value={variantName} placeholder="Imported model name" />
-          <input bind:value={importPath} placeholder="Structure file path" />
-          <select bind:value={importFormat}>
+          <div class="tool-title"><span>Bring external structure</span><h4>Import model</h4><p>Import a POSCAR, CIF, XYZ, or extXYZ structure into the selected catalyst lineage.</p></div>
+          <label>Model name<input bind:value={variantName} placeholder="Imported surface model" /></label>
+          <label>Structure file<input bind:value={importPath} placeholder="Absolute structure file path" /></label>
+          <label>Format<select bind:value={importFormat}>
             <option value="poscar">POSCAR / VASP</option><option value="cif">CIF</option>
             <option value="xyz">XYZ</option><option value="extxyz">extXYZ</option>
-          </select>
-          <button disabled={actionBusy || !selectedCatalystId || !variantName.trim() || !importPath.trim()} onclick={() => void importStructure()}>
-            Import structure
-          </button>
+          </select></label>
+          <button class="primary" disabled={actionBusy || !selectedCatalystId || !variantName.trim() || !importPath.trim()} onclick={() => void importStructure()}>Import structure</button>
         {:else if tool === "mutate"}
-          <input bind:value={variantName} placeholder="Child model name" />
-          <select bind:value={mutationMode}><option value="vacancy">Remove selected atoms</option><option value="dopant">Substitute one selected atom</option></select>
+          <div class="tool-title"><span>Derive child structure</span><h4>Defect / dopant</h4><p>Use the atom selection in the 3D scene to create a traceable child variant.</p></div>
+          <label>Child model name<input bind:value={variantName} placeholder="N-doped active-site model" /></label>
+          <label>Operation<select bind:value={mutationMode}><option value="vacancy">Remove selected atoms</option><option value="dopant">Substitute one selected atom</option></select></label>
           {#if mutationMode === "dopant"}
-            <select bind:value={dopant}><option value="N">N</option><option value="S">S</option><option value="P">P</option></select>
+            <label>Dopant<select bind:value={dopant}><option value="N">N</option><option value="S">S</option><option value="P">P</option></select></label>
           {/if}
-          <p class="hint">Selected atoms: {selectedAtomUids.length}{mutationMode === "dopant" ? " (exactly 1 required)" : ""}</p>
-          <button disabled={actionBusy || !variantName.trim() || selectedAtomUids.length === 0 || (mutationMode === "dopant" && selectedAtomUids.length !== 1)} onclick={() => void mutateStructure()}>
-            Create child variant
-          </button>
+          <div class="selection-note"><strong>{selectedAtomUids.length}</strong><span>atom{selectedAtomUids.length === 1 ? "" : "s"} selected in viewer</span></div>
+          <button class="primary" disabled={actionBusy || !variantName.trim() || selectedAtomUids.length === 0 || (mutationMode === "dopant" && selectedAtomUids.length !== 1)} onclick={() => void mutateStructure()}>Create child variant</button>
         {:else if tool === "single"}
-          <input bind:value={variantName} placeholder="Child model name" />
-          <input bind:value={metalElement} placeholder="Metal element, e.g. Fe" />
+          <div class="tool-title"><span>Construct active center</span><h4>Single-metal site</h4><p>Select coordination atoms in the viewer, then place the metal center relative to them.</p></div>
+          <label>Child model name<input bind:value={variantName} placeholder="FeN4 model" /></label>
+          <label>Metal element<input bind:value={metalElement} placeholder="Fe" /></label>
           <div class="two-col">
-            <select bind:value={metalSide}><option value="top">Top</option><option value="bottom">Bottom</option><option value="in_plane">In plane</option></select>
-            <input type="number" step="0.1" bind:value={metalHeight} disabled={metalSide === "in_plane"} />
+            <label>Side<select bind:value={metalSide}><option value="top">Top</option><option value="bottom">Bottom</option><option value="in_plane">In plane</option></select></label>
+            <label>Height / Å<input type="number" step="0.1" bind:value={metalHeight} disabled={metalSide === "in_plane"} /></label>
           </div>
-          <p class="hint">Select coordination atoms in the viewer ({selectedAtomUids.length} selected).</p>
-          <button disabled={actionBusy || !variantName.trim() || selectedAtomUids.length === 0} onclick={() => void buildSingleMetal()}>
-            Add metal center
-          </button>
+          <div class="selection-note"><strong>{selectedAtomUids.length}</strong><span>coordination atom{selectedAtomUids.length === 1 ? "" : "s"}</span></div>
+          <button class="primary" disabled={actionBusy || !variantName.trim() || selectedAtomUids.length === 0} onclick={() => void buildSingleMetal()}>Add metal center</button>
         {:else if tool === "multi"}
-          <input bind:value={variantName} placeholder="Child model name" />
-          <select bind:value={multiCount}><option value={2}>Dual metal</option><option value={3}>Triple metal</option></select>
+          <div class="tool-title"><span>Construct ensemble</span><h4>Multi-metal site</h4><p>Capture a distinct coordination selection for each metal center before building the ensemble.</p></div>
+          <label>Child model name<input bind:value={variantName} placeholder="FeCo dual-site model" /></label>
+          <label>Ensemble<select bind:value={multiCount}><option value={2}>Dual metal</option><option value={3}>Triple metal</option></select></label>
           {#each Array(multiCount) as _, index (index)}
             <div class="center-card">
-              <strong>Center {index + 1}</strong>
+              <div class="center-heading"><strong>Center {index + 1}</strong><span>{multiAnchors[index].length} anchors</span></div>
               <div class="two-col">
-                <input bind:value={multiElements[index]} placeholder="Element" />
-                <select bind:value={multiSides[index]}><option value="top">Top</option><option value="bottom">Bottom</option><option value="in_plane">In plane</option></select>
+                <label>Element<input bind:value={multiElements[index]} placeholder="Fe" /></label>
+                <label>Side<select bind:value={multiSides[index]}><option value="top">Top</option><option value="bottom">Bottom</option><option value="in_plane">In plane</option></select></label>
               </div>
-              <input type="number" step="0.1" bind:value={multiHeights[index]} disabled={multiSides[index] === "in_plane"} />
-              <button type="button" class="secondary" disabled={selectedAtomUids.length === 0} onclick={() => captureMultiAnchors(index)}>
-                Use current selection ({multiAnchors[index].length} saved)
-              </button>
+              <label>Height / Å<input type="number" step="0.1" bind:value={multiHeights[index]} disabled={multiSides[index] === "in_plane"} /></label>
+              <button type="button" class="secondary" disabled={selectedAtomUids.length === 0} onclick={() => captureMultiAnchors(index)}>Capture current selection</button>
             </div>
           {/each}
-          <input bind:value={multiTopology} placeholder="Metal–metal topology intent" />
-          <button disabled={actionBusy || !variantName.trim() || multiAnchors.slice(0, multiCount).some((item) => item.length === 0)} onclick={() => void buildMultiMetal()}>
-            Build ensemble
-          </button>
+          <label>Topology intent<input bind:value={multiTopology} placeholder="proximal" /></label>
+          <button class="primary" disabled={actionBusy || !variantName.trim() || multiAnchors.slice(0, multiCount).some((item) => item.length === 0)} onclick={() => void buildMultiMetal()}>Build ensemble</button>
         {:else if tool === "site"}
-          <input bind:value={activeTopology} placeholder="Topology label (optional)" />
-          <input bind:value={coordinationEnvironment} placeholder="Coordination environment (optional)" />
-          <p class="hint">Select the active-center atoms ({selectedAtomUids.length} selected).</p>
-          <button disabled={actionBusy || selectedAtomUids.length === 0} onclick={() => void createActiveSite()}>
-            Define active site
-          </button>
+          <div class="tool-title"><span>Define scientific identity</span><h4>Active site</h4><p>Select one or more center atoms, then annotate the site topology and coordination environment.</p></div>
+          <label>Topology<input bind:value={activeTopology} placeholder="single_atom / bridge / hollow" /></label>
+          <label>Coordination environment<input bind:value={coordinationEnvironment} placeholder="FeN4" /></label>
+          <div class="selection-note"><strong>{selectedAtomUids.length}</strong><span>active-center atom{selectedAtomUids.length === 1 ? "" : "s"}</span></div>
+          <button class="primary" disabled={actionBusy || selectedAtomUids.length === 0} onclick={() => void createActiveSite()}>Define active site</button>
         {:else if tool === "adsorbate"}
-          <select bind:value={activeSiteId}>
+          <div class="tool-title"><span>Electrocatalytic state</span><h4>Adsorbate conformer</h4><p>Bind a reaction intermediate to an explicit active site and preserve the contact mapping.</p></div>
+          <label>Active site<select bind:value={activeSiteId}>
             <option value="">Select active site</option>
             {#each activeSites as site, index (site.active_site_id)}<option value={site.active_site_id}>{siteLabel(site, index)}</option>{/each}
-          </select>
-          <select
-            value={templateKey}
-            onchange={(event) => selectAdsorbateTemplate(event.currentTarget.value)}
-          >
+          </select></label>
+          <label>Template<select value={templateKey} onchange={(event) => selectAdsorbateTemplate(event.currentTarget.value)}>
             {#each catalog?.adsorbate_templates ?? [] as template (template.key)}<option value={template.key}>{templateLabel(template)}</option>{/each}
-          </select>
+          </select></label>
           <div class="two-col">
-            <select bind:value={bindingMode}><option value="single_center">Single center</option><option value="bridge">Bridge</option><option value="multicenter">Multicenter</option></select>
-            <input type="number" step="0.1" bind:value={adsorbateHeight} />
+            <label>Binding<select bind:value={bindingMode}><option value="single_center">Single center</option><option value="bridge">Bridge</option><option value="multicenter">Multicenter</option></select></label>
+            <label>Height / Å<input type="number" step="0.1" bind:value={adsorbateHeight} /></label>
           </div>
-          <input bind:value={stateLabel} placeholder="State label, e.g. *OOH" />
-          <input bind:value={conformerName} placeholder="Conformer name" />
-          <input bind:value={reactionRole} placeholder="Reaction role (optional)" />
-          <p class="hint">Select target active-center atoms in the viewer.</p>
+          <label>State label<input bind:value={stateLabel} placeholder="*OOH" /></label>
+          <label>Conformer name<input bind:value={conformerName} placeholder="OOH conformer 1" /></label>
+          <label>Reaction role<input bind:value={reactionRole} placeholder="ORR intermediate" /></label>
+          <div class="selection-note"><strong>{selectedAtomUids.length}</strong><span>target atom{selectedAtomUids.length === 1 ? "" : "s"} selected</span></div>
           {#if selectedTemplate !== null && selectedAtomUids.length > 0}
-            {#each selectedAtomUids as atomUid, index (atomUid)}
-              <label class="contact-row">
-                Target atom {presentation?.presentation.matterviz.atom_index_map.viewer_index_by_atom_uid[atomUid] ?? index}
-                <select bind:value={contactAtomKeys[index]}>
-                  {#each selectedTemplate.anchor_atom_keys as atomKey (atomKey)}<option value={atomKey}>{atomKey}</option>{/each}
-                </select>
-              </label>
-            {/each}
+            <div class="contact-list">
+              {#each selectedAtomUids as atomUid, index (atomUid)}
+                <label class="contact-row">
+                  <span>Atom {presentation?.presentation.matterviz.atom_index_map.viewer_index_by_atom_uid[atomUid] ?? index}</span>
+                  <select bind:value={contactAtomKeys[index]}>
+                    {#each selectedTemplate.anchor_atom_keys as atomKey (atomKey)}<option value={atomKey}>{atomKey}</option>{/each}
+                  </select>
+                </label>
+              {/each}
+            </div>
           {/if}
-          <button disabled={actionBusy || !activeSiteId || selectedAtomUids.length === 0 || !stateLabel.trim() || !conformerName.trim()} onclick={() => void buildAdsorbate()}>
-            Add adsorbate conformer
-          </button>
+          <button class="primary" disabled={actionBusy || !activeSiteId || selectedAtomUids.length === 0 || !stateLabel.trim() || !conformerName.trim()} onclick={() => void buildAdsorbate()}>Add adsorbate conformer</button>
         {/if}
       </section>
     </aside>
   </div>
-
-  {#if catalog !== null}
-    <section class="model-summary">
-      <strong>{catalog.project_name}</strong>
-      <span>{catalog.catalysts.length} catalysts</span>
-      <span>{catalog.variants.length} structure models</span>
-      <span>{catalog.active_sites.length} active sites</span>
-      <span>{catalog.state_conformers.length} adsorbate conformers</span>
-    </section>
-  {/if}
 </section>
 
 <style>
-  .model-studio { display: grid; gap: 1rem; }
-  .studio-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
-  .studio-header h2 { margin: 0.2rem 0 0.35rem; }
-  .studio-header p { margin: 0; color: var(--muted-text, #5d6470); }
-  .eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-text, #5d6470); }
-  .catalog-row { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)) minmax(180px, 0.6fr); gap: 0.8rem; align-items: end; }
-  label, .task-card { display: grid; gap: 0.35rem; }
-  select, input { width: 100%; box-sizing: border-box; padding: 0.58rem 0.65rem; border: 1px solid rgba(100,110,125,.32); border-radius: 8px; background: inherit; color: inherit; }
-  button { border: 0; border-radius: 8px; padding: 0.62rem 0.8rem; font-weight: 700; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-  .secondary { border: 1px solid rgba(100,110,125,.3); background: transparent; color: inherit; }
-  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .7fr); gap: 1rem; }
-  .viewer-card, .task-card, .model-summary { border: 1px solid rgba(100,110,125,.22); border-radius: 12px; padding: 1rem; }
-  .task-panel { display: grid; gap: 1rem; align-content: start; }
-  .task-card h3 { margin: 0 0 .3rem; }
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
-  .center-card { display: grid; gap: .45rem; padding: .65rem; border: 1px solid rgba(100,110,125,.18); border-radius: 8px; }
-  .hint { margin: .1rem 0; color: var(--muted-text,#5d6470); font-size: .86rem; line-height: 1.4; }
-  .empty { min-height: 220px; display: grid; place-items: center; color: var(--muted-text,#5d6470); }
-  .error, .success { border-radius: 8px; padding: .7rem .8rem; }
-  .error { border: 1px solid rgba(139,31,45,.35); color: #8b1f2d; }
-  .success { border: 1px solid rgba(46,108,72,.32); }
-  .advanced { align-self: center; font-size: .78rem; }
-  .advanced code { display: block; margin-top: .25rem; overflow-wrap: anywhere; }
-  .contact-row { grid-template-columns: 1fr 1fr; align-items: center; font-size: .82rem; }
-  .model-summary { display: flex; flex-wrap: wrap; gap: .7rem 1rem; align-items: center; }
-  .model-summary span { color: var(--muted-text,#5d6470); }
-  @media (max-width: 1050px) { .workspace-grid, .catalog-row { grid-template-columns: 1fr; } }
+  .model-studio { display: grid; gap: .8rem; color: var(--text, inherit); }
+  .studio-header { display: flex; justify-content: space-between; gap: 1.5rem; align-items: flex-start; padding-bottom: .85rem; border-bottom: 1px solid var(--border, #dce4e0); }
+  .studio-header h2 { margin: .16rem 0 .25rem; font-size: 1.2rem; letter-spacing: -.025em; }
+  .studio-header p { max-width: 720px; margin: 0; color: var(--muted-text, #687570); font-size: .72rem; line-height: 1.55; }
+  .eyebrow { color: var(--accent, #177b68); font-size: .58rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+  .studio-header-actions { display: flex; align-items: center; gap: .65rem; }
+  .catalog-metrics { display: flex; gap: .35rem; }
+  .catalog-metrics span { padding: .32rem .45rem; border: 1px solid var(--border, #dce4e0); border-radius: 7px; color: var(--muted-text, #687570); background: var(--surface, #fff); font-size: .56rem; white-space: nowrap; }
+  .catalog-metrics strong { color: var(--text, #182321); font-size: .64rem; }
+  button { font: inherit; }
+  .primary, .secondary { border-radius: 7px; padding: .5rem .65rem; font-size: .64rem; font-weight: 700; cursor: pointer; }
+  .primary { border: 1px solid var(--accent-strong, #0e6656); color: #fff; background: var(--accent, #177b68); }
+  .secondary { border: 1px solid var(--border, #dce4e0); color: inherit; background: var(--surface, #fff); }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+  .studio-alert { padding: .55rem .7rem; border: 1px solid var(--border, #dce4e0); border-radius: 8px; background: var(--surface, #fff); font-size: .65rem; }
+  .studio-alert.error { color: #a53a43; border-color: #e8c1c5; background: #fff4f5; }
+  .studio-alert.success { color: #226c52; border-color: #bcdccf; background: #eff9f5; }
+  .studio-layout { display: grid; grid-template-columns: 226px minmax(430px, 1fr) 300px; min-height: 610px; gap: .75rem; }
+  .inventory-pane, .viewer-pane, .tool-pane { min-width: 0; border: 1px solid var(--border, #dce4e0); border-radius: 11px; background: var(--surface, #fff); overflow: hidden; }
+  .inventory-pane, .tool-pane { display: flex; flex-direction: column; }
+  .pane-heading, .viewer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; padding: .8rem .85rem; border-bottom: 1px solid var(--border, #dce4e0); background: var(--surface-soft, #f7f9f8); }
+  .pane-heading h3, .viewer-heading h3 { margin: .12rem 0 0; font-size: .78rem; letter-spacing: -.015em; }
+  .count-chip, .working-chip { display: inline-flex; min-width: 22px; min-height: 20px; align-items: center; justify-content: center; border: 1px solid var(--border, #dce4e0); border-radius: 999px; color: var(--muted-text, #687570); background: var(--surface, #fff); font-size: .55rem; font-weight: 700; }
+  .working-chip { padding: 0 .45rem; }
+  .create-catalyst { border-bottom: 1px solid var(--border, #dce4e0); }
+  .create-catalyst > summary, .identity-details > summary { padding: .62rem .82rem; color: var(--muted-text, #687570); font-size: .61rem; font-weight: 700; cursor: pointer; }
+  .create-fields { display: grid; gap: .4rem; padding: 0 .78rem .75rem; }
+  input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: .47rem .52rem; border: 1px solid var(--border-strong, #cbd6d1); border-radius: 7px; outline: none; color: inherit; background: var(--surface, #fff); font-size: .64rem; }
+  input:focus, select:focus { border-color: #70a999; box-shadow: 0 0 0 2px rgb(23 123 104 / 8%); }
+  .catalyst-list { flex: 1; min-height: 0; overflow: auto; padding: .35rem; }
+  .catalyst-group { border-radius: 8px; }
+  .catalyst-group.active { background: var(--surface-soft, #f7f9f8); }
+  .catalyst-button { display: grid; grid-template-columns: 30px minmax(0,1fr) auto; width: 100%; align-items: center; gap: .5rem; padding: .55rem; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+  .catalyst-button:hover { background: var(--surface-muted, #eef3f0); }
+  .catalyst-symbol { display: inline-flex; width: 29px; height: 29px; align-items: center; justify-content: center; border-radius: 7px; color: var(--accent-strong, #0e6656); background: var(--accent-soft, #e7f4ef); font-size: .58rem; font-weight: 800; }
+  .catalyst-copy { min-width: 0; }
+  .catalyst-copy strong, .catalyst-copy small, .variant-button strong, .variant-button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .catalyst-copy strong { font-size: .65rem; }
+  .catalyst-copy small { margin-top: .1rem; color: var(--muted-text, #687570); font-size: .52rem; }
+  .catalyst-count { color: var(--subtle-text, #84908b); font-size: .53rem; }
+  .variant-list { display: grid; gap: .12rem; padding: 0 .25rem .42rem 1rem; }
+  .variant-button { display: grid; grid-template-columns: 8px minmax(0,1fr); align-items: stretch; gap: .42rem; width: 100%; padding: .38rem .4rem; border: 0; border-radius: 6px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+  .variant-button:hover, .variant-button.selected { background: var(--surface-muted, #eef3f0); }
+  .variant-line { width: 2px; margin: .08rem auto; border-radius: 2px; background: var(--border-strong, #cbd6d1); }
+  .variant-button.selected .variant-line { background: var(--accent, #177b68); }
+  .variant-button strong { font-size: .59rem; }
+  .variant-button small { margin-top: .08rem; color: var(--muted-text, #687570); font-size: .49rem; }
+  .inventory-empty, .variant-empty { color: var(--muted-text, #687570); font-size: .6rem; line-height: 1.45; }
+  .inventory-empty { padding: 1rem .8rem; }
+  .inventory-empty strong { color: var(--text, #182321); }
+  .inventory-empty p { margin: .3rem 0 0; }
+  .variant-empty { padding: .45rem; }
+  .identity-details { margin-top: auto; border-top: 1px solid var(--border, #dce4e0); }
+  .identity-details dl { display: grid; gap: .45rem; margin: 0; padding: 0 .8rem .75rem; }
+  .identity-details dt { margin-bottom: .12rem; color: var(--subtle-text, #84908b); font-size: .48rem; text-transform: uppercase; }
+  .identity-details dd { margin: 0; overflow-wrap: anywhere; color: var(--muted-text, #687570); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .48rem; line-height: 1.35; }
+  .viewer-pane { display: grid; grid-template-rows: auto minmax(0,1fr); }
+  .viewer-heading { align-items: center; }
+  .viewer-heading h3 { font-size: .83rem; }
+  .viewer-heading p { margin: .18rem 0 0; color: var(--muted-text, #687570); font-size: .55rem; }
+  .selection-counter { display: grid; min-width: 50px; place-items: center; padding: .32rem .45rem; border: 1px solid var(--border, #dce4e0); border-radius: 8px; color: var(--muted-text, #687570); background: var(--surface, #fff); }
+  .selection-counter.active { border-color: #91c7b7; color: var(--accent-strong, #0e6656); background: var(--accent-soft, #e7f4ef); }
+  .selection-counter strong { font-size: .75rem; }
+  .selection-counter span { font-size: .46rem; text-transform: uppercase; }
+  .viewer-surface { min-height: 0; padding: .5rem; background: #eef2f0; }
+  .viewer-state { display: grid; min-height: 500px; place-items: center; align-content: center; gap: .55rem; border: 1px dashed var(--border-strong, #cbd6d1); border-radius: 9px; color: var(--muted-text, #687570); background: var(--surface-soft, #f7f9f8); text-align: center; }
+  .viewer-state strong { color: var(--text, #182321); font-size: .72rem; }
+  .viewer-state p { max-width: 330px; margin: 0; font-size: .58rem; line-height: 1.5; }
+  .viewer-state.error strong { color: #a53a43; }
+  .mini-spinner { width: 20px; height: 20px; border: 2px solid var(--border, #dce4e0); border-top-color: var(--accent, #177b68); border-radius: 50%; animation: model-spin .9s linear infinite; }
+  @keyframes model-spin { to { transform: rotate(360deg); } }
+  .empty-orbit { position: relative; width: 46px; height: 46px; border: 1px solid #b8c8c2; border-radius: 50%; }
+  .empty-orbit i { position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #6fb29f; }
+  .empty-orbit i:nth-child(1) { top: 8px; left: 8px; }
+  .empty-orbit i:nth-child(2) { right: 7px; top: 18px; }
+  .empty-orbit i:nth-child(3) { left: 18px; bottom: 6px; }
+  .tool-pane { max-height: calc(100vh - 150px); overflow: hidden; }
+  .tool-heading { flex: none; }
+  .tool-switcher { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .28rem; padding: .55rem; border-bottom: 1px solid var(--border, #dce4e0); background: var(--surface-soft, #f7f9f8); }
+  .tool-switcher button { display: grid; gap: .08rem; padding: .42rem .45rem; border: 1px solid transparent; border-radius: 7px; color: var(--muted-text, #687570); background: transparent; text-align: left; cursor: pointer; }
+  .tool-switcher button:hover { background: var(--surface, #fff); }
+  .tool-switcher button.active { border-color: #a9cec2; color: var(--accent-strong, #0e6656); background: var(--accent-soft, #e7f4ef); }
+  .tool-switcher span { font-size: .46rem; text-transform: uppercase; letter-spacing: .07em; }
+  .tool-switcher strong { font-size: .58rem; }
+  .tool-form { display: grid; align-content: start; gap: .52rem; min-height: 0; padding: .75rem; overflow: auto; }
+  .tool-title { padding-bottom: .45rem; border-bottom: 1px solid var(--border, #dce4e0); }
+  .tool-title > span { color: var(--accent, #177b68); font-size: .5rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+  .tool-title h4 { margin: .13rem 0 .18rem; font-size: .72rem; }
+  .tool-title p, .tool-empty p { margin: 0; color: var(--muted-text, #687570); font-size: .55rem; line-height: 1.45; }
+  .tool-form label { display: grid; gap: .23rem; color: #53615d; font-size: .56rem; font-weight: 650; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: .42rem; }
+  .selection-note { display: flex; align-items: center; gap: .45rem; padding: .45rem .5rem; border-radius: 7px; color: var(--accent-strong, #0e6656); background: var(--accent-soft, #e7f4ef); }
+  .selection-note strong { font-size: .78rem; }
+  .selection-note span { font-size: .54rem; }
+  .center-card { display: grid; gap: .4rem; padding: .5rem; border: 1px solid var(--border, #dce4e0); border-radius: 8px; background: var(--surface-soft, #f7f9f8); }
+  .center-heading { display: flex; justify-content: space-between; font-size: .58rem; }
+  .center-heading span { color: var(--muted-text, #687570); font-size: .5rem; }
+  .contact-list { display: grid; gap: .3rem; }
+  .contact-row { grid-template-columns: auto minmax(0,1fr); align-items: center; gap: .4rem; }
+  .tool-empty { padding: .7rem; border: 1px dashed var(--border-strong, #cbd6d1); border-radius: 8px; }
+  .tool-empty strong { font-size: .65rem; }
+  @media (max-width: 1180px) {
+    .studio-layout { grid-template-columns: 205px minmax(420px,1fr); }
+    .tool-pane { grid-column: 1 / -1; max-height: none; }
+    .tool-switcher { grid-template-columns: repeat(7, minmax(82px,1fr)); }
+    .tool-form { overflow: visible; }
+  }
+  @media (max-width: 930px) {
+    .studio-header { flex-direction: column; }
+    .studio-layout { grid-template-columns: 1fr; }
+    .inventory-pane, .tool-pane { max-height: none; }
+    .tool-switcher { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  }
 </style>
